@@ -1,0 +1,313 @@
+<div class="bench-container">
+  <div class="bench-header">
+    <h2>Classification Benchmark</h2>
+    <p class="bench-subtitle">Evaluate read-to-(gene, target) classification accuracy on train and test subsets offline.</p>
+  </div>
+
+  <!-- ── Parameters Card ── -->
+  <div class="bench-params-card">
+    <h3>Parameters</h3>
+    <div class="bench-params-row">
+      <div class="bench-param-group">
+        <label>Phred Threshold</label>
+        <input type="number" [(ngModel)]="state.benchPhred" min="0" max="40" />
+      </div>
+      <div class="bench-param-group">
+        <label>Window Size (bp):</label>
+        <input type="number" [(ngModel)]="state.benchWindow" min="20" max="300" />
+      </div>
+      <div class="bench-param-group">
+        <label>Assignment Margin (%)</label>
+        <input type="number" [(ngModel)]="state.benchMargin" step="1" min="0" max="100" />
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Source Dataset Card ── -->
+  <div class="bench-dataset-card">
+    <div class="bench-dataset-header">
+      <h3>Source Dataset</h3>
+      <button class="btn-add-small" (click)="state.addBenchRow()">+ Add Row</button>
+    </div>
+    <div class="bench-dataset-content">
+      <div class="bench-table-head">
+        <span>FASTQ File</span>
+        <span>Gene Name</span>
+        <span>Target Name</span>
+        <span>Reference Sequence</span>
+        <span>gRNA Sequence</span>
+        <span></span>
+      </div>
+      <div class="bench-row" *ngFor="let row of state.benchRows; let i = index">
+        <div class="bench-cell">
+          <label class="bench-file-label" [class.has-file]="row.file" [for]="'bfq_' + i">
+            {{ row.file ? row.file.name : '📁 Choose .fastq' }}
+          </label>
+          <input type="file" [id]="'bfq_' + i" accept=".fastq,.fq" (change)="onBenchFileSelected($event, i)" hidden />
+        </div>
+        <div class="bench-cell">
+          <input type="text" [(ngModel)]="row.geneName" placeholder="e.g. GeneA" class="bench-input" />
+        </div>
+        <div class="bench-cell">
+          <input type="text" [(ngModel)]="row.targetName" placeholder="e.g. Site1" class="bench-input" />
+        </div>
+        <div class="bench-cell">
+          <textarea [(ngModel)]="row.referenceSequence" class="bench-input bench-textarea" rows="2" placeholder="Reference seq"></textarea>
+        </div>
+        <div class="bench-cell">
+          <input type="text" [(ngModel)]="row.grnaSequence" placeholder="20bp gRNA" class="bench-input" />
+        </div>
+        <div class="bench-cell bench-cell-action">
+          <button class="btn-remove" (click)="state.removeBenchRow(i)" *ngIf="state.benchRows.length > 1">&times;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Execution Actions ── -->
+  <div class="bench-actions">
+    <button class="btn-bench btn-bench-split" (click)="buildSplitPreview()" [disabled]="state.benchIsLoading">🔀 Build Train/Test Split</button>
+    <button class="btn-bench btn-bench-train" (click)="runTrainBenchmark()" [disabled]="state.benchIsLoading">▶ Run Train Benchmark</button>
+    <button class="btn-bench btn-bench-test" (click)="runTestBenchmark()" [disabled]="state.benchIsLoading">▶ Run Test Benchmark</button>
+    <button class="btn-bench-tab" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 8px 16px; cursor: pointer;" *ngIf="state.benchIsLoading" (click)="state.cancelBenchmark()">⏹ Cancel</button>
+  </div>
+
+  <!-- ── Progress Section ── -->
+  <div class="progress-section" *ngIf="state.benchIsLoading" style="margin-top: 20px;">
+    <div class="progress-header" style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+      <span class="stage-text" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-secondary);">{{ state.benchStage$ | async }}</span>
+      <span class="percent-text" style="font-size: 0.85rem; font-weight: 700; color: var(--color-primary);">{{ (state.benchProgressDisplay$ | async) | number:'1.0-0' }}%</span>
+    </div>
+    <div class="progress-bar-bg" style="background: var(--color-surface-alt); height: 8px; border-radius: 4px; overflow: hidden;">
+      <div class="progress-bar-fill" style="background: var(--color-primary); height: 100%; transition: width 0.1s ease-out;" [style.width.%]="state.benchProgressDisplay$ | async"></div>
+    </div>
+  </div>
+
+  <div *ngIf="state.benchError" class="error-box" style="margin-top: 20px; padding: 12px; background: #fdf2f2; border: 1px solid #f8b4b4; border-radius: 6px; color: #9b1c1c; font-size: 0.85rem;">
+    {{ state.benchError }}
+  </div>
+
+  <!-- ── Split Preview Card ── -->
+  <div *ngIf="state.splitPreview" class="bench-result-card" style="margin-top: 24px;">
+    <h3>🔀 Train / Test Split Preview</h3>
+    <div class="bench-split-totals">
+      <div class="bench-split-badge train">Train set: {{ state.splitPreview.train_count | number }} reads</div>
+      <div class="bench-split-badge test">Test set: {{ state.splitPreview.test_count | number }} reads</div>
+      <div class="bench-split-badge total">Total: {{ state.splitPreview.total | number }} reads</div>
+    </div>
+    <table class="bench-table">
+      <thead>
+        <tr>
+          <th>Gene</th>
+          <th>Target</th>
+          <th>Total</th>
+          <th>Train (80%)</th>
+          <th>Test (20%)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let row of state.splitPreview.rows">
+          <td>{{ row.gene }}</td>
+          <td><span class="badge" style="background: var(--color-primary-light); color: var(--color-primary);">{{ row.target }}</span></td>
+          <td>{{ row.total | number }}</td>
+          <td>{{ row.train_count | number }}</td>
+          <td>{{ row.test_count | number }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── Benchmark Execution Results ── -->
+  <div class="bench-results-row" *ngIf="state.trainResult || state.testResult" style="margin-top: 24px;">
+    
+    <!-- Train Result Panel -->
+    <div class="bench-result-card" *ngIf="state.trainResult">
+      <h3>🟢 Train Benchmark Results</h3>
+      
+      <div class="bench-metric-grid">
+        <div class="bench-metric correct">
+          <span class="bm-label">Correct</span>
+          <span class="bm-value">{{ state.trainResult.correct_rate }}%</span>
+          <span class="bm-count">({{ state.trainResult.correct_count | number }} / {{ state.trainResult.usable_reads | number }} usable)</span>
+        </div>
+        <div class="bench-metric wrong">
+          <span class="bm-label">Wrong</span>
+          <span class="bm-value">{{ state.trainResult.wrong_rate }}%</span>
+          <span class="bm-count">({{ state.trainResult.wrong_count | number }} / {{ state.trainResult.usable_reads | number }} usable)</span>
+        </div>
+        <div class="bench-metric ambiguous">
+          <span class="bm-label">Ambiguous</span>
+          <span class="bm-value">{{ state.trainResult.ambiguous_rate }}%</span>
+          <span class="bm-count">({{ state.trainResult.ambiguous_count | number }} / {{ state.trainResult.usable_reads | number }} usable)</span>
+        </div>
+      </div>
+
+      <div class="bench-total-line">
+        {{ state.trainResult.usable_reads | number }} usable reads ({{ state.trainResult.usable_rate }}% of {{ state.trainResult.total_reads | number }} total subset reads)
+      </div>
+
+      <!-- Usability Filtering Diagnostics -->
+      <div class="bench-usability-info" *ngIf="state.trainResult.filtered_out > 0">
+        <div class="bu-main">Filtered reads: <strong>{{ state.trainResult.filtered_out | number }}</strong></div>
+        <div class="bu-breakdown">
+          Fail reasons: 
+          Quality = {{ state.trainResult.fail_quality | number }}, 
+          Anchor = {{ state.trainResult.fail_no_anchor | number }}, 
+          Similarity = {{ state.trainResult.fail_similarity | number }},
+          Coverage = {{ state.trainResult.fail_no_coverage | number }},
+          Alignment = {{ state.trainResult.fail_no_alignment | number }}
+        </div>
+      </div>
+
+      <!-- Per-Class Performance Table -->
+      <table class="bench-table">
+        <thead>
+          <tr>
+            <th>Class</th>
+            <th>Total</th>
+            <th>Filtered</th>
+            <th>Usable</th>
+            <th>Correct</th>
+            <th>Wrong</th>
+            <th>Ambig</th>
+            <th>Acc</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let row of state.trainResult.per_class">
+            <td>{{ row.gene }} › <span class="badge" style="background: #e2e8f0; color: #475569;">{{ row.target }}</span></td>
+            <td>{{ row.total | number }}</td>
+            <td>{{ row.filtered | number }}</td>
+            <td>{{ row.total - row.filtered | number }}</td>
+            <td class="td-correct">{{ row.correct | number }}</td>
+            <td class="td-wrong">{{ row.wrong | number }}</td>
+            <td class="td-ambig">{{ row.ambiguous | number }}</td>
+            <td><strong>{{ row.correct_rate }}%</strong></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Diagnostics details expansion -->
+      <details class="bench-cutsite-details" *ngIf="state.trainResult.cut_sites && state.trainResult.cut_sites.length > 0">
+        <summary>🧬 PAM and Cut Site Diagnostics</summary>
+        <table class="bench-table">
+          <thead>
+            <tr>
+              <th>Class</th>
+              <th>Strand</th>
+              <th>Cut Site</th>
+              <th>gRNA Range</th>
+              <th>PAM</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let cs of state.trainResult.cut_sites">
+              <td>{{ cs.gene }} › {{ cs.target }}</td>
+              <td><span class="strand-badge" [class.fwd]="cs.strand === 'forward'" [class.rev]="cs.strand === 'reverse'">{{ cs.strand }}</span></td>
+              <td>{{ cs.cut_site }}</td>
+              <td>{{ cs.grna_start }} - {{ cs.grna_end }}</td>
+              <td><code>{{ cs.pam }}</code> <span class="badge" style="font-size: 0.65rem;" [class.success]="cs.pam_found" [style.background]="cs.pam_found ? '#d5f5e3' : '#fcedf0'" [style.color]="cs.pam_found ? '#1a6e3e' : '#c0392b'">{{ cs.pam_found ? 'found' : 'fallback' }}</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </details>
+
+    </div>
+
+    <!-- Test Result Panel -->
+    <div class="bench-result-card" *ngIf="state.testResult">
+      <h3>🔵 Test Benchmark Results</h3>
+      
+      <div class="bench-metric-grid">
+        <div class="bench-metric correct">
+          <span class="bm-label">Correct</span>
+          <span class="bm-value">{{ state.testResult.correct_rate }}%</span>
+          <span class="bm-count">({{ state.testResult.correct_count | number }} / {{ state.testResult.usable_reads | number }} usable)</span>
+        </div>
+        <div class="bench-metric wrong">
+          <span class="bm-label">Wrong</span>
+          <span class="bm-value">{{ state.testResult.wrong_rate }}%</span>
+          <span class="bm-count">({{ state.testResult.wrong_count | number }} / {{ state.testResult.usable_reads | number }} usable)</span>
+        </div>
+        <div class="bench-metric ambiguous">
+          <span class="bm-label">Ambiguous</span>
+          <span class="bm-value">{{ state.testResult.ambiguous_rate }}%</span>
+          <span class="bm-count">({{ state.testResult.ambiguous_count | number }} / {{ state.testResult.usable_reads | number }} usable)</span>
+        </div>
+      </div>
+
+      <div class="bench-total-line">
+        {{ state.testResult.usable_reads | number }} usable reads ({{ state.testResult.usable_rate }}% of {{ state.testResult.total_reads | number }} total subset reads)
+      </div>
+
+      <!-- Usability Filtering Diagnostics -->
+      <div class="bench-usability-info" *ngIf="state.testResult.filtered_out > 0">
+        <div class="bu-main">Filtered reads: <strong>{{ state.testResult.filtered_out | number }}</strong></div>
+        <div class="bu-breakdown">
+          Fail reasons: 
+          Quality = {{ state.testResult.fail_quality | number }}, 
+          Anchor = {{ state.testResult.fail_no_anchor | number }}, 
+          Similarity = {{ state.testResult.fail_similarity | number }},
+          Coverage = {{ state.testResult.fail_no_coverage | number }},
+          Alignment = {{ state.testResult.fail_no_alignment | number }}
+        </div>
+      </div>
+
+      <!-- Per-Class Performance Table -->
+      <table class="bench-table">
+        <thead>
+          <tr>
+            <th>Class</th>
+            <th>Total</th>
+            <th>Filtered</th>
+            <th>Usable</th>
+            <th>Correct</th>
+            <th>Wrong</th>
+            <th>Ambig</th>
+            <th>Acc</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let row of state.testResult.per_class">
+            <td>{{ row.gene }} › <span class="badge" style="background: #e2e8f0; color: #475569;">{{ row.target }}</span></td>
+            <td>{{ row.total | number }}</td>
+            <td>{{ row.filtered | number }}</td>
+            <td>{{ row.total - row.filtered | number }}</td>
+            <td class="td-correct">{{ row.correct | number }}</td>
+            <td class="td-wrong">{{ row.wrong | number }}</td>
+            <td class="td-ambig">{{ row.ambiguous | number }}</td>
+            <td><strong>{{ row.correct_rate }}%</strong></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Diagnostics details expansion -->
+      <details class="bench-cutsite-details" *ngIf="state.testResult.cut_sites && state.testResult.cut_sites.length > 0">
+        <summary>🧬 PAM and Cut Site Diagnostics</summary>
+        <table class="bench-table">
+          <thead>
+            <tr>
+              <th>Class</th>
+              <th>Strand</th>
+              <th>Cut Site</th>
+              <th>gRNA Range</th>
+              <th>PAM</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let cs of state.testResult.cut_sites">
+              <td>{{ cs.gene }} › {{ cs.target }}</td>
+              <td><span class="strand-badge" [class.fwd]="cs.strand === 'forward'" [class.rev]="cs.strand === 'reverse'">{{ cs.strand }}</span></td>
+              <td>{{ cs.cut_site }}</td>
+              <td>{{ cs.grna_start }} - {{ cs.grna_end }}</td>
+              <td><code>{{ cs.pam }}</code> <span class="badge" style="font-size: 0.65rem;" [class.success]="cs.pam_found" [style.background]="cs.pam_found ? '#d5f5e3' : '#fcedf0'" [style.color]="cs.pam_found ? '#1a6e3e' : '#c0392b'">{{ cs.pam_found ? 'found' : 'fallback' }}</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </details>
+
+    </div>
+
+  </div>
+
+</div>

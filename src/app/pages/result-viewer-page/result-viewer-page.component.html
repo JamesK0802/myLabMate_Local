@@ -1,0 +1,14 @@
+<div class="viewer-page">
+  <app-result-dashboard *ngIf="state.genes.length > 0"></app-result-dashboard>
+
+  <!-- ══════════════ VIEWER DROP ZONE ══════════════ -->
+  <div *ngIf="state.genes.length === 0" class="config-section">
+    <div class="upload-zone" [class.dragging]="state.isDragging" (drop)="onExcelDropped($event)"
+      (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (click)="excelInput.click()">
+      <input type="file" #excelInput (change)="onExcelSelected($event)" hidden accept=".xlsx" />
+      <div class="upload-icon">📁</div>
+      <p><strong>Drop exported CRISPR analysis Excel report here</strong></p>
+      <span class="hint">Only .xlsx files exported by this tool</span>
+    </div>
+  </div>
+</div>

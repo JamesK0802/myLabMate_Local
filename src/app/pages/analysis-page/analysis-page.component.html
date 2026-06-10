@@ -1,0 +1,219 @@
+<div class="analysis-page">
+  <app-result-dashboard *ngIf="state.genes.length > 0"></app-result-dashboard>
+
+  <!-- ══════════════ CONFIGURATION FORM ══════════════ -->
+  <form [formGroup]="state.analysisForm" (ngSubmit)="runAnalysis()"
+    *ngIf="!state.isLoading && state.genes.length === 0">
+    <div class="config-section">
+
+      <!-- Local Mode Privacy Notice (Always displayed in standalone tool) -->
+      <div class="local-mode-banner" id="local-mode-banner">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <span>All analysis is performed locally in your browser. FASTQ files are not uploaded to any server.</span>
+      </div>
+
+      <div class="upload-zone" [class.dragging]="state.isDragging" (drop)="onFileDropped($event)"
+        (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (click)="fileInput.click()">
+        <input type="file" #fileInput (change)="onFileSelected($event)" multiple hidden accept=".fastq,.fq" />
+        <p><strong>Upload files</strong></p>
+        <span class="hint">FASTQ / FQ · Multiple files allowed</span>
+      </div>
+
+      <div class="file-list" *ngIf="state.selectedFiles.length > 0">
+        <div *ngFor="let file of state.selectedFiles; let i = index" class="file-item">
+          <span class="file-name">{{ file.name }}</span>
+          <span class="file-size">({{ file.size / 1024 / 1024 | number:'1.1-1' }} MB)</span>
+          <button type="button" class="btn-remove" (click)="removeFile(i)">&times;</button>
+        </div>
+      </div>
+
+      <div class="form-row analysis-controls-grid">
+        <div class="form-group flex-wide">
+          <label>
+            Window Size (bp)
+            <span class="info-icon">?
+              <span class="tooltip-text">Total analysis width around cut site.</span>
+            </span>
+          </label>
+          <input type="number" formControlName="interestRegion" class="form-control" />
+        </div>
+        <div class="form-group flex-wide">
+          <label>
+            Data Filtering (Phred)
+            <span class="info-icon">?
+              <span class="tooltip-text">Minimum Phred quality score.</span>
+            </span>
+          </label>
+          <input type="number" formControlName="phredThreshold" class="form-control" />
+        </div>
+        <div class="form-group flex-wide">
+          <label>
+            Assignment Margin (%)
+            <span class="info-icon">?
+              <span class="tooltip-text">Minimum score difference for target assignment.</span>
+            </span>
+          </label>
+          <input type="number" formControlName="marginPercent" class="form-control" />
+        </div>
+        <div class="form-group flex-wide">
+          <label>
+            Indel Threshold (%)
+            <span class="info-icon">?
+              <span class="tooltip-text">Noise filter. Ignore groups below this %.</span>
+            </span>
+          </label>
+          <input type="number" formControlName="indelPercent" class="form-control" />
+        </div>
+        <div class="form-group toggle-group flex-narrow">
+          <label for="ambiguousToggle">Analyze Ambiguous</label>
+          <div class="toggle-control">
+            <input type="checkbox" formControlName="analyzeAmbiguous" id="ambiguousToggle" />
+            <span class="toggle-slider"></span>
+          </div>
+        </div>
+        <div class="form-group toggle-group flex-narrow"
+          [class.disabled]="!state.analysisForm.get('analyzeAmbiguous')?.value">
+          <label for="rescueToggle">Rescue Ambiguous</label>
+          <div class="toggle-control">
+            <input type="checkbox" formControlName="rescueAmbiguous" id="rescueToggle" />
+            <span class="toggle-slider"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="advanced-params-row" *ngIf="state.analysisForm.get('rescueAmbiguous')?.value">
+        <div class="form-group" style="max-width: 180px; margin-left: auto; margin-top: -10px; margin-bottom: 10px;">
+          <label>
+            Rescue Filtering
+            <span class="info-icon">?
+              <span class="tooltip-text">Minimum cluster size for Ambiguous Rescue.</span>
+            </span>
+          </label>
+          <input type="number" formControlName="rescueThreshold" class="form-control" />
+        </div>
+      </div>
+
+      <hr class="divider" />
+
+      <div class="targets-section">
+        <div class="section-header">
+          <h2>Reference Configuration</h2>
+          <div class="header-actions">
+            <button type="button" class="btn-autofill" (click)="showAutofill = !showAutofill">
+              Auto Fill
+            </button>
+            <button type="button" class="btn-add" (click)="state.addGene()">Add Gene</button>
+          </div>
+        </div>
+
+        <div class="autofill-actions-panel" *ngIf="showAutofill">
+          <p class="autofill-hint">Fill out the template and upload to bulk-configure genes and targets.</p>
+          <div class="autofill-buttons">
+            <button type="button" class="btn-template-download" (click)="downloadTemplate()">
+              Download Template
+            </button>
+            <button type="button" class="btn-template-upload" (click)="templateFileInput.click()">
+              Upload Sequence (Excel)
+            </button>
+            <input type="file" #templateFileInput (change)="onTemplateUpload($event)" hidden accept=".xlsx,.xls" />
+          </div>
+        </div>
+        <div formArrayName="genes">
+          <div *ngFor="let gene of state.geneBlocks.controls; let gi = index" [formGroupName]="gi"
+            class="gene-block-card">
+            <div class="gene-block-header">
+              <div class="gene-block-title">
+                <span>Gene {{ gi + 1 }}</span>
+              </div>
+              <button type="button" class="btn-remove-target" (click)="state.removeGene(gi)"
+                *ngIf="state.geneBlocks.length > 1">Remove Gene</button>
+            </div>
+            <div class="gene-block-body">
+              <div class="form-row" style="gap:15px; margin-bottom:12px;">
+                <div class="form-group" style="flex:0 0 200px;">
+                  <label>Gene Name:</label>
+                  <input type="text" formControlName="gene_name" placeholder="e.g. GeneA" />
+                </div>
+                <div class="form-group full">
+                  <label>Reference Sequence:</label>
+                  <textarea formControlName="gene_reference" rows="3" class="monospaced"></textarea>
+                </div>
+              </div>
+
+              <div class="gene-targets-section">
+                <div class="gene-targets-header">
+                  <span class="gene-targets-label">Targets within this gene</span>
+                  <button type="button" class="btn-add-small" (click)="state.addGeneTarget(gi)">Add Target</button>
+                </div>
+                <div formArrayName="geneTargets">
+                  <div *ngFor="let gt of state.getGeneTargets(gi).controls; let ti = index" [formGroupName]="ti"
+                     class="gene-target-row">
+                    <span class="gene-target-num">T{{ ti + 1 }}</span>
+                    <div class="form-group" style="flex:0 0 180px;">
+                      <label>Target Name:</label>
+                      <input type="text" formControlName="target_id" />
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                      <label>gRNA Sequence:</label>
+                      <input type="text" formControlName="gRNA" />
+                    </div>
+                    <button type="button" class="btn-remove" (click)="state.removeGeneTarget(gi, ti)"
+                      *ngIf="state.getGeneTargets(gi).length > 1" style="margin-top:20px;">&times;</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" [disabled]="state.isLoading || (state.selectedFiles.length === 0)" class="btn-primary">
+        Start Local Analysis
+      </button>
+    </div>
+  </form>
+
+  <div class="progress-section" *ngIf="state.isLoading">
+    <div class="progress-header">
+      <span class="stage-text">{{ state.progressStage$ | async }}</span>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="percent-text">{{ (state.progressDisplay$ | async) | number:'1.0-0' }}%</span>
+        <button type="button" class="btn-cancel-icon" (click)="state.cancelAnalysis()" title="Cancel Analysis">
+          &times;
+        </button>
+      </div>
+    </div>
+    <div class="progress-bar-bg">
+      <div class="progress-bar-fill" [style.width.%]="state.progressDisplay$ | async"></div>
+    </div>
+
+    <!-- Local worker progress threads -->
+    <div class="parallel-workers-container" *ngIf="state.fileProgressKeys.length > 0">
+      <div class="worker-progress-header">Local Analysis Progress</div>
+      <div class="worker-grid">
+        <div *ngFor="let key of state.fileProgressKeys" class="worker-card">
+          <div class="worker-info">
+            <span class="worker-name" [title]="key">{{ key }}</span>
+            <span class="worker-pct">{{ state.fileProgress[key] }}%</span>
+          </div>
+          <div class="worker-bar-bg">
+            <div class="worker-bar-fill" [style.width.%]="state.fileProgress[key]" [class.completed]="state.fileProgress[key] === 100"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="state.error" class="error-box">
+    <strong>Error:</strong> {{ state.error }}
+  </div>
+
+  <div class="status-log-container" *ngIf="state.debugLogs.length > 0">
+    <div class="status-log">
+      <div class="log-title">Communication Log:</div>
+      <div class="log-entries">
+        <div *ngFor="let log of state.debugLogs" class="log-entry">{{ log }}</div>
+      </div>
+    </div>
+  </div>
+</div>
