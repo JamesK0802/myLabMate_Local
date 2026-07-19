@@ -1,11 +1,13 @@
 import { findGrnaCutSite, extractWindow, isReadUsable, applyClassification } from './classifier';
 
+import { FastqRead } from './fastq-parser';
+
 export interface BenchmarkInputRow {
   gene: string;
   target: string;
   reference: string;
   grna: string;
-  reads: Array<[string, number[]]>; // [seq, qual_scores]
+  reads: FastqRead[];
 }
 
 export function runSplitPreview(dataset: any[]): any {
@@ -77,8 +79,8 @@ export function runBenchmark(
     const ci = cutSiteInfo[key];
 
     const readsTagged = row.reads.map(r => ({
-      seq: r[0],
-      qual: r[1],
+      seq: r.seq,
+      qual: r.qual,
       true_gene: row.gene,
       true_target: row.target
     }));
@@ -134,7 +136,7 @@ export function runBenchmark(
 
   progressCallback(25, `Classifying ${totalReads.toLocaleString()} reads (${subset} subset)…`);
 
-  const counts: Record<string, number> = {
+  const counts: any = {
     total: totalReads,
     filtered: 0,
     usable: 0,

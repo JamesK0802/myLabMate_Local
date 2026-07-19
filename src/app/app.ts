@@ -4,11 +4,12 @@ import { AppStateService } from './services/app-state.service';
 import { AnalysisPageComponent } from './pages/analysis-page/analysis-page.component';
 import { ResultViewerPageComponent } from './pages/result-viewer-page/result-viewer-page.component';
 import { BenchmarkPageComponent } from './pages/benchmark-page/benchmark-page.component';
+import { SequenceWorkspacePageComponent } from './pages/sequence-workspace-page/sequence-workspace-page.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, AnalysisPageComponent, ResultViewerPageComponent, BenchmarkPageComponent],
+  imports: [CommonModule, AnalysisPageComponent, ResultViewerPageComponent, BenchmarkPageComponent, SequenceWorkspacePageComponent],
   template: `
     <div class="app-shell">
       <!-- ── Top Navigation ── -->
@@ -29,6 +30,10 @@ import { BenchmarkPageComponent } from './pages/benchmark-page/benchmark-page.co
             <button class="nav-tab btn-tab" [class.active]="activeTab === 'benchmark'" (click)="activeTab = 'benchmark'">
               Benchmark
             </button>
+            <button class="nav-tab btn-tab" [class.active]="activeTab === 'workspace'" (click)="activeTab = 'workspace'">
+              Sequence Workspace
+              <span *ngIf="!workspaceUnlocked" style="font-size: 0.8em; margin-left: 4px;">🔒</span>
+            </button>
           </div>
         </div>
 
@@ -40,10 +45,24 @@ import { BenchmarkPageComponent } from './pages/benchmark-page/benchmark-page.co
       <!-- ── Main Content ── -->
       <main class="app-content">
         <div class="crispr-shell">
-          <div class="crispr-body">
+          <div class="crispr-body" [class.full-width]="activeTab === 'workspace'">
             <app-analysis-page *ngIf="activeTab === 'analysis'"></app-analysis-page>
             <app-result-viewer-page *ngIf="activeTab === 'viewer'"></app-result-viewer-page>
             <app-benchmark-page *ngIf="activeTab === 'benchmark'"></app-benchmark-page>
+            
+            <ng-container *ngIf="activeTab === 'workspace'">
+              <div *ngIf="!workspaceUnlocked" class="lock-screen">
+                <div class="lock-box">
+                  <h3>Restricted Access 🔒</h3>
+                  <p>The Sequence Workspace is currently under development.</p>
+                  <div class="lock-input-group">
+                    <input type="password" #pwdInput (keyup.enter)="checkWorkspacePwd(pwdInput.value)" placeholder="Enter password" class="lock-input">
+                    <button (click)="checkWorkspacePwd(pwdInput.value)" class="lock-btn">Unlock</button>
+                  </div>
+                </div>
+              </div>
+              <app-sequence-workspace-page *ngIf="workspaceUnlocked"></app-sequence-workspace-page>
+            </ng-container>
           </div>
 
           <!-- Footer Notice -->
@@ -102,6 +121,10 @@ styles: [`
       width: 100%;
       margin: 0 auto;
     }
+    .crispr-body.full-width {
+      max-width: 100%;
+      padding: 0;
+    }
     .app-footer {
       background: var(--color-surface);
       border-top: 1px solid var(--color-border);
@@ -120,15 +143,38 @@ styles: [`
         padding: 18px 20px;
       }
     }
+    
+    /* Lock Screen Styles */
+    .lock-screen {
+      display: flex; align-items: center; justify-content: center; height: 100%; width: 100%; background: var(--color-background);
+    }
+    .lock-box {
+      background: #ffffff; padding: 32px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; border: 1px solid var(--color-border);
+    }
+    .lock-box h3 { margin: 0 0 12px 0; color: #2c3e50; font-size: 1.25rem; font-weight: 600; }
+    .lock-box p { color: #7f8c8d; margin-bottom: 24px; font-size: 0.95rem; }
+    .lock-input-group { display: flex; gap: 8px; justify-content: center; }
+    .lock-input { padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 4px; font-size: 1rem; width: 200px; outline: none; }
+    .lock-input:focus { border-color: var(--color-primary); }
+    .lock-btn { padding: 10px 20px; background: var(--color-primary); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; font-weight: 500; transition: 0.2s; }
+    .lock-btn:hover { background: #2980b9; }
   `]
 })
 export class App implements OnInit {
-  activeTab: 'analysis' | 'viewer' | 'benchmark' = 'analysis';
+  activeTab: 'analysis' | 'viewer' | 'benchmark' | 'workspace' = 'analysis';
+  workspaceUnlocked = false;
 
   constructor(public state: AppStateService) {}
+
+  checkWorkspacePwd(pwd: string) {
+    if (pwd === '1026') {
+      this.workspaceUnlocked = true;
+    } else {
+      alert('Incorrect password.');
+    }
+  }
 
   ngOnInit() {
     this.state.activateSlot('analysis');
   }
 }
-

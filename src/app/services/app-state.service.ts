@@ -831,6 +831,63 @@ export class AppStateService {
     }
   }
 
+  isExportingFastq = false;
+
+  async downloadGroupFastq(group: any) {
+    if (!this.selectedTarget || !this.selectedFiles.length) return;
+    this.isExportingFastq = true;
+
+    try {
+      let filesToProcess: File[] = [];
+      if (this.selectedScopeIndex === -1) {
+        filesToProcess = this.selectedFiles;
+      } else {
+        filesToProcess = [this.selectedFiles[this.selectedScopeIndex]];
+      }
+
+      const blobs: Blob[] = [];
+      const target = this.selectedTarget;
+      const readInner = group.read_inner;
+      const params = this.lastRunParams || { phredThreshold: 10 };
+
+      for (const file of filesToProcess) {
+        if (!file) continue;
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          this.localAnalysisService.exportGroupFastq(file, target, readInner, params).subscribe({
+            next: (event: any) => {
+               if (event.type === 'export-group-fastq-result') {
+                 resolve(event.payload);
+               } else if (event.type === 'error') {
+                 reject(new Error(event.message));
+               }
+            },
+            error: (err: any) => reject(err)
+          });
+        });
+        blobs.push(blob);
+      }
+
+      if (blobs.length > 0) {
+        const combinedBlob = new Blob(blobs, { type: 'text/plain' });
+        const url = window.URL.createObjectURL(combinedBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${target.target_id}_group_${group.group_rank}_reads.fastq`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+        this.addLog(`Successfully exported FASTQ for group ${group.group_rank}.`);
+      } else {
+        this.addLog('No FASTQ data generated.');
+      }
+    } catch (e: any) {
+       console.error("Export failed:", e);
+       this.addLog("Failed to export FASTQ: " + e.message);
+       alert("Failed to export FASTQ: " + e.message);
+    } finally {
+       this.isExportingFastq = false;
+    }
+  }
+
   // ── Benchmark ──────────────────────────────────────────────────────────────
   benchPhred = 10;
   benchWindow = 90;

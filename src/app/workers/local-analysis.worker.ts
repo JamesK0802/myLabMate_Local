@@ -18,8 +18,9 @@
 
 /// <reference lib="webworker" />
 
-import { parseFastqFile } from './core/fastq-parser';
+import { parseFastqFile, readFileAsText } from './core/fastq-parser';
 import { processFile, buildFinalPayload, AnalysisParams, FileResult } from './core/analysis-pipeline';
+import { findGrnaCutSite, extractWindow, cutIndexInWindow, isReadUsable } from './core/classifier';
 import { GenePayload } from './core/multi-reference-assigner';
 import { runSplitPreview, runBenchmark } from './core/benchmark-pipeline';
 
@@ -193,6 +194,76 @@ addEventListener('message', async (event: MessageEvent) => {
 
     } catch (err: any) {
       postMessage({ type: 'error', message: err?.message || 'Failed to run benchmark classification.' });
+    }
+  }
+
+  if (type === 'export-group-fastq') {
+    const { file, target, readInner, params } = payload as {
+      file: File;
+      target: any;
+      readInner: string;
+      params: any;
+    };
+
+    try {
+      postMessage({ type: 'progress', percent: 10, stage: 'Reading FASTQ file...' });
+      const text = await readFileAsText(file);
+      postMessage({ type: 'progress', percent: 40, stage: 'Filtering reads for group...' });
+      const lines = text.split('\n');
+      const filteredLines: string[] = [];
+
+      const referenceSeq = target.ref_sequence || target.reference_seq;
+      const sgrnaSeq = target.sgrna_seq;
+      const windowSize = target.window_size ?? 90;
+
+      const cutInfo = findGrnaCutSite(referenceSeq, sgrnaSeq);
+      const refCutSite = cutInfo.cut_site;
+      const refWindow = extractWindow(referenceSeq, refCutSite, windowSize);
+      const cutSiteIndexFixed = cutIndexInWindow(referenceSeq, refCutSite, windowSize);
+
+      let i = 0;
+      let processed = 0;
+      while (i < lines.length) {
+        if (lines[i].trim() === '') {
+          i++;
+          continue;
+        }
+        if (!lines[i].startsWith('@')) {
+          i++;
+          continue;
+        }
+        if (i + 3 >= lines.length) break;
+
+        const seq = lines[i + 1].trim();
+        const qualStr = lines[i + 3].trim();
+
+        if (seq.length > 0 && qualStr.length > 0) {
+          const qual: number[] = new Array(qualStr.length);
+          for (let q = 0; q < qualStr.length; q++) {
+            qual[q] = qualStr.charCodeAt(q) - 33;
+          }
+
+          const [usable, , bestRes] = isReadUsable(seq, qual, refWindow, params.phredThreshold || 10, sgrnaSeq, cutSiteIndexFixed);
+          
+          if (usable && bestRes && bestRes.read_window.toUpperCase() === readInner.toUpperCase()) {
+            filteredLines.push(lines[i].trim());
+            filteredLines.push(lines[i + 1].trim());
+            filteredLines.push(lines[i + 2].trim());
+            filteredLines.push(lines[i + 3].trim());
+          }
+        }
+        i += 4;
+        processed++;
+        if (processed % 5000 === 0) {
+          postMessage({ type: 'progress', percent: 40 + Math.round((i / lines.length) * 50), stage: 'Filtering reads for group...' });
+        }
+      }
+
+      postMessage({ type: 'progress', percent: 100, stage: 'Generating FASTQ file...' });
+      const blob = new Blob([filteredLines.join('\n') + (filteredLines.length > 0 ? '\n' : '')], { type: 'text/plain' });
+      postMessage({ type: 'export-group-fastq-result', payload: blob });
+    } catch (err: any) {
+      postMessage({ type: 'error', message: err?.message || 'Failed to extract group FASTQ.' });
     }
   }
 });

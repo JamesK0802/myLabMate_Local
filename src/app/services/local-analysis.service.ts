@@ -35,7 +35,12 @@ export interface LocalBenchmarkResultEvent {
   payload: any;
 }
 
-export type LocalAnalysisEvent = LocalProgressEvent | LocalResultEvent | LocalErrorEvent | LocalBenchmarkSplitResultEvent | LocalBenchmarkResultEvent;
+export interface LocalExportGroupFastqResultEvent {
+  type: 'export-group-fastq-result';
+  payload: Blob;
+}
+
+export type LocalAnalysisEvent = LocalProgressEvent | LocalResultEvent | LocalErrorEvent | LocalBenchmarkSplitResultEvent | LocalBenchmarkResultEvent | LocalExportGroupFastqResultEvent;
 
 @Injectable({ providedIn: 'root' })
 export class LocalAnalysisService {
@@ -142,6 +147,65 @@ export class LocalAnalysisService {
     this.worker.postMessage({
       type: 'benchmark-split',
       payload: { dataset }
+    });
+
+    return subject.asObservable();
+  }
+
+  /**
+   * Start local export of group fastq.
+   */
+  exportGroupFastq(
+    file: File,
+    target: any,
+    readInner: string,
+    params: any
+  ): Observable<LocalAnalysisEvent> {
+    const subject = new Subject<LocalAnalysisEvent>();
+    this.terminate();
+
+    try {
+      this.worker = new Worker(
+        new URL('../workers/local-analysis.worker', import.meta.url),
+        { type: 'module' }
+      );
+    } catch (err: any) {
+      subject.error(new Error('Failed to create Web Worker: ' + (err?.message || 'Unknown error')));
+      return subject.asObservable();
+    }
+
+    this.worker.onmessage = (event: MessageEvent) => {
+      const msg = event.data;
+      switch (msg.type) {
+        case 'progress':
+          subject.next({
+            type: 'progress',
+            percent: msg.percent,
+            stage: msg.stage
+          });
+          break;
+        case 'export-group-fastq-result':
+          subject.next({ type: 'export-group-fastq-result', payload: msg.payload });
+          subject.complete();
+          this.terminate();
+          break;
+        case 'error':
+          subject.next({ type: 'error', message: msg.message });
+          subject.complete();
+          this.terminate();
+          break;
+      }
+    };
+
+    this.worker.onerror = (err) => {
+      subject.next({ type: 'error', message: err.message || 'Worker error' });
+      subject.complete();
+      this.terminate();
+    };
+
+    this.worker.postMessage({
+      type: 'export-group-fastq',
+      payload: { file, target, readInner, params }
     });
 
     return subject.asObservable();
