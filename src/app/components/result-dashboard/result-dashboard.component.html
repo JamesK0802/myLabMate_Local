@@ -336,13 +336,47 @@
 <div class="annotation-panel"
   *ngIf="state.selectedTarget && state.selectedTarget.top_groups && state.selectedTarget.top_groups.length > 0">
   <div class="anno-header">
-    <div>
-      <h2>ANNOTATION</h2>
-      <span style="font-size:0.8rem;color:#1a9e55;font-weight:600;">
-        {{ state.currentGene?.gene }} › {{ state.selectedTarget?.target_id }}
-      </span>
-      <span *ngIf="state.isCuratedView" class="curated-anno-badge">CURATED</span>
+    <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+      <div>
+        <h2>ANNOTATION</h2>
+        <span style="font-size:0.8rem;color:#1a9e55;font-weight:600;">
+          {{ state.currentGene?.gene }} › {{ state.selectedTarget?.target_id }}
+        </span>
+        <span *ngIf="state.isCuratedView" class="curated-anno-badge">CURATED</span>
+      </div>
+
+      <!-- All Target Reads Actions (Download & Open in Workspace) - Only in Analysis Mode -->
+      <div class="target-all-actions-bar" *ngIf="state.activeMode !== 'viewer' && state.selectedFiles && state.selectedFiles.length > 0" style="display: flex; gap: 8px; margin-left: 8px;">
+        <button 
+          type="button"
+          (click)="state.downloadAllTargetFastq(state.selectedTarget)"
+          [disabled]="state.isExportingFastq"
+          title="Download all reads of this target as FASTQ"
+          class="btn-anno-target-action">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          All Reads Download
+        </button>
+
+        <button 
+          type="button"
+          (click)="state.openAllTargetInSequenceWorkspace(state.selectedTarget)"
+          [disabled]="state.isExportingFastq"
+          title="Open all reads of this target in Sequence Workspace with auto-alignment"
+          class="btn-anno-target-action workspace">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <line x1="10" y1="14" x2="21" y2="3"></line>
+          </svg>
+          All Reads in Workspace ↗
+        </button>
+      </div>
     </div>
+
     <div class="anno-legend">
       <span class="legend-item"><span class="badge del-bg">-</span> DELETION</span>
       <span class="legend-item"><span class="badge sub-bg">A</span> SUBSTITUTION</span>
@@ -350,7 +384,11 @@
     </div>
   </div>
 
-  <div class="unified-anno-container">
+  <div class="unified-anno-container scrollable-drag" #annoContainer
+    (mousedown)="startDragScroll($event, annoContainer)"
+    (mouseleave)="stopDragScroll(annoContainer)"
+    (mouseup)="stopDragScroll(annoContainer)"
+    (mousemove)="onDragScroll($event, annoContainer)">
     <div class="unified-table">
 
       <!-- Reference Row -->
@@ -417,20 +455,36 @@
             <span style="color:#7f8c8d; display: inline-flex; align-items: center;">
               {{ group.read_count | number }} Reads
               <ng-container *ngIf="!isGroupExcludedObj(group)">&nbsp;·&nbsp; {{ group.read_pct }}%</ng-container>
-              <button 
-                (click)="state.downloadGroupFastq(group)" 
-                [disabled]="state.isExportingFastq"
-                title="Download original reads as FASTQ"
-                style="background: none; border: none; cursor: pointer; padding: 0 0 0 4px; display: flex; align-items: center; color: #3498db; transition: opacity 0.2s;"
-                [style.opacity]="state.isExportingFastq ? 0.5 : 1"
-                onmouseover="this.style.opacity=0.7"
-                onmouseout="this.style.opacity=1">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="7 10 12 15 17 10"></polyline>
-                  <line x1="12" y1="15" x2="12" y2="3"></line>
-                </svg>
-              </button>
+              <ng-container *ngIf="state.activeMode !== 'viewer' && state.selectedFiles && state.selectedFiles.length > 0">
+                <button 
+                  (click)="state.downloadGroupFastq(group)" 
+                  [disabled]="state.isExportingFastq"
+                  title="Download original reads as FASTQ"
+                  style="background: none; border: none; cursor: pointer; padding: 0 2px 0 4px; display: flex; align-items: center; color: #3498db; transition: opacity 0.2s;"
+                  [style.opacity]="state.isExportingFastq ? 0.5 : 1"
+                  onmouseover="this.style.opacity=0.7"
+                  onmouseout="this.style.opacity=1">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                </button>
+                <button 
+                  (click)="state.openGroupInSequenceWorkspace(group, state.selectedTarget)" 
+                  [disabled]="state.isExportingFastq"
+                  title="Open group reads in Sequence Workspace with auto-alignment"
+                  style="background: none; border: none; cursor: pointer; padding: 0 0 0 4px; display: flex; align-items: center; color: #16a34a; transition: opacity 0.2s;"
+                  [style.opacity]="state.isExportingFastq ? 0.5 : 1"
+                  onmouseover="this.style.opacity=0.7"
+                  onmouseout="this.style.opacity=1">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <line x1="10" y1="14" x2="21" y2="3"></line>
+                  </svg>
+                </button>
+              </ng-container>
             </span>
           </div>
         </div>
@@ -439,7 +493,11 @@
   </div>
 
   <div class="mobile-annotation-list">
-    <div class="mobile-sequence-scroll">
+    <div class="mobile-sequence-scroll scrollable-drag" #mobileAnnoContainer
+      (mousedown)="startDragScroll($event, mobileAnnoContainer)"
+      (mouseleave)="stopDragScroll(mobileAnnoContainer)"
+      (mouseup)="stopDragScroll(mobileAnnoContainer)"
+      (mousemove)="onDragScroll($event, mobileAnnoContainer)">
       <!-- Reference Header -->
       <div class="mobile-group-summary mobile-reference-summary">
         <strong class="group-rank-badge" style="color: #3498db;">REF</strong>

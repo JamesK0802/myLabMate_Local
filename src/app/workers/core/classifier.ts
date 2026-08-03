@@ -434,47 +434,128 @@ export function clearClassifierCache(): void {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Scoring (X-aware)
+// Scoring (X-aware with optional Cut-Site Distance Weighting)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function scoreReadAgainstWindow(read: string, refWindow: string, k: number = 10): number {
+// ─────────────────────────────────────────────────────────────────────────────
+// Scoring (X-aware with optional Cut-Site Distance Weighting & Exclusion Flank)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function calcSeagullWeight(d: number, maxDist: number, distanceWeight: number): number {
+  if (distanceWeight <= 0.0) return 1.0;
+  // Seagull / Sigmoidal S-curve centered around d = 10 bp
+  // Rises steeply between d = 5 to d = 15 bp, then saturates
+  const s0 = 1.0 / (1.0 + Math.exp(-0.35 * (-10)));
+  const sMax = 1.0 / (1.0 + Math.exp(-0.35 * (maxDist - 10)));
+  const sD = 1.0 / (1.0 + Math.exp(-0.35 * (d - 10)));
+  const normSig = Math.max(0.0, Math.min(1.0, (sD - s0) / (sMax - s0)));
+  return 1.0 + (distanceWeight * normSig);
+}
+
+function computeAlignmentScoreWithDynamicExclusion(
+  strand: string,
+  refUp: string,
+  cutSitePos: number,
+  maxDist: number,
+  distanceWeight: number,
+  staticExclusionFlank: number
+): number {
+  const cleanStrand = strand.replace(/X/g, '');
+  const cleanRef = refUp.replace(/X/g, '');
+  if (!cleanStrand || !cleanRef) return 0.0;
+
+  const sm = new SequenceMatcher(null, cleanStrand, cleanRef);
+  const opcodes = sm.getOpcodes();
+  const excludedRefIndices = new Set<number>();
+
+  // 1. Static exclusion flank
+  if (staticExclusionFlank > 0 && cutSitePos >= 0) {
+    const sStart = Math.max(0, cutSitePos - staticExclusionFlank);
+    const sEnd = Math.min(cleanRef.length - 1, cutSitePos + staticExclusionFlank);
+    for (let r = sStart; r <= sEnd; r++) {
+      excludedRefIndices.add(r);
+    }
+  }
+
+  // 2. Dynamic cut-site mutation span exclusion:
+  // If an indel or substitution originates near cut site (within ±3 bp), exclude the entire mutation span!
+  if (cutSitePos >= 0) {
+    const cutTolerance = 3;
+    for (const [tag, , , j1, j2] of opcodes) {
+      if (tag !== 'equal') {
+        const nearCutSite = (j1 <= cutSitePos + cutTolerance && j2 >= cutSitePos - cutTolerance);
+        if (nearCutSite) {
+          for (let r = j1; r < j2; r++) {
+            excludedRefIndices.add(r);
+          }
+        }
+      }
+    }
+  }
+
+  let matchedWeight = 0.0;
+  let totalMaxWeight = 0.0;
+
+  for (const [tag, i1, i2, j1, j2] of opcodes) {
+    if (tag === 'equal') {
+      const len = i2 - i1;
+      for (let k = 0; k < len; k++) {
+        const refIdx = j1 + k;
+        if (excludedRefIndices.has(refIdx)) continue;
+        const refChar = cleanRef[refIdx];
+        if (refChar === 'N') continue;
+        const d = Math.abs(refIdx - cutSitePos);
+        const w = calcSeagullWeight(d, maxDist, distanceWeight);
+        totalMaxWeight += w;
+        matchedWeight += w;
+      }
+    } else if (tag === 'replace' || tag === 'delete') {
+      const len = j2 - j1;
+      for (let k = 0; k < len; k++) {
+        const refIdx = j1 + k;
+        if (excludedRefIndices.has(refIdx)) continue;
+        const refChar = cleanRef[refIdx];
+        if (refChar === 'N') continue;
+        const d = Math.abs(refIdx - cutSitePos);
+        const w = calcSeagullWeight(d, maxDist, distanceWeight);
+        totalMaxWeight += w;
+      }
+    } else if (tag === 'insert') {
+      const refIdx = j1;
+      if (!excludedRefIndices.has(refIdx) && !(j1 <= cutSitePos + 3 && j1 >= cutSitePos - 3)) {
+        const d = Math.abs(refIdx - cutSitePos);
+        const w = calcSeagullWeight(d, maxDist, distanceWeight);
+        totalMaxWeight += w * (i2 - i1);
+      }
+    }
+  }
+
+  return totalMaxWeight > 0.0 ? (matchedWeight / totalMaxWeight) : 0.0;
+}
+
+export function scoreReadAgainstWindow(
+  read: string,
+  refWindow: string,
+  k: number = 10,
+  cutIndexInWindow: number = -1,
+  distanceWeight: number = 0.0,
+  exclusionFlank: number = 0
+): number {
   const readUp = toStr(read).toUpperCase();
   const refUp = toStr(refWindow).toUpperCase();
   if (!readUp || !refUp) return 0.0;
 
-  if (readUp.length < k || refUp.length < k) {
-    const cleanRead = readUp.replace(/X/g, '');
-    const cleanRef = refUp.replace(/X/g, '');
-    if (!cleanRead || !cleanRef) return 0.0;
-    const sm = new SequenceMatcher(null, cleanRead, cleanRef);
-    return sm.ratio();
-  }
+  const cutSitePos = cutIndexInWindow >= 0 ? cutIndexInWindow : Math.floor(refUp.length / 2);
+  const maxDist = Math.max(cutSitePos, refUp.length - cutSitePos, 1);
 
-  const refKmers = new Set<string>();
-  for (let i = 0; i <= refUp.length - k; i++) {
-    const kmer = refUp.substring(i, i + k);
-    if (!kmer.includes('N') && !kmer.includes('X')) {
-      refKmers.add(kmer);
-    }
-  }
-  if (refKmers.size === 0) return 0.0;
+  const fwScore = computeAlignmentScoreWithDynamicExclusion(readUp, refUp, cutSitePos, maxDist, distanceWeight, exclusionFlank);
 
-  function getStrandHits(strand: string): number {
-    let hits = 0;
-    for (let i = 0; i <= strand.length - k; i++) {
-      const kmer = strand.substring(i, i + k);
-      if (!kmer.includes('N') && !kmer.includes('X') && refKmers.has(kmer)) {
-        hits++;
-      }
-    }
-    return hits;
-  }
+  const rcRefUp = reverseComplement(refUp);
+  const rcCutSitePos = refUp.length - 1 - cutSitePos;
+  const rcMaxDist = Math.max(rcCutSitePos, rcRefUp.length - rcCutSitePos, 1);
+  const rcScore = computeAlignmentScoreWithDynamicExclusion(reverseComplement(readUp), rcRefUp, rcCutSitePos, rcMaxDist, distanceWeight, exclusionFlank);
 
-  const fwHits = getStrandHits(readUp);
-  const rcHits = getStrandHits(reverseComplement(readUp));
-  const bestHits = Math.max(fwHits, rcHits);
-
-  return Math.min(1.0, bestHits / Math.max(refKmers.size, 1));
+  return Math.min(1.0, Math.max(fwScore, rcScore));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -505,25 +586,29 @@ export function applyClassification(
   readQual: number[] | null,
   classes: ClassInfo[],
   phredThreshold: number,
-  margin: number
+  margin: number,
+  cutSiteDistanceWeight: number = 0.0,
+  cutSiteExclusionFlank: number = 0
 ): ClassificationResult {
-  const eligibleClasses: ClassInfo[] = [];
+  const eligibleClasses: Array<{ classInfo: ClassInfo; targetSeq: string }> = [];
   for (const c of classes) {
-    const [usable] = isReadUsable(
+    const [usable, , res] = isReadUsable(
       readSeq, readQual, c.ref_window, phredThreshold,
       c.sgrna_seq || '', c.cut_index_in_window ?? -1
     );
-    if (usable) eligibleClasses.push(c);
+    if (usable) {
+      eligibleClasses.push({ classInfo: c, targetSeq: res?.read_window || readSeq });
+    }
   }
 
   if (eligibleClasses.length === 0) {
     return { assigned: false, reason: 'filtered' };
   }
 
-  const scores: Array<[number, string, string]> = eligibleClasses.map(c => [
-    scoreReadAgainstWindow(readSeq, c.ref_window),
-    c.gene,
-    c.target,
+  const scores: Array<[number, string, string]> = eligibleClasses.map(item => [
+    scoreReadAgainstWindow(item.targetSeq, item.classInfo.ref_window, 10, item.classInfo.cut_index_in_window ?? -1, cutSiteDistanceWeight, cutSiteExclusionFlank),
+    item.classInfo.gene,
+    item.classInfo.target,
   ]);
   scores.sort((a, b) => b[0] - a[0]);
 
@@ -568,7 +653,9 @@ export function applyGeneClassification(
   readQual: number[] | null,
   geneClasses: Record<string, ClassInfo[]>,
   phredThreshold: number,
-  margin: number
+  margin: number,
+  cutSiteDistanceWeight: number = 0.0,
+  cutSiteExclusionFlank: number = 0
 ): ClassificationResult {
   const geneNames = Object.keys(geneClasses);
 
@@ -616,7 +703,7 @@ export function applyGeneClassification(
     let usableCount = 0;
 
     for (const t of targets) {
-      const [usable] = isReadUsable(
+      const [usable, , res] = isReadUsable(
         readSeq, readQual, t.ref_window, phredThreshold,
         t.sgrna_seq || '', t.cut_index_in_window ?? -1
       );
@@ -624,7 +711,8 @@ export function applyGeneClassification(
         geneUsable = true;
         anyUsable = true;
         usableCount++;
-        const score = scoreReadAgainstWindow(readSeq, t.ref_window);
+        const targetSeq = res?.read_window || readSeq;
+        const score = scoreReadAgainstWindow(targetSeq, t.ref_window, 10, t.cut_index_in_window ?? -1, cutSiteDistanceWeight, cutSiteExclusionFlank);
         if (score > bestScore) {
           bestScore = score;
           bestTarget = t.target;

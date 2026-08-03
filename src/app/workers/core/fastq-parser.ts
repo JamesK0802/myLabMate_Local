@@ -64,17 +64,22 @@ export function parseFastqString(text: string): FastqRead[] {
   return results;
 }
 
+import * as fflate from 'fflate';
+
 /**
- * Read a File object to text string.
- * For use in Web Workers where FileReader is available.
+ * Read a File object to text string (supports plain text and .gz files).
+ * For use in Web Workers where ArrayBuffer / fflate / TextDecoder are available.
  */
-export function readFileAsText(file: File): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
-    reader.readAsText(file);
-  });
+export async function readFileAsText(file: File): Promise<string> {
+  const isGz = file.name.endsWith('.gz');
+  const buffer = await file.arrayBuffer();
+
+  if (isGz) {
+    const decompressed = fflate.gunzipSync(new Uint8Array(buffer));
+    return fflate.strFromU8(decompressed);
+  } else {
+    return new TextDecoder().decode(buffer);
+  }
 }
 
 /**

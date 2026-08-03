@@ -52,7 +52,7 @@ export class LocalAnalysisService {
   startAnalysis(
     files: File[],
     genesPayload: any[],
-    params: { phredThreshold: number; indelThreshold: number; marginThreshold: number; windowSize: number }
+    params: { phredThreshold: number; indelThreshold: number; marginThreshold: number; windowSize: number; cutSiteDistanceWeight?: number; cutSiteExclusionFlank?: number }
   ): Observable<LocalAnalysisEvent> {
     const subject = new Subject<LocalAnalysisEvent>();
     this.terminate();

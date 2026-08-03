@@ -197,6 +197,8 @@ addEventListener('message', async (event: MessageEvent) => {
     }
   }
 
+const fileTextCache = new Map<string, string>();
+
   if (type === 'export-group-fastq') {
     const { file, target, readInner, params } = payload as {
       file: File;
@@ -206,56 +208,85 @@ addEventListener('message', async (event: MessageEvent) => {
     };
 
     try {
-      postMessage({ type: 'progress', percent: 10, stage: 'Reading FASTQ file...' });
-      const text = await readFileAsText(file);
-      postMessage({ type: 'progress', percent: 40, stage: 'Filtering reads for group...' });
-      const lines = text.split('\n');
+      const cacheKey = `${file.name}_${file.size}_${file.lastModified}`;
+      let text = fileTextCache.get(cacheKey);
+
+      if (!text) {
+        postMessage({ type: 'progress', percent: 10, stage: 'Reading & decompressing FASTQ file...' });
+        text = await readFileAsText(file);
+        fileTextCache.set(cacheKey, text);
+      }
+
+      postMessage({ type: 'progress', percent: 40, stage: 'Filtering reads for export...' });
+      const lines = text.split(/\r?\n/);
       const filteredLines: string[] = [];
 
-      const referenceSeq = target.ref_sequence || target.reference_seq;
-      const sgrnaSeq = target.sgrna_seq;
+      const sgrnaSeq = target.sgrna_seq || '';
       const windowSize = target.window_size ?? 90;
+      let refWindow = target.ref_window || target.ref_sequence || target.reference_seq || '';
+      let cutSiteIndexFixed = target.cut_site_index ?? -1;
 
-      const cutInfo = findGrnaCutSite(referenceSeq, sgrnaSeq);
-      const refCutSite = cutInfo.cut_site;
-      const refWindow = extractWindow(referenceSeq, refCutSite, windowSize);
-      const cutSiteIndexFixed = cutIndexInWindow(referenceSeq, refCutSite, windowSize);
+      // Extract window if full reference was passed
+      if (refWindow.length > (windowSize + 30)) {
+        const cutInfo = findGrnaCutSite(refWindow, sgrnaSeq);
+        const refCutSite = cutInfo.cut_site;
+        refWindow = extractWindow(refWindow, refCutSite, windowSize);
+        cutSiteIndexFixed = cutIndexInWindow(target.ref_sequence || target.reference_seq, refCutSite, windowSize);
+      }
+
+      if (cutSiteIndexFixed < 0) {
+        cutSiteIndexFixed = Math.floor(refWindow.length / 2);
+      }
+
+      const targetReadInner = (readInner || '').trim().toUpperCase();
+
+      // Collect valid Annotation group keys for All Target Reads export
+      const validGroupKeys = new Set<string>();
+      if (!targetReadInner && target && target.top_groups && Array.isArray(target.top_groups)) {
+        for (const g of target.top_groups) {
+          if (g && g.read_inner) {
+            validGroupKeys.add(g.read_inner.trim().toUpperCase());
+          }
+        }
+      }
 
       let i = 0;
       let processed = 0;
       while (i < lines.length) {
-        if (lines[i].trim() === '') {
-          i++;
-          continue;
-        }
-        if (!lines[i].startsWith('@')) {
+        if (lines[i].trim() === '' || !lines[i].startsWith('@')) {
           i++;
           continue;
         }
         if (i + 3 >= lines.length) break;
 
         const seq = lines[i + 1].trim();
-        const qualStr = lines[i + 3].trim();
 
-        if (seq.length > 0 && qualStr.length > 0) {
-          const qual: number[] = new Array(qualStr.length);
-          for (let q = 0; q < qualStr.length; q++) {
-            qual[q] = qualStr.charCodeAt(q) - 33;
-          }
-
-          const [usable, , bestRes] = isReadUsable(seq, qual, refWindow, params.phredThreshold || 10, sgrnaSeq, cutSiteIndexFixed);
+        if (seq.length > 0) {
+          const [usable, , bestRes] = isReadUsable(seq, null, refWindow, 0, sgrnaSeq, cutSiteIndexFixed);
           
-          if (usable && bestRes && bestRes.read_window.toUpperCase() === readInner.toUpperCase()) {
-            filteredLines.push(lines[i].trim());
-            filteredLines.push(lines[i + 1].trim());
-            filteredLines.push(lines[i + 2].trim());
-            filteredLines.push(lines[i + 3].trim());
+          if (usable && bestRes) {
+            const readWin = bestRes.read_window.toUpperCase();
+            let shouldInclude = false;
+            
+            if (targetReadInner) {
+              shouldInclude = (readWin === targetReadInner);
+            } else {
+              // Export all aligned reads for this target (matches Summary Table ALIGNED count 179)
+              shouldInclude = true;
+            }
+
+            if (shouldInclude) {
+              filteredLines.push(lines[i].trim());
+              filteredLines.push(lines[i + 1].trim());
+              filteredLines.push(lines[i + 2].trim());
+              filteredLines.push(lines[i + 3].trim());
+            }
           }
         }
         i += 4;
         processed++;
         if (processed % 5000 === 0) {
-          postMessage({ type: 'progress', percent: 40 + Math.round((i / lines.length) * 50), stage: 'Filtering reads for group...' });
+          postMessage({ type: 'progress', percent: 40 + Math.round((i / lines.length) * 50), stage: 'Filtering reads...' });
         }
       }
 

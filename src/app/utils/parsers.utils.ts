@@ -287,3 +287,43 @@ export async function parseFastqFile(file: File): Promise<FastqDocument> {
     updatedTimestamp: Date.now()
   };
 }
+
+export function parseFastqText(text: string, filename: string = 'reads.fastq'): FastqDocument {
+  const lines = text.split(/\r?\n/);
+  const reads: FastqRead[] = [];
+
+  let i = 0;
+  while (i < lines.length) {
+    if (lines[i].trim() === '' || !lines[i].startsWith('@')) {
+      i++;
+      continue;
+    }
+    if (i + 3 >= lines.length) break;
+
+    const id = lines[i].substring(1).split(/\s+/)[0];
+    const seq = lines[i + 1].trim();
+    const qualString = lines[i + 3].trim();
+
+    const qual: number[] = [];
+    for (let j = 0; j < qualString.length; j++) {
+      qual.push(qualString.charCodeAt(j) - 33);
+    }
+
+    if (seq.length > 0) {
+      reads.push({ id, seq, qual, qualString });
+    }
+    i += 4;
+  }
+
+  const stats = calculateFastqStats(reads);
+  return {
+    type: 'fastq',
+    id: generateId(),
+    name: filename,
+    description: `Extracted ${reads.length} reads`,
+    reads,
+    stats,
+    createdTimestamp: Date.now(),
+    updatedTimestamp: Date.now()
+  };
+}

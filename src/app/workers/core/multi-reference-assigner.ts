@@ -65,7 +65,9 @@ export function assignReadsToReferences(
   readsData: Array<[string, number[] | null]>,
   genePayloads: GenePayload[],
   phredThreshold: number = 10,
-  marginThreshold: number = 0.05
+  marginThreshold: number = 0.05,
+  cutSiteDistanceWeight: number = 0.0,
+  cutSiteExclusionFlank: number = 0
 ): DemuxResult {
   // 1. Prepare gene-grouped target windows
   const geneClasses: Record<string, ClassInfo[]> = {};
@@ -110,7 +112,7 @@ export function assignReadsToReferences(
       if (avgQ >= phredThreshold) phredPassedCount++;
     }
 
-    const res = applyGeneClassification(seq, qual, geneClasses, phredThreshold, marginThreshold);
+    const res = applyGeneClassification(seq, qual, geneClasses, phredThreshold, marginThreshold, cutSiteDistanceWeight, cutSiteExclusionFlank);
 
     // Track outcome distribution
     const dbg = res.debug || {};

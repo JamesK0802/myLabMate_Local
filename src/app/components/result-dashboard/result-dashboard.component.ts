@@ -20,6 +20,34 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
   mobileGeneInfoOpen = false;
   mobileChartsOpen = false;
 
+  isDraggingScroll = false;
+  startX = 0;
+  scrollLeft = 0;
+
+  startDragScroll(e: MouseEvent, element: HTMLElement) {
+    const targetEl = e.target as HTMLElement;
+    if (targetEl.tagName === 'BUTTON' || targetEl.tagName === 'INPUT' || targetEl.closest('.exclude-btn-group') || targetEl.closest('button')) {
+      return;
+    }
+    this.isDraggingScroll = true;
+    element.classList.add('dragging-scroll');
+    this.startX = e.pageX - element.offsetLeft;
+    this.scrollLeft = element.scrollLeft;
+  }
+
+  stopDragScroll(element: HTMLElement) {
+    this.isDraggingScroll = false;
+    element.classList.remove('dragging-scroll');
+  }
+
+  onDragScroll(e: MouseEvent, element: HTMLElement) {
+    if (!this.isDraggingScroll) return;
+    e.preventDefault();
+    const x = e.pageX - element.offsetLeft;
+    const walk = (x - this.startX) * 1.5;
+    element.scrollLeft = this.scrollLeft - walk;
+  }
+
   constructor(
     public state: AppStateService,
     private cdr: ChangeDetectorRef,

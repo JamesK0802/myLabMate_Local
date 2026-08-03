@@ -9,6 +9,13 @@ const DB_NAME = 'SequenceWorkspaceDB';
 const STORE_NAME = 'ProjectItems';
 const DB_VERSION = 1;
 
+export interface AutoAlignPayload {
+  windowSeq: string;
+  refSeq?: string;
+  grnaSeq?: string;
+  winSize?: number;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -26,6 +33,21 @@ export class SequenceWorkspaceService {
 
   private selectedRegionSubject = new BehaviorSubject<{start: number, end: number, length: number} | null>(null);
   public selectedRegion$ = this.selectedRegionSubject.asObservable();
+
+  private pendingAutoAlignSubject = new BehaviorSubject<AutoAlignPayload | null>(null);
+  public pendingAutoAlign$ = this.pendingAutoAlignSubject.asObservable();
+
+  setPendingAutoAlign(payload: AutoAlignPayload) {
+    this.pendingAutoAlignSubject.next(payload);
+  }
+
+  getPendingAutoAlign(): AutoAlignPayload | null {
+    return this.pendingAutoAlignSubject.value;
+  }
+
+  clearPendingAutoAlign() {
+    this.pendingAutoAlignSubject.next(null);
+  }
 
   private history: Record<string, { past: SequenceDocument[], future: SequenceDocument[] }> = {};
   private readonly MAX_HISTORY = 20;

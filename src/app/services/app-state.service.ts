@@ -4,6 +4,9 @@ import { BehaviorSubject, Subject, Subscription } from 'rxjs';
 import { ExcelExportService, ExportParams } from './excel-export.service';
 import { CurationService } from './curation.service';
 import { LocalAnalysisService, LocalAnalysisEvent } from './local-analysis.service';
+import { SequenceWorkspaceService } from './sequence-workspace.service';
+import { parseFastqText } from '../utils/parsers.utils';
+import { extractWindow, findGrnaCutSite } from '../workers/core/classifier';
 import { GeneResult, MultiReferenceResponse, BenchmarkRow, BenchmarkResult, SplitPreview } from '../models/analysis.model';
 import { CurationConfig, emptyCurationConfig, targetKey, groupKey } from '../models/curation.model';
 import { Chart } from 'chart.js/auto';
@@ -47,11 +50,27 @@ function emptySlot(): ResultSlot {
   };
 }
 
+export interface AnalysisTab {
+  id: string;
+  name: string;
+  formValue: any;
+  selectedFiles: File[];
+  slot: ResultSlot;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AppStateService {
   analysisForm!: FormGroup;
   selectedFiles: File[] = [];
   isDragging = false;
+
+  // ── Multi-Tab Analysis State ──
+  tabs: AnalysisTab[] = [];
+  activeTabId: string = '';
+
+  get currentTab(): AnalysisTab | null {
+    return this.tabs.find(t => t.id === this.activeTabId) || null;
+  }
 
   // ── Local Mode (Always active in standalone) ──
   isLocalMode = true;
@@ -87,14 +106,23 @@ export class AppStateService {
     return Object.keys(this.fileProgress || {});
   }
 
+  // ── Main Shell Tab Switching ──
+  activeMainTab$ = new BehaviorSubject<'analysis' | 'viewer' | 'benchmark' | 'workspace'>('analysis');
+
+  switchMainTab(tab: 'analysis' | 'viewer' | 'benchmark' | 'workspace') {
+    this.activeMainTab$.next(tab);
+  }
+
   constructor(
     private fb: FormBuilder,
     private excelExportService: ExcelExportService,
     private curationService: CurationService,
     private localAnalysisService: LocalAnalysisService,
+    private sequenceWorkspaceService: SequenceWorkspaceService,
     public ngZone: NgZone
   ) {
     this.initForm();
+    this.initDefaultTab();
   }
 
   // ── Slot activation ──
@@ -155,6 +183,144 @@ export class AppStateService {
   get rescuedGenes(): GeneResult[] { return this.genes.filter(g => g.is_rescued_derived); }
   get ambiguousGenes(): GeneResult[] { return this.genes.filter(g => g.is_ambiguous_derived); }
 
+  // ── Tab Management ──
+  private initDefaultTab() {
+    const tab1: AnalysisTab = {
+      id: 'tab_' + Date.now() + '_1',
+      name: 'Analysis 1',
+      formValue: this.analysisForm ? this.analysisForm.getRawValue() : null,
+      selectedFiles: [],
+      slot: emptySlot()
+    };
+    this.tabs = [tab1];
+    this.activeTabId = tab1.id;
+    this.analysisSlot = tab1.slot;
+  }
+
+  saveCurrentTabState() {
+    const tab = this.currentTab;
+    if (tab) {
+      if (this.analysisForm) {
+        tab.formValue = this.analysisForm.getRawValue();
+      }
+      tab.selectedFiles = [...this.selectedFiles];
+      tab.slot = this.analysisSlot;
+    }
+  }
+
+  addTab(name?: string) {
+    this.saveCurrentTabState();
+    const newTabNumber = this.tabs.length + 1;
+    const tabName = name || `Analysis ${newTabNumber}`;
+    const currentFormVal = this.analysisForm ? this.analysisForm.getRawValue() : null;
+    const currentFiles = [...this.selectedFiles];
+
+    const newTab: AnalysisTab = {
+      id: 'tab_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+      name: tabName,
+      formValue: currentFormVal,
+      selectedFiles: currentFiles,
+      slot: emptySlot()
+    };
+
+    this.tabs.push(newTab);
+    this.selectTab(newTab.id);
+  }
+
+  selectTab(tabId: string) {
+    if (this.activeTabId === tabId) return;
+    this.saveCurrentTabState();
+
+    const targetTab = this.tabs.find(t => t.id === tabId);
+    if (!targetTab) return;
+
+    this.activeTabId = tabId;
+    this.analysisSlot = targetTab.slot;
+    this.selectedFiles = [...targetTab.selectedFiles];
+
+    if (targetTab.formValue && this.analysisForm) {
+      this.restoreFormValue(targetTab.formValue);
+    }
+
+    this.resultsUpdated$.next();
+  }
+
+  closeTab(tabId: string) {
+    if (this.tabs.length <= 1) {
+      this.analysisSlot = emptySlot();
+      this.selectedFiles = [];
+      if (this.tabs[0]) {
+        this.tabs[0].slot = this.analysisSlot;
+        this.tabs[0].selectedFiles = [];
+      }
+      this.resultsUpdated$.next();
+      return;
+    }
+
+    const idx = this.tabs.findIndex(t => t.id === tabId);
+    if (idx === -1) return;
+
+    const isActive = (this.activeTabId === tabId);
+    this.tabs.splice(idx, 1);
+
+    if (isActive) {
+      const nextTabIdx = Math.min(idx, this.tabs.length - 1);
+      const nextTab = this.tabs[nextTabIdx];
+      this.activeTabId = '';
+      this.selectTab(nextTab.id);
+    }
+  }
+
+  renameTab(tabId: string, newName: string) {
+    const target = this.tabs.find(t => t.id === tabId);
+    if (target && newName.trim()) {
+      target.name = newName.trim();
+    }
+  }
+
+  private restoreFormValue(val: any) {
+    if (!val || !this.analysisForm) return;
+    this.analysisForm.patchValue({
+      interestRegion: val.interestRegion ?? 90,
+      phredThreshold: val.phredThreshold ?? 20,
+      rescueThreshold: val.rescueThreshold ?? 20,
+      marginPercent: val.marginPercent ?? 10,
+      indelPercent: val.indelPercent ?? 2,
+      cutSiteDistanceWeight: val.cutSiteDistanceWeight ?? 0,
+      cutSiteExclusionFlank: val.cutSiteExclusionFlank ?? 0,
+      analyzeAmbiguous: val.analyzeAmbiguous ?? false,
+      rescueAmbiguous: val.rescueAmbiguous ?? false
+    }, { emitEvent: false });
+
+    if (Array.isArray(val.genes)) {
+      while (this.geneBlocks.length > 0) {
+        this.geneBlocks.removeAt(0);
+      }
+      val.genes.forEach((g: any) => {
+        const gGroup = this.createGeneGroup();
+        gGroup.patchValue({ gene_name: g.gene_name, gene_reference: g.gene_reference }, { emitEvent: false });
+
+        const tArray = gGroup.get('geneTargets') as FormArray;
+        while (tArray.length > 0) tArray.removeAt(0);
+
+        if (Array.isArray(g.geneTargets)) {
+          g.geneTargets.forEach((t: any) => {
+            const tGroup = this.createGeneTargetGroup();
+            tGroup.patchValue({ target_id: t.target_id, gRNA: t.gRNA }, { emitEvent: false });
+            tArray.push(tGroup);
+          });
+        } else {
+          tArray.push(this.createGeneTargetGroup());
+        }
+        this.geneBlocks.push(gGroup);
+      });
+
+      if (this.geneBlocks.length === 0) {
+        this.addGene();
+      }
+    }
+  }
+
   // ── Form ──
   private initForm() {
     this.analysisForm = this.fb.group({
@@ -163,6 +329,8 @@ export class AppStateService {
       rescueThreshold: [20, [Validators.required, Validators.min(1), Validators.max(1000)]],
       marginPercent: [10, [Validators.required, Validators.min(0), Validators.max(100)]],
       indelPercent: [2, [Validators.required, Validators.min(0), Validators.max(100)]],
+      cutSiteDistanceWeight: [0, [Validators.required, Validators.min(0), Validators.max(10)]],
+      cutSiteExclusionFlank: [0, [Validators.required, Validators.min(0), Validators.max(10)]],
       analyzeAmbiguous: [false], rescueAmbiguous: [false],
       genes: this.fb.array([this.createGeneGroup()])
     });
@@ -252,6 +420,7 @@ export class AppStateService {
 
   // ── Local Mode Analysis ──
   runLocalAnalysis(files: File[], genesPayload: any[], params: any) {
+    this.saveCurrentTabState();
     this.activateSlot('analysis');
     this.isLoading = true;
     this.fileProgress = {};
@@ -265,6 +434,8 @@ export class AppStateService {
       analyzeAmbiguous: params.analyzeAmbiguous,
       rescueAmbiguous: params.rescueAmbiguous,
       rescueThreshold: params.rescueThreshold,
+      cutSiteDistanceWeight: params.cutSiteDistanceWeight ?? 0,
+      cutSiteExclusionFlank: params.cutSiteExclusionFlank ?? 0,
     };
 
     this.localAnalysisSub = this.localAnalysisService.startAnalysis(
@@ -832,10 +1003,12 @@ export class AppStateService {
   }
 
   isExportingFastq = false;
+  exportStatus$ = new BehaviorSubject<{ active: boolean; percent: number; stage: string; title: string } | null>(null);
 
   async downloadGroupFastq(group: any) {
     if (!this.selectedTarget || !this.selectedFiles.length) return;
     this.isExportingFastq = true;
+    this.exportStatus$.next({ active: true, percent: 10, stage: 'Reading FASTQ file...', title: `Exporting Group ${group.group_rank} FASTQ` });
 
     try {
       let filesToProcess: File[] = [];
@@ -855,11 +1028,13 @@ export class AppStateService {
         const blob = await new Promise<Blob>((resolve, reject) => {
           this.localAnalysisService.exportGroupFastq(file, target, readInner, params).subscribe({
             next: (event: any) => {
-               if (event.type === 'export-group-fastq-result') {
-                 resolve(event.payload);
-               } else if (event.type === 'error') {
-                 reject(new Error(event.message));
-               }
+              if (event.type === 'progress') {
+                this.exportStatus$.next({ active: true, percent: event.percent, stage: event.stage, title: `Exporting Group ${group.group_rank} FASTQ` });
+              } else if (event.type === 'export-group-fastq-result') {
+                resolve(event.payload);
+              } else if (event.type === 'error') {
+                reject(new Error(event.message));
+              }
             },
             error: (err: any) => reject(err)
           });
@@ -885,6 +1060,188 @@ export class AppStateService {
        alert("Failed to export FASTQ: " + e.message);
     } finally {
        this.isExportingFastq = false;
+       this.exportStatus$.next(null);
+    }
+  }
+
+  async downloadAllTargetFastq(target: any) {
+    if (!target || !this.selectedFiles.length) return;
+    this.isExportingFastq = true;
+    this.exportStatus$.next({ active: true, percent: 10, stage: 'Reading FASTQ file...', title: `Exporting All Reads (${target.target_id})` });
+
+    try {
+      let filesToProcess: File[] = [];
+      if (this.selectedScopeIndex === -1) {
+        filesToProcess = this.selectedFiles;
+      } else {
+        filesToProcess = [this.selectedFiles[this.selectedScopeIndex]];
+      }
+
+      const blobs: Blob[] = [];
+      const params = this.lastRunParams || { phredThreshold: 10 };
+
+      for (const file of filesToProcess) {
+        if (!file) continue;
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          this.localAnalysisService.exportGroupFastq(file, target, '', params).subscribe({
+            next: (event: any) => {
+              if (event.type === 'progress') {
+                this.exportStatus$.next({ active: true, percent: event.percent, stage: event.stage, title: `Exporting All Reads (${target.target_id})` });
+              } else if (event.type === 'export-group-fastq-result') {
+                resolve(event.payload);
+              } else if (event.type === 'error') {
+                reject(new Error(event.message));
+              }
+            },
+            error: (err: any) => reject(err)
+          });
+        });
+        blobs.push(blob);
+      }
+
+      if (blobs.length > 0) {
+        const combinedBlob = new Blob(blobs, { type: 'text/plain' });
+        const url = window.URL.createObjectURL(combinedBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${target.target_id}_all_reads.fastq`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+        this.addLog(`Successfully exported all FASTQ reads for target ${target.target_id}.`);
+      }
+    } catch (e: any) {
+      console.error('All target FASTQ export failed:', e);
+      alert('Failed to export target FASTQ: ' + e.message);
+    } finally {
+      this.isExportingFastq = false;
+      this.exportStatus$.next(null);
+    }
+  }
+
+  async openGroupInSequenceWorkspace(group: any, target: any) {
+    if (!target || !group || !this.selectedFiles.length) return;
+    this.isExportingFastq = true;
+    this.exportStatus$.next({ active: true, percent: 10, stage: 'Preparing Sequence Workspace...', title: `Opening Group ${group.group_rank} in Workspace` });
+    this.switchMainTab('workspace');
+
+    try {
+      let filesToProcess: File[] = [];
+      if (this.selectedScopeIndex === -1) {
+        filesToProcess = this.selectedFiles;
+      } else {
+        filesToProcess = [this.selectedFiles[this.selectedScopeIndex]];
+      }
+
+      const blobs: Blob[] = [];
+      const readInner = group.read_inner;
+      const params = this.lastRunParams || { phredThreshold: 10 };
+
+      for (const file of filesToProcess) {
+        if (!file) continue;
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          this.localAnalysisService.exportGroupFastq(file, target, readInner, params).subscribe({
+            next: (event: any) => {
+              if (event.type === 'progress') {
+                this.exportStatus$.next({ active: true, percent: event.percent, stage: event.stage, title: `Opening Group ${group.group_rank} in Workspace` });
+              } else if (event.type === 'export-group-fastq-result') {
+                resolve(event.payload);
+              } else if (event.type === 'error') {
+                reject(new Error(event.message));
+              }
+            },
+            error: (err: any) => reject(err)
+          });
+        });
+        blobs.push(blob);
+      }
+
+      if (blobs.length > 0) {
+        const text = await new Blob(blobs, { type: 'text/plain' }).text();
+        const filename = `${target.target_id}_Group_${group.group_rank}.fastq`;
+        const fastqDoc = parseFastqText(text, filename);
+
+        const refSeq = target.ref_sequence || target.reference_seq || '';
+        const grnaSeq = target.sgrna_seq || '';
+        const winSize = target.window_size || 90;
+        let windowSeq = target.ref_window || '';
+        if (!windowSeq && refSeq) {
+          const cutInfo = findGrnaCutSite(refSeq, grnaSeq);
+          windowSeq = extractWindow(refSeq, cutInfo.cut_site, winSize);
+        }
+
+        await this.sequenceWorkspaceService.saveItem(fastqDoc);
+        this.sequenceWorkspaceService.selectItem(fastqDoc.id);
+        this.sequenceWorkspaceService.setPendingAutoAlign({ windowSeq, refSeq, grnaSeq, winSize });
+      }
+    } catch (e: any) {
+      console.error('Open group in workspace failed:', e);
+      alert('Failed to open group in workspace: ' + e.message);
+    } finally {
+      this.isExportingFastq = false;
+      this.exportStatus$.next(null);
+    }
+  }
+
+  async openAllTargetInSequenceWorkspace(target: any) {
+    if (!target || !this.selectedFiles.length) return;
+    this.isExportingFastq = true;
+    this.exportStatus$.next({ active: true, percent: 10, stage: 'Preparing Sequence Workspace...', title: `Opening All Reads (${target.target_id}) in Workspace` });
+    this.switchMainTab('workspace');
+
+    try {
+      let filesToProcess: File[] = [];
+      if (this.selectedScopeIndex === -1) {
+        filesToProcess = this.selectedFiles;
+      } else {
+        filesToProcess = [this.selectedFiles[this.selectedScopeIndex]];
+      }
+
+      const blobs: Blob[] = [];
+      const params = this.lastRunParams || { phredThreshold: 10 };
+
+      for (const file of filesToProcess) {
+        if (!file) continue;
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          this.localAnalysisService.exportGroupFastq(file, target, '', params).subscribe({
+            next: (event: any) => {
+              if (event.type === 'progress') {
+                this.exportStatus$.next({ active: true, percent: event.percent, stage: event.stage, title: `Opening All Reads (${target.target_id}) in Workspace` });
+              } else if (event.type === 'export-group-fastq-result') {
+                resolve(event.payload);
+              } else if (event.type === 'error') {
+                reject(new Error(event.message));
+              }
+            },
+            error: (err: any) => reject(err)
+          });
+        });
+        blobs.push(blob);
+      }
+
+      if (blobs.length > 0) {
+        const text = await new Blob(blobs, { type: 'text/plain' }).text();
+        const filename = `${target.target_id}_All_Reads.fastq`;
+        const fastqDoc = parseFastqText(text, filename);
+
+        const refSeq = target.ref_sequence || target.reference_seq || '';
+        const grnaSeq = target.sgrna_seq || '';
+        const winSize = target.window_size || 90;
+        let windowSeq = target.ref_window || '';
+        if (!windowSeq && refSeq) {
+          const cutInfo = findGrnaCutSite(refSeq, grnaSeq);
+          windowSeq = extractWindow(refSeq, cutInfo.cut_site, winSize);
+        }
+
+        await this.sequenceWorkspaceService.saveItem(fastqDoc);
+        this.sequenceWorkspaceService.selectItem(fastqDoc.id);
+        this.sequenceWorkspaceService.setPendingAutoAlign({ windowSeq, refSeq, grnaSeq, winSize });
+      }
+    } catch (e: any) {
+      console.error('Open all target in workspace failed:', e);
+      alert('Failed to open target in workspace: ' + e.message);
+    } finally {
+      this.isExportingFastq = false;
+      this.exportStatus$.next(null);
     }
   }
 

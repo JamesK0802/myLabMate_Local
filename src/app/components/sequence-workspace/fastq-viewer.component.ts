@@ -1,8 +1,24 @@
-import { Component, Input, OnChanges, ViewChild, ElementRef, AfterViewInit } from '@angular/core';
+import { Component, Input, OnInit, OnChanges, ViewChild, ElementRef, AfterViewInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { FastqDocument, FastqRead } from '../../models/sequence.model';
-import Chart from 'chart.js/auto';
+import { FastqDocument } from '../../models/sequence.model';
+import { SequenceWorkspaceService } from '../../services/sequence-workspace.service';
+import { isReadUsable, findGrnaCutSite, extractWindow, cutIndexInWindow, reverseComplement } from '../../workers/core/classifier';
+
+export interface ProcessedRead {
+  id: string;
+  seq: string;
+  qualString?: string;
+  isAligned: boolean;
+  windowStart?: number;
+  windowEnd?: number;
+  cutSiteInRead?: number;
+  preWinSeq?: string;
+  winSeqPreCut?: string;
+  winSeqPostCut?: string;
+  postWinSeq?: string;
+  leadPadding?: string;
+}
 
 @Component({
   selector: 'app-fastq-viewer',
@@ -10,71 +26,132 @@ import Chart from 'chart.js/auto';
   imports: [CommonModule, FormsModule],
   template: `
     <div class="fastq-viewer">
-      <div class="stats-panel">
-        <div class="stat-box">
-          <div class="stat-label">Total Reads</div>
-          <div class="stat-value">{{ document.stats.readCount | number }}</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Avg Length</div>
-          <div class="stat-value">{{ document.stats.avgLength | number:'1.0-1' }} bp</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Length Range</div>
-          <div class="stat-value">{{ document.stats.minLength }} - {{ document.stats.maxLength }} bp</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Avg GC%</div>
-          <div class="stat-value">{{ document.stats.avgGC | number:'1.1-1' }}%</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Avg Quality</div>
-          <div class="stat-value">Q{{ document.stats.avgQuality | number:'1.1-1' }}</div>
-        </div>
-      </div>
-
-      <div class="charts-panel">
-        <div class="chart-container">
-          <h4>Read Length Distribution</h4>
-          <canvas #lengthChart></canvas>
-        </div>
-        <div class="chart-container">
-          <h4>Quality Score Distribution</h4>
-          <canvas #qualChart></canvas>
-        </div>
-      </div>
-
       <div class="reads-panel">
         <div class="reads-header">
-          <h3>Reads</h3>
-          <div class="search-box">
-            <input type="text" [(ngModel)]="searchQuery" (keyup.enter)="searchReads()" placeholder="Search by ID...">
-            <button (click)="searchReads()">Search</button>
-            <button (click)="clearSearch()" *ngIf="searchQuery">Clear</button>
+          <div class="header-left">
+            <h3>Reads Alignment Workspace</h3>
+            <span class="aligned-summary-tag" *ngIf="isAlignedActive">
+              Aligned: <strong>{{ alignedStats.alignedCount | number }}</strong> / {{ alignedStats.total | number }} ({{ alignedStats.percentage | number:'1.1-1' }}%)
+            </span>
+          </div>
+          <div class="header-actions">
+            <div class="search-box">
+              <input type="text" [(ngModel)]="searchQuery" (keyup.enter)="searchReads()" placeholder="Search by ID or sequence...">
+              <button (click)="searchReads()">Search</button>
+              <button (click)="clearSearch()" *ngIf="searchQuery">Clear</button>
+            </div>
+            <button type="button" class="btn-align-toggle" [class.active]="showAlignPanel" (click)="toggleAlignPanel()">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
+              Align Controls {{ isAlignedActive ? '(Active)' : '' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Align Config Panel -->
+        <div class="align-config-panel" *ngIf="showAlignPanel">
+          <div class="align-mode-tabs">
+            <button type="button" class="mode-tab-btn" [class.active]="alignMode === 'window'" (click)="alignMode = 'window'">
+              Option A: Window Sequence Direct Input
+            </button>
+            <button type="button" class="mode-tab-btn" [class.active]="alignMode === 'ref_target'" (click)="alignMode = 'ref_target'">
+              Option B: Reference + Target (gRNA) Input
+            </button>
+          </div>
+
+          <!-- Mode A: Direct Window Input -->
+          <div class="align-inputs-group" *ngIf="alignMode === 'window'">
+            <div class="form-field full-width">
+              <label>Target Window Sequence (e.g. 90 bp):</label>
+              <textarea class="form-control text-mono" [(ngModel)]="inputWindowSeq" rows="2" placeholder="Paste target window sequence (e.g. 90bp)..."></textarea>
+            </div>
+          </div>
+
+          <!-- Mode B: Reference + Target gRNA Input -->
+          <div class="align-inputs-group" *ngIf="alignMode === 'ref_target'">
+            <div class="form-field full-width">
+              <label>Reference Sequence:</label>
+              <textarea class="form-control text-mono" [(ngModel)]="inputRefSeq" rows="2" placeholder="Paste full gene reference sequence..."></textarea>
+            </div>
+            <div class="form-row">
+              <div class="form-field flex-2">
+                <label>Target / gRNA Sequence:</label>
+                <input type="text" class="form-control text-mono" [(ngModel)]="inputGrnaSeq" placeholder="e.g. TGGAGTTGTTGAGGATCCGA">
+              </div>
+              <div class="form-field flex-1">
+                <label>Window Size (bp):</label>
+                <input type="number" class="form-control" [(ngModel)]="inputWinSize" min="30" max="500">
+              </div>
+            </div>
+          </div>
+
+          <div class="align-panel-actions">
+            <button type="button" class="btn-run-align" (click)="runAlign()">Run Alignment & Center Cut Sites</button>
+            <button type="button" class="btn-reset-align" (click)="resetAlign()" *ngIf="isAlignedActive">Reset Alignment</button>
+          </div>
+        </div>
+
+        <!-- ── Unified Multi-Sequence Alignment Block (Group 1: Aligned Reads) ── -->
+        <div class="msa-section" *ngIf="isAlignedActive && alignedReadsList.length > 0">
+          <div class="msa-section-header">
+            <h4>Aligned Reads Block (Centered at Cut Site)</h4>
+            <span class="msa-help-text">💡 Drag mouse or scroll horizontally — all reads move together as one block</span>
+          </div>
+
+          <div class="msa-wrapper">
+            <!-- Left Sticky Read IDs Panel -->
+            <div class="msa-ids-column">
+              <div class="msa-id-header">READ ID</div>
+              <div class="msa-id-row" *ngFor="let read of visibleAlignedReads">
+                <span class="msa-id-tag" [title]="'@' + read.id">{{ '@' + read.id }}</span>
+              </div>
+            </div>
+
+            <!-- Right Single Scrollable Sequence Alignment Canvas -->
+            <div class="msa-seq-viewport scrollable-drag" #msaViewport
+              (mousedown)="startDragScroll($event, msaViewport)"
+              (mouseleave)="stopDragScroll(msaViewport)"
+              (mouseup)="stopDragScroll(msaViewport)"
+              (mousemove)="onDragScroll($event, msaViewport)">
+              
+              <div class="msa-seq-rows-container monospaced">
+                <div class="msa-seq-header-spacer"></div>
+                <div class="msa-seq-row" *ngFor="let read of visibleAlignedReads">
+                  <span class="pad-spaces">{{ read.leadPadding }}</span>
+                  <span class="seq-flank pre-flank">{{ read.preWinSeq }}</span>
+                  <span class="seq-window-box" title="Extracted Target Window">
+                    <span class="win-seq-part">{{ read.winSeqPreCut }}</span>
+                    <span class="cut-site-badge" title="Cut Site Position">✂</span>
+                    <span class="win-seq-part">{{ read.winSeqPostCut }}</span>
+                  </span>
+                  <span class="seq-flank post-flank">{{ read.postWinSeq }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Unaligned Reads List (Group 2: Unaligned Reads) ── -->
+        <div class="unaligned-section" *ngIf="unalignedReadsList.length > 0">
+          <h4 class="unaligned-title">Unaligned Reads ({{ unalignedReadsList.length | number }})</h4>
+          <div class="unaligned-list">
+            <div class="read-card unaligned-card" *ngFor="let read of visibleUnalignedReads">
+              <div class="read-header">
+                <span class="read-id">{{ '@' + read.id }}</span>
+                <span class="read-len">{{ read.seq.length }} bp</span>
+              </div>
+              <div class="read-seq-box monospaced">
+                <span class="raw-seq-text">{{ read.seq }}</span>
+              </div>
+            </div>
           </div>
         </div>
         
-        <div class="reads-list">
-          <div class="read-card" *ngFor="let read of visibleReads">
-            <div class="read-header">
-              <span class="read-id">{{ '@' + read.id }}</span>
-              <span class="read-len">{{ read.seq.length }} bp</span>
-            </div>
-            <div class="read-seq">{{ read.seq }}</div>
-            <div class="read-qual">{{ read.qualString }}</div>
-            <div class="read-actions">
-              <button (click)="copyText(read.seq)">Copy Seq</button>
-              <button (click)="copyText(read.qualString)">Copy Qual</button>
-            </div>
-          </div>
-          
-          <div class="load-more" *ngIf="hasMore">
-            <button (click)="loadMore()">Load More (Showing {{ visibleReads.length }} of {{ filteredReads.length }})</button>
-          </div>
-          
-          <div class="empty-state" *ngIf="visibleReads.length === 0">
-            No reads found matching "{{ searchQuery }}"
-          </div>
+        <div class="load-more" *ngIf="hasMore">
+          <button (click)="loadMore()">Load More (Showing {{ visibleReads.length }} of {{ filteredReads.length }})</button>
+        </div>
+
+        <div class="empty-state" *ngIf="visibleReads.length === 0">
+          No reads found matching "{{ searchQuery }}"
         </div>
       </div>
     </div>
@@ -85,59 +162,15 @@ import Chart from 'chart.js/auto';
       padding: 16px;
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 16px;
       flex: 1;
       min-height: 0;
       overflow-y: auto;
       background: #f8f9fa;
     }
-    .stats-panel {
-      display: flex;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-    .stat-box {
-      background: white;
-      border: 1px solid var(--color-border);
-      border-radius: 8px;
-      padding: 16px;
-      flex: 1;
-      min-width: 150px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
-    .stat-label {
-      font-size: 0.85rem;
-      color: #7f8c8d;
-      margin-bottom: 4px;
-      text-transform: uppercase;
-      font-weight: 600;
-    }
-    .stat-value {
-      font-size: 1.4rem;
-      font-weight: bold;
-      color: #2c3e50;
-    }
-    .charts-panel {
-      display: flex;
-      gap: 20px;
-      flex-wrap: wrap;
-    }
-    .chart-container {
-      background: white;
-      border: 1px solid var(--color-border);
-      border-radius: 8px;
-      padding: 16px;
-      flex: 1;
-      min-width: 300px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
-    .chart-container h4 {
-      margin: 0 0 12px 0;
-      color: #34495e;
-    }
     .reads-panel {
       background: white;
-      border: 1px solid var(--color-border);
+      border: 1px solid var(--color-border, #cbd5e1);
       border-radius: 8px;
       padding: 16px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.05);
@@ -150,70 +183,333 @@ import Chart from 'chart.js/auto';
       justify-content: space-between;
       align-items: center;
       margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 12px;
     }
-    .reads-header h3 { margin: 0; }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .reads-header h3 { margin: 0; font-size: 1.15rem; color: #1e293b; }
+    .aligned-summary-tag {
+      font-size: 0.85rem;
+      color: #15803d;
+      background: #dcfce7;
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid #86efac;
+    }
+    .header-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
     .search-box {
       display: flex;
       gap: 8px;
     }
     .search-box input {
       padding: 6px 12px;
-      border: 1px solid var(--color-border);
+      border: 1px solid var(--color-border, #cbd5e1);
       border-radius: 4px;
-      width: 250px;
+      width: 220px;
     }
     .search-box button {
       padding: 6px 12px;
       background: #f1f5f9;
-      border: 1px solid var(--color-border);
+      border: 1px solid var(--color-border, #cbd5e1);
       border-radius: 4px;
       cursor: pointer;
     }
     .search-box button:hover { background: #e2e8f0; }
-    .reads-list {
+    
+    .btn-align-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: #ffffff;
+      border: 1px solid #3b82f6;
+      color: #2563eb;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn-align-toggle:hover, .btn-align-toggle.active {
+      background: #2563eb;
+      color: #ffffff;
+    }
+
+    /* Align Config Panel */
+    .align-config-panel {
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
       display: flex;
       flex-direction: column;
+      gap: 14px;
+    }
+    .align-mode-tabs {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 8px;
+    }
+    .mode-tab-btn {
+      padding: 6px 12px;
+      background: #e2e8f0;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #64748b;
+      cursor: pointer;
+    }
+    .mode-tab-btn.active {
+      background: #2563eb;
+      color: #ffffff;
+    }
+    .align-inputs-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .form-row {
+      display: flex;
       gap: 12px;
+    }
+    .form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .form-field.full-width { width: 100%; }
+    .form-field.flex-1 { flex: 1; }
+    .form-field.flex-2 { flex: 2; }
+    .form-field label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #475569;
+    }
+    .text-mono {
+      font-family: 'Courier New', Courier, monospace !important;
+      font-size: 0.85rem !important;
+    }
+    .form-control {
+      padding: 8px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+    }
+    .align-panel-actions {
+      display: flex;
+      gap: 10px;
+    }
+    .btn-run-align {
+      padding: 8px 16px;
+      background: #16a34a;
+      color: #ffffff;
+      font-weight: 600;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .btn-run-align:hover { background: #15803d; }
+    .btn-reset-align {
+      padding: 8px 16px;
+      background: #ef4444;
+      color: #ffffff;
+      font-weight: 600;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .btn-reset-align:hover { background: #dc2626; }
+
+    /* ── Unified Multi-Sequence Alignment Block ── */
+    .msa-section {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .msa-section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .msa-section-header h4 {
+      margin: 0;
+      color: #1e293b;
+      font-size: 1.05rem;
+    }
+    .msa-help-text {
+      font-size: 0.78rem;
+      color: #16a34a;
+      background: #f0fdf4;
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid #bbf7d0;
+      font-weight: 600;
+    }
+    .msa-wrapper {
+      display: flex;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #ffffff;
+      position: relative;
+    }
+    .msa-ids-column {
+      flex-shrink: 0;
+      width: 260px;
+      background: #f8fafc;
+      border-right: 2px solid #cbd5e1;
+      user-select: none;
+      z-index: 3;
+    }
+    .msa-id-header {
+      height: 32px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #64748b;
+      background: #f1f5f9;
+      border-bottom: 1px solid #cbd5e1;
+    }
+    .msa-id-row {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      border-bottom: 1px solid #f1f2f6;
+    }
+    .msa-id-tag {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.8rem;
+      font-weight: bold;
+      color: #334155;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .msa-seq-viewport {
+      flex: 1;
+      overflow-x: auto;
+      overflow-y: hidden;
+      cursor: grab;
+      scrollbar-width: thin;
+      background: #ffffff;
+    }
+    .msa-seq-viewport.dragging {
+      cursor: grabbing;
+      user-select: none;
+    }
+    .msa-seq-rows-container {
+      display: inline-flex;
+      flex-direction: column;
+      min-width: 100%;
+    }
+    .msa-seq-header-spacer {
+      height: 32px;
+      background: #f8fafc;
+      border-bottom: 1px solid #cbd5e1;
+    }
+    .msa-seq-row {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 13px;
+      white-space: pre !important;
+      border-bottom: 1px solid #f1f2f6;
+      padding: 0 12px;
+      transition: background 0.1s ease;
+    }
+    .msa-seq-row:hover {
+      background: #f0fdf4;
+    }
+
+    /* Sequence formatting inside row */
+    .pad-spaces { white-space: pre; }
+    .seq-flank { color: #475569; }
+    .seq-window-box {
+      display: inline-flex;
+      align-items: center;
+      background: #fff7ed;
+      border: 1.5px solid #f97316;
+      border-radius: 4px;
+      padding: 1px 5px;
+      color: #9a3412;
+      font-weight: bold;
+    }
+    .win-seq-part { color: #c2410c; }
+    .cut-site-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #ef4444;
+      color: #ffffff;
+      font-size: 11px;
+      padding: 0 4px;
+      border-radius: 3px;
+      font-weight: bold;
+      margin: 0 2px;
+      box-shadow: 0 0 3px rgba(239, 68, 68, 0.6);
+      user-select: none;
+    }
+
+    /* Unaligned Section */
+    .unaligned-section {
+      margin-top: 12px;
+    }
+    .unaligned-title {
+      font-size: 0.95rem;
+      color: #64748b;
+      margin-bottom: 8px;
+    }
+    .unaligned-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
     .read-card {
       border: 1px solid #e2e8f0;
       border-radius: 6px;
-      padding: 12px;
+      padding: 8px 12px;
       background: #fafbfc;
     }
     .read-header {
       display: flex;
       justify-content: space-between;
-      margin-bottom: 8px;
-      font-size: 0.9rem;
+      align-items: center;
+      margin-bottom: 4px;
+      font-size: 0.85rem;
     }
     .read-id { font-weight: bold; color: #34495e; }
     .read-len { color: #7f8c8d; }
-    .read-seq, .read-qual {
+    .read-seq-box {
       font-family: 'Courier New', Courier, monospace;
       font-size: 13px;
-      word-break: break-all;
-      background: white;
-      padding: 8px;
+      white-space: nowrap;
+      overflow-x: auto;
+      background: #ffffff;
+      padding: 6px 10px;
       border: 1px solid #edf2f7;
       border-radius: 4px;
-      margin-bottom: 4px;
     }
-    .read-qual { color: #718096; }
-    .read-actions {
-      display: flex;
-      gap: 8px;
-      margin-top: 8px;
-    }
-    .read-actions button {
-      padding: 4px 8px;
-      font-size: 0.8rem;
-      background: white;
-      border: 1px solid #cbd5e0;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    .read-actions button:hover { background: #f7fafc; }
+    .raw-seq-text { color: #1e293b; }
+
     .load-more {
       text-align: center;
       margin-top: 16px;
@@ -235,48 +531,324 @@ import Chart from 'chart.js/auto';
     }
   `]
 })
-export class FastqViewerComponent implements OnChanges, AfterViewInit {
+export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
   @Input() document!: FastqDocument;
-  
-  @ViewChild('lengthChart') lengthChartRef!: ElementRef;
-  @ViewChild('qualChart') qualChartRef!: ElementRef;
-  
-  lengthChartInst: Chart | null = null;
-  qualChartInst: Chart | null = null;
+  @ViewChild('msaViewport') msaViewportRef!: ElementRef;
 
-  filteredReads: FastqRead[] = [];
-  visibleReads: FastqRead[] = [];
+  processedReads: ProcessedRead[] = [];
+  filteredReads: ProcessedRead[] = [];
+  visibleReads: ProcessedRead[] = [];
   searchQuery = '';
   chunkSize = 50;
   hasMore = false;
+  maxPreCutLen = 0;
+
+  // Alignment State
+  showAlignPanel = false;
+  alignMode: 'window' | 'ref_target' = 'window';
+  
+  inputWindowSeq = '';
+  inputRefSeq = '';
+  inputGrnaSeq = '';
+  inputWinSize = 90;
+
+  isAlignedActive = false;
+  alignedWindowSeq = '';
+  alignedCutSiteInWindow = -1;
+  alignedStats = { total: 0, alignedCount: 0, unalignedCount: 0, percentage: 0 };
+
+  // Mouse drag scroll state
+  isDragging = false;
+  startX = 0;
+  scrollLeft = 0;
+
+  constructor(private sequenceWorkspaceService: SequenceWorkspaceService) {}
+
+  ngOnInit() {
+    this.sequenceWorkspaceService.pendingAutoAlign$.subscribe(pending => {
+      if (pending) {
+        this.checkPendingAutoAlign();
+      }
+    });
+  }
 
   ngOnChanges() {
-    this.clearSearch();
-    if (this.lengthChartRef && this.qualChartRef) {
-      this.renderCharts();
-    }
+    this.checkPendingAutoAlign();
+    this.initProcessedReads();
   }
 
   ngAfterViewInit() {
-    this.renderCharts();
+    this.checkPendingAutoAlign();
+  }
+
+  get alignedReadsList(): ProcessedRead[] {
+    return this.processedReads.filter(r => r.isAligned);
+  }
+
+  get unalignedReadsList(): ProcessedRead[] {
+    return this.processedReads.filter(r => !r.isAligned);
+  }
+
+  get visibleAlignedReads(): ProcessedRead[] {
+    return this.visibleReads.filter(r => r.isAligned);
+  }
+
+  get visibleUnalignedReads(): ProcessedRead[] {
+    return this.visibleReads.filter(r => !r.isAligned);
+  }
+
+  private checkPendingAutoAlign() {
+    const pending = this.sequenceWorkspaceService.getPendingAutoAlign();
+    if (pending) {
+      this.inputWindowSeq = pending.windowSeq || '';
+      this.inputRefSeq = pending.refSeq || '';
+      this.inputGrnaSeq = pending.grnaSeq || '';
+      this.inputWinSize = pending.winSize || 90;
+      if (pending.refSeq && pending.grnaSeq) {
+        this.alignMode = 'ref_target';
+      } else {
+        this.alignMode = 'window';
+      }
+      this.sequenceWorkspaceService.clearPendingAutoAlign();
+      this.runAlign();
+    }
+  }
+
+  private initProcessedReads() {
+    if (!this.document || !this.document.reads) {
+      this.processedReads = [];
+      this.filteredReads = [];
+      this.visibleReads = [];
+      return;
+    }
+
+    if (this.isAlignedActive) {
+      this.reprocessAlignment();
+    } else {
+      this.processedReads = this.document.reads.map(r => ({
+        id: r.id,
+        seq: r.seq,
+        qualString: r.qualString,
+        isAligned: false
+      }));
+      this.applyFilterAndPagination();
+    }
+  }
+
+  toggleAlignPanel() {
+    this.showAlignPanel = !this.showAlignPanel;
+  }
+
+  runAlign() {
+    let targetWin = '';
+    let cutSiteInWin = -1;
+
+    if (this.alignMode === 'window') {
+      targetWin = this.inputWindowSeq.trim().toUpperCase();
+      cutSiteInWin = Math.floor(targetWin.length / 2);
+    } else {
+      const refSeq = this.inputRefSeq.trim().toUpperCase();
+      const grnaSeq = this.inputGrnaSeq.trim().toUpperCase();
+      if (!refSeq || !grnaSeq) return;
+
+      const cutInfo = findGrnaCutSite(refSeq, grnaSeq);
+      let cutSite = cutInfo.cut_site;
+      if (cutSite < 0 || cutSite >= refSeq.length) {
+        cutSite = Math.floor(refSeq.length / 2);
+      }
+
+      targetWin = extractWindow(refSeq, cutSite, this.inputWinSize);
+      cutSiteInWin = cutInfo.grna_start !== -1 ? cutIndexInWindow(refSeq, cutSite, this.inputWinSize) : Math.floor(targetWin.length / 2);
+    }
+
+    if (!targetWin) return;
+
+    this.alignedWindowSeq = targetWin;
+    this.alignedCutSiteInWindow = cutSiteInWin;
+    this.isAlignedActive = true;
+
+    this.reprocessAlignment();
+  }
+
+  private reprocessAlignment() {
+    const targetWin = this.alignedWindowSeq;
+    const cutSiteInWin = this.alignedCutSiteInWindow;
+    const grna = this.inputGrnaSeq.trim().toUpperCase();
+
+    let alignedCount = 0;
+
+    const list: ProcessedRead[] = this.document.reads.map(r => {
+      const res = this.findAlignmentInRead(r.seq, targetWin, cutSiteInWin, grna);
+      if (res.isAligned) alignedCount++;
+      return {
+        id: r.id,
+        seq: r.seq,
+        qualString: r.qualString,
+        isAligned: res.isAligned,
+        windowStart: res.windowStart,
+        windowEnd: res.windowEnd,
+        cutSiteInRead: res.cutSiteInRead,
+        preWinSeq: res.preWinSeq,
+        winSeqPreCut: res.winSeqPreCut,
+        winSeqPostCut: res.winSeqPostCut,
+        postWinSeq: res.postWinSeq,
+        leadPadding: ''
+      };
+    });
+
+    // Calculate maximum pre-cut length for vertical cut-site centering
+    const alignedList = list.filter(r => r.isAligned);
+    let maxPreCutLen = 0;
+    for (const r of alignedList) {
+      const preLen = (r.preWinSeq?.length || 0) + (r.winSeqPreCut?.length || 0);
+      if (preLen > maxPreCutLen) maxPreCutLen = preLen;
+    }
+    this.maxPreCutLen = maxPreCutLen;
+
+    for (const r of alignedList) {
+      const preLen = (r.preWinSeq?.length || 0) + (r.winSeqPreCut?.length || 0);
+      const padCount = Math.max(0, maxPreCutLen - preLen);
+      r.leadPadding = ' '.repeat(padCount);
+    }
+
+    // Group 1 (Aligned reads) at the top, Group 2 (Unaligned reads) at the bottom
+    list.sort((a, b) => {
+      if (a.isAligned && !b.isAligned) return -1;
+      if (!a.isAligned && b.isAligned) return 1;
+      return 0;
+    });
+
+    const total = list.length;
+    this.alignedStats = {
+      total,
+      alignedCount,
+      unalignedCount: total - alignedCount,
+      percentage: total > 0 ? (alignedCount / total) * 100 : 0
+    };
+
+    this.processedReads = list;
+    this.applyFilterAndPagination();
+    this.centerCutSiteScroll();
+  }
+
+  centerCutSiteScroll() {
+    setTimeout(() => {
+      if (!this.msaViewportRef) return;
+      const el = this.msaViewportRef.nativeElement as HTMLElement;
+      const charWidth = 8.5; // pixel width per character in 13px monospace font
+      const cutSiteColChar = this.maxPreCutLen + 4;
+      const cutSitePixelX = cutSiteColChar * charWidth;
+      const viewportWidth = el.clientWidth;
+      const targetScrollLeft = Math.max(0, cutSitePixelX - (viewportWidth / 2));
+      el.scrollLeft = targetScrollLeft;
+    }, 60);
+  }
+
+  // Mouse Drag Scroll Handlers
+  startDragScroll(e: MouseEvent, element: HTMLElement) {
+    this.isDragging = true;
+    element.classList.add('dragging');
+    this.startX = e.pageX - element.offsetLeft;
+    this.scrollLeft = element.scrollLeft;
+  }
+
+  stopDragScroll(element: HTMLElement) {
+    this.isDragging = false;
+    element.classList.remove('dragging');
+  }
+
+  onDragScroll(e: MouseEvent, element: HTMLElement) {
+    if (!this.isDragging) return;
+    e.preventDefault();
+    const x = e.pageX - element.offsetLeft;
+    const walk = (x - this.startX) * 1.5;
+    element.scrollLeft = this.scrollLeft - walk;
+  }
+
+  resetAlign() {
+    this.isAlignedActive = false;
+    this.alignedWindowSeq = '';
+    this.alignedCutSiteInWindow = -1;
+    this.initProcessedReads();
+  }
+
+  private findAlignmentInRead(readSeq: string, targetWin: string, cutIdxInWin: number, sgrnaSeq?: string) {
+    const [usable, , bestRes] = isReadUsable(readSeq, null, targetWin, 0, sgrnaSeq || '', cutIdxInWin);
+
+    if (!usable || !bestRes) {
+      return {
+        isAligned: false,
+        preWinSeq: readSeq,
+        winSeqPreCut: '',
+        winSeqPostCut: '',
+        postWinSeq: ''
+      };
+    }
+
+    // Correct orientation if matched on reverse complement
+    const alignedSeq = bestRes.is_rc ? reverseComplement(readSeq) : readSeq;
+    const cutPos = cutIdxInWin >= 0 ? cutIdxInWin : Math.floor(targetWin.length / 2);
+
+    // Anchor bounds
+    const leftAnchor = targetWin.substring(0, 12).toUpperCase();
+    const rightAnchor = targetWin.substring(Math.max(0, targetWin.length - 12)).toUpperCase();
+    const seqUp = alignedSeq.toUpperCase();
+
+    let leftPos = seqUp.indexOf(leftAnchor);
+    let rightPos = seqUp.indexOf(rightAnchor, leftPos !== -1 ? leftPos + 12 : 0);
+
+    if (leftPos === -1 && rightPos === -1) {
+      leftPos = Math.max(0, Math.floor(alignedSeq.length / 2) - cutPos);
+      rightPos = Math.min(alignedSeq.length, leftPos + targetWin.length);
+    } else if (leftPos === -1) {
+      leftPos = Math.max(0, rightPos - targetWin.length);
+    } else if (rightPos === -1) {
+      rightPos = Math.min(alignedSeq.length, leftPos + targetWin.length);
+    } else {
+      rightPos += 12;
+    }
+
+    const windowStart = leftPos;
+    const windowEnd = rightPos;
+    const cutSiteInRead = Math.min(alignedSeq.length, windowStart + cutPos);
+
+    const preWinSeq = alignedSeq.substring(0, windowStart);
+    const winSeqPreCut = alignedSeq.substring(windowStart, cutSiteInRead);
+    const winSeqPostCut = alignedSeq.substring(cutSiteInRead, windowEnd);
+    const postWinSeq = alignedSeq.substring(windowEnd);
+
+    return {
+      isAligned: true,
+      windowStart,
+      windowEnd,
+      cutSiteInRead,
+      preWinSeq,
+      winSeqPreCut,
+      winSeqPostCut,
+      postWinSeq
+    };
   }
 
   searchReads() {
-    if (!this.searchQuery.trim()) {
-      this.clearSearch();
-      return;
-    }
-    const q = this.searchQuery.toLowerCase();
-    this.filteredReads = this.document.reads.filter(r => r.id.toLowerCase().includes(q));
-    this.visibleReads = this.filteredReads.slice(0, this.chunkSize);
-    this.hasMore = this.filteredReads.length > this.chunkSize;
+    this.applyFilterAndPagination();
   }
 
   clearSearch() {
     this.searchQuery = '';
-    this.filteredReads = this.document.reads;
+    this.applyFilterAndPagination();
+  }
+
+  private applyFilterAndPagination() {
+    if (!this.searchQuery.trim()) {
+      this.filteredReads = [...this.processedReads];
+    } else {
+      const q = this.searchQuery.toLowerCase();
+      this.filteredReads = this.processedReads.filter(r =>
+        r.id.toLowerCase().includes(q) || r.seq.toLowerCase().includes(q)
+      );
+    }
     this.visibleReads = this.filteredReads.slice(0, this.chunkSize);
-    this.hasMore = this.filteredReads.length > this.chunkSize;
+    this.hasMore = this.filteredReads.length > this.visibleReads.length;
   }
 
   loadMore() {
@@ -284,62 +856,5 @@ export class FastqViewerComponent implements OnChanges, AfterViewInit {
     const nextChunk = this.filteredReads.slice(currLen, currLen + this.chunkSize);
     this.visibleReads = [...this.visibleReads, ...nextChunk];
     this.hasMore = this.filteredReads.length > this.visibleReads.length;
-  }
-
-  copyText(text: string) {
-    navigator.clipboard.writeText(text);
-  }
-
-  renderCharts() {
-    if (!this.document) return;
-
-    if (this.lengthChartInst) this.lengthChartInst.destroy();
-    if (this.qualChartInst) this.qualChartInst.destroy();
-
-    const lenLabels = Object.keys(this.document.stats.lengthDistribution).map(Number).sort((a,b) => a-b);
-    const lenData = lenLabels.map(l => this.document.stats.lengthDistribution[l]);
-
-    this.lengthChartInst = new Chart(this.lengthChartRef.nativeElement, {
-      type: 'bar',
-      data: {
-        labels: lenLabels.map(l => `${l}-${l+9}`),
-        datasets: [{
-          label: 'Reads',
-          data: lenData,
-          backgroundColor: '#3498db'
-        }]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { title: { display: true, text: 'Length (bp)' } },
-          y: { title: { display: true, text: 'Count' } }
-        }
-      }
-    });
-
-    const qualLabels = Object.keys(this.document.stats.qualityDistribution).map(Number).sort((a,b) => a-b);
-    const qualData = qualLabels.map(l => this.document.stats.qualityDistribution[l]);
-
-    this.qualChartInst = new Chart(this.qualChartRef.nativeElement, {
-      type: 'bar',
-      data: {
-        labels: qualLabels.map(l => `Q${l}`),
-        datasets: [{
-          label: 'Bases',
-          data: qualData,
-          backgroundColor: '#2ecc71'
-        }]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { title: { display: true, text: 'Quality Score' } },
-          y: { title: { display: true, text: 'Base Count' } }
-        }
-      }
-    });
   }
 }

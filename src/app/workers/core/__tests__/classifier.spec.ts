@@ -58,10 +58,35 @@ describe('Classifier Core Utilities', () => {
   });
 
   it('should score read against window using k-mer scoring', () => {
-    const window = 'ACGTACGTACGTACGTACGT';
+    const window = 'AAAAAAAAAAAAAAAAAAAA';
     // Score should be 1.0 for perfect match
     expect(scoreReadAgainstWindow(window, window, 10)).toBe(1.0);
     // Score should be 0 for unrelated sequence
-    expect(scoreReadAgainstWindow('GGGGGGGGGGGGGGGGGGGG', window, 10)).toBe(0.0);
+    expect(scoreReadAgainstWindow('CCCCCCCCCCCCCCCCCCCC', window, 10)).toBe(0.0);
+  });
+
+  it('should exclude cut-site mutations when exclusionFlank or dynamic exclusion is active', () => {
+    const window = 'ATCGGCTAAGCTTGCCGAATCGCCTAGGCTA';
+    // Read has a mutation right at cut site (index 16)
+    const readWithCutSiteMutation = window.substring(0, 16) + 'T' + window.substring(17);
+    // Read has a mutation far from cut site (index 2)
+    const readWithFarMutation = window.substring(0, 2) + 'T' + window.substring(3);
+
+    const scoreCutSite = scoreReadAgainstWindow(readWithCutSiteMutation, window, 10, 16, 0.0, 2);
+    const scoreFar = scoreReadAgainstWindow(readWithFarMutation, window, 10, 16, 0.0, 0);
+
+    expect(scoreCutSite).toBe(1.0);
+    expect(scoreCutSite).toBeGreaterThan(scoreFar);
+  });
+
+  it('should weight far-from-cut-site k-mers higher when distanceWeight > 0', () => {
+    const refWin = 'ACGTACGTACGTACGTACGTACGTACGTACGT';
+    const cutIdx = 16;
+    // Score with distanceWeight = 2.0 vs 0.0
+    const scoreZeroWeight = scoreReadAgainstWindow(refWin, refWin, 10, cutIdx, 0.0, 2);
+    const scoreHighWeight = scoreReadAgainstWindow(refWin, refWin, 10, cutIdx, 2.0, 2);
+
+    expect(scoreZeroWeight).toBe(1.0);
+    expect(scoreHighWeight).toBe(1.0);
   });
 });

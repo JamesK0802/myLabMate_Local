@@ -71,8 +71,20 @@ import { SequenceWorkspacePageComponent } from './pages/sequence-workspace-page/
               <p>This page is a part of the mylabmate service, and only the CRISPR analysis tool has been extracted. Server-side execution is not supported here; only local runs are supported.</p>
             </div>
           </footer>
+      <!-- ── Global Export Loading Overlay ── -->
+      <div class="global-export-overlay" *ngIf="state.exportStatus$ | async as status">
+        <div class="export-loading-card">
+          <div class="export-spinner-ring"></div>
+          <div class="export-loading-content">
+            <h4>{{ status.title }}</h4>
+            <p>{{ status.stage }}</p>
+            <div class="export-progress-track">
+              <div class="export-progress-bar" [style.width.%]="status.percent"></div>
+            </div>
+            <span class="export-percent-num">{{ status.percent }}%</span>
+          </div>
         </div>
-      </main>
+      </div>
     </div>
   `,
   styleUrl: './app.css',
@@ -176,5 +188,11 @@ export class App implements OnInit {
 
   ngOnInit() {
     this.state.activateSlot('analysis');
+    this.state.activeMainTab$.subscribe(tab => {
+      this.activeTab = tab;
+      if (tab === 'workspace') {
+        this.workspaceUnlocked = true;
+      }
+    });
   }
 }

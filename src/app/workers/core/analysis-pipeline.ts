@@ -474,13 +474,15 @@ export function runMultiReferenceAnalysis(
   indelThreshold: number = 1.0,
   analyzeAmbiguous: boolean = false,
   rescueAmbiguous: boolean = false,
-  rescueThreshold: number = 20
+  rescueThreshold: number = 20,
+  cutSiteDistanceWeight: number = 0.0,
+  cutSiteExclusionFlank: number = 0
 ): MultiReferenceResult {
   const totalReadsInitial = data.length;
 
   // Demultiplex
   const demuxResult = assignReadsToReferences(
-    data, genesPayload, phredThreshold, assignmentMarginThreshold
+    data, genesPayload, phredThreshold, assignmentMarginThreshold, cutSiteDistanceWeight, cutSiteExclusionFlank
   );
 
   const ambiguousReadsCount = demuxResult.ambiguous_reads.length;
@@ -700,6 +702,8 @@ export interface AnalysisParams {
   analyzeAmbiguous?: boolean;
   rescueAmbiguous?: boolean;
   rescueThreshold?: number;
+  cutSiteDistanceWeight?: number;
+  cutSiteExclusionFlank?: number;
 }
 
 export function processFile(
@@ -727,7 +731,9 @@ export function processFile(
     params.indelThreshold,
     params.analyzeAmbiguous ?? false,
     params.rescueAmbiguous ?? false,
-    params.rescueThreshold ?? 20
+    params.rescueThreshold ?? 20,
+    params.cutSiteDistanceWeight ?? 0.0,
+    params.cutSiteExclusionFlank ?? 0
   );
 
   return {

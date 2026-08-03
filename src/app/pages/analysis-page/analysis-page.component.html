@@ -1,4 +1,24 @@
 <div class="analysis-page">
+  <!-- ══════════════ ANALYSIS TAB BAR ══════════════ -->
+  <div class="analysis-tabs-bar">
+    <div class="tabs-scroll-container">
+      <div *ngFor="let tab of state.tabs"
+           class="analysis-tab-item"
+           [class.active]="tab.id === state.activeTabId"
+           (click)="state.selectTab(tab.id)">
+        <span class="tab-name" *ngIf="editingTabId !== tab.id" (dblclick)="startRenameTab(tab, $event)" title="Double click to rename">{{ tab.name }}</span>
+        <input *ngIf="editingTabId === tab.id"
+               class="tab-rename-input"
+               [(ngModel)]="editingTabName"
+               (blur)="finishRenameTab(tab)"
+               (keyup.enter)="finishRenameTab(tab)"
+               (click)="$event.stopPropagation()" />
+        <button type="button" class="tab-close-btn" *ngIf="state.tabs.length > 1" (click)="closeTab($event, tab.id)" title="Close tab">&times;</button>
+      </div>
+    </div>
+    <button type="button" class="btn-add-tab" (click)="state.addTab()" title="New Analysis Tab">+</button>
+  </div>
+
   <app-result-dashboard *ngIf="state.genes.length > 0"></app-result-dashboard>
 
   <!-- ══════════════ CONFIGURATION FORM ══════════════ -->
@@ -93,6 +113,48 @@
         </div>
       </div>
 
+      <div class="advanced-toggle-bar">
+        <button type="button" class="btn-advanced-toggle" (click)="showSimilarWindowSettings = !showSimilarWindowSettings">
+          Advanced {{ showSimilarWindowSettings ? '▼' : '▶' }}
+        </button>
+      </div>
+
+      <div class="similar-window-settings-panel" *ngIf="showSimilarWindowSettings">
+        <div class="similar-window-header">
+          <h4>Similar Window Setting</h4>
+          <span class="similar-window-subtitle">Advanced parameters to enhance classification accuracy for targets with high sequence similarity.</span>
+        </div>
+        <div class="slider-group-container">
+          <div class="form-group slider-group">
+            <div class="slider-header">
+              <label>
+                Distance Weight
+                <span class="info-icon">?
+                  <span class="tooltip-text">Assigns higher weight to sequence differences further from the cut site during classification (Default: 0, Recommended: 0.5 - 3.0).</span>
+                </span>
+              </label>
+              <span class="slider-value-badge">{{ state.analysisForm.get('cutSiteDistanceWeight')?.value }}</span>
+            </div>
+            <input type="range" min="0" max="10" step="0.5" formControlName="cutSiteDistanceWeight" class="form-range" />
+            <p class="slider-description">Weights sequence differences (e.g. SNVs) further from the cut site more heavily to resolve subtle differences between targets.</p>
+          </div>
+
+          <div class="form-group slider-group">
+            <div class="slider-header">
+              <label>
+                Cut Site Exclusion Window
+                <span class="info-icon">?
+                  <span class="tooltip-text">Excludes mutations (indels/substitutions) starting within cut site ±N bp from similarity score calculation (Default: 0).</span>
+                </span>
+              </label>
+              <span class="slider-value-badge">±{{ state.analysisForm.get('cutSiteExclusionFlank')?.value }} bp</span>
+            </div>
+            <input type="range" min="0" max="10" step="1" formControlName="cutSiteExclusionFlank" class="form-range" />
+            <p class="slider-description">Excludes indels/mutations starting within cut site ±N bp from similarity calculations to prevent score distortion.</p>
+          </div>
+        </div>
+      </div>
+
       <hr class="divider" />
 
       <div class="targets-section">
@@ -101,6 +163,9 @@
           <div class="header-actions">
             <button type="button" class="btn-autofill" (click)="showAutofill = !showAutofill">
               Auto Fill
+            </button>
+            <button type="button" class="btn-window-check" [class.active]="showWindowCheck" (click)="toggleWindowCheck()">
+              Window Check
             </button>
             <button type="button" class="btn-add" (click)="state.addGene()">Add Gene</button>
           </div>
@@ -116,6 +181,204 @@
               Upload Sequence (Excel)
             </button>
             <input type="file" #templateFileInput (change)="onTemplateUpload($event)" hidden accept=".xlsx,.xls" />
+          </div>
+        </div>
+
+        <!-- Window Check Panel -->
+        <div class="window-check-panel" *ngIf="showWindowCheck">
+          <div class="window-check-header">
+            <div class="window-check-title">
+              <h3>Window Check & Pairwise Similarity Matrix</h3>
+              <p class="window-check-hint">Extract cut-site windows and check similarity percentage between target sequences.</p>
+            </div>
+            <button type="button" class="btn-close-window-check" (click)="showWindowCheck = false">&times;</button>
+          </div>
+
+          <div class="window-controls-row">
+            <label class="control-label">Window Size (bp):</label>
+            <div class="slider-wrapper">
+              <input type="range" min="30" max="180" step="1" [ngModel]="windowCheckSize"
+                [ngModelOptions]="{standalone: true}" (ngModelChange)="onWindowCheckSizeChange($event)"
+                class="window-range-slider" />
+              <span class="range-bound min-bound">30</span>
+              <span class="range-bound max-bound">180</span>
+            </div>
+            <div class="number-input-wrapper">
+              <input type="number" min="1" max="1000" [ngModel]="windowCheckSize"
+                [ngModelOptions]="{standalone: true}" (ngModelChange)="onWindowCheckSizeChange($event)"
+                class="form-control window-number-input" />
+              <span class="unit-label">bp</span>
+            </div>
+          </div>
+
+          <!-- Loading Spinner -->
+          <div class="window-check-loading" *ngIf="isCalculatingWindowCheck">
+            <div class="spinner"></div>
+            <span>Calculating window extraction and similarity matrix...</span>
+          </div>
+
+          <!-- Content Results -->
+          <div class="window-check-results" *ngIf="!isCalculatingWindowCheck">
+            <div *ngIf="extractedWindows.length === 0" class="no-windows-alert">
+              No valid reference sequences or gRNA targets entered yet. Please fill out the reference configuration below.
+            </div>
+
+            <div *ngIf="extractedWindows.length > 0">
+              <!-- Extracted Windows Cards List -->
+              <div class="windows-list-section">
+                <h4>Extracted Target Windows (Size: {{ windowCheckSize }} bp)</h4>
+                <div class="windows-grid">
+                  <div *ngFor="let item of extractedWindows" class="window-card">
+                    <div class="window-card-header">
+                      <span class="window-target-name">{{ item.geneName }} - {{ item.targetId }}</span>
+                      <span class="window-length-badge">{{ item.sequence.length }} bp</span>
+                    </div>
+                    <div class="window-meta" *ngIf="item.cutSiteIndex !== -1">
+                      Cut Site Index: {{ item.cutSiteIndex }} | Strand: {{ item.strand }} | PAM: <code>{{ item.pam }}</code>
+                    </div>
+                    <div class="window-meta warning" *ngIf="item.cutSiteIndex === -1">
+                      gRNA not matched in reference (fallback center window)
+                    </div>
+
+                    <!-- Clean Visual Reference Map Bar -->
+                    <div class="ref-map-bar-wrapper" *ngIf="item.refLength">
+                      <div class="ref-map-bar" [title]="'Ref: ' + item.refLength + ' bp | Window: ' + item.winStart + '-' + item.winEnd + ' bp | Target: ' + item.grnaStart + '-' + item.grnaEnd + ' bp'">
+                        <div class="ref-map-bg"></div>
+                        <div class="ref-map-win" [style.left.%]="item.winLeftPercent" [style.width.%]="item.winWidthPercent"></div>
+                        <div class="ref-map-target" *ngIf="item.targetLeftPercent !== undefined" [style.left.%]="item.targetLeftPercent" [style.width.%]="item.targetWidthPercent"></div>
+                      </div>
+                    </div>
+
+                    <div class="window-seq monospaced">
+                      {{ item.sequence }}
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Bottom-Left Shared Section Legend -->
+                <div class="global-ref-map-legend-bottom">
+                  <span class="legend-item legend-ref"><span class="legend-box box-ref"></span> Reference</span>
+                  <span class="legend-item legend-win"><span class="legend-box box-win"></span> Extracted Window</span>
+                  <span class="legend-item legend-target"><span class="legend-box box-target"></span> Target (gRNA)</span>
+                </div>
+              </div>
+
+              <!-- Pairwise Similarity Matrix Table -->
+              <div class="similarity-matrix-section">
+                <div class="matrix-header-row">
+                  <h4>Pairwise Window Similarity Matrix (%)</h4>
+                  <span class="matrix-hint">Click any cell to compare sequences below · Drag mouse left/right to scroll</span>
+                </div>
+                <div class="matrix-table-wrapper scrollable-drag" #matrixWrapper
+                  (mousedown)="startDragScroll($event, matrixWrapper)"
+                  (mouseleave)="stopDragScroll(matrixWrapper)"
+                  (mouseup)="stopDragScroll(matrixWrapper)"
+                  (mousemove)="onDragScroll($event, matrixWrapper)">
+                  <table class="similarity-table">
+                    <thead>
+                      <tr>
+                        <th class="corner-cell">Target</th>
+                        <th *ngFor="let w of extractedWindows" class="col-header" [title]="itemLabel(w)">
+                          {{ w.targetId }}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr *ngFor="let rowW of extractedWindows; let rIdx = index">
+                        <th class="row-header" [title]="itemLabel(rowW)">
+                          {{ rowW.targetId }} ({{ rowW.geneName }})
+                        </th>
+                        <td *ngFor="let colW of extractedWindows; let cIdx = index"
+                          (click)="selectPairComparison(rIdx, cIdx)"
+                          [style.background-color]="getHeatmapColor(similarityMatrix[rIdx][cIdx], rIdx === cIdx)"
+                          [class.diagonal]="rIdx === cIdx"
+                          [class.selected-cell]="selectedPairRowIndex === rIdx && selectedPairColIndex === cIdx"
+                          title="Click to compare alignment between {{ rowW.targetId }} and {{ colW.targetId }}">
+                          <span class="similarity-pct">{{ similarityMatrix[rIdx][cIdx] | number:'1.1-1' }}%</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Pairwise Sequence Alignment Comparison Panel -->
+              <div class="pair-comparison-section" *ngIf="selectedPairComparison">
+                <div class="pair-comparison-header">
+                  <div class="pair-title-info">
+                    <h4>
+                      Sequence Comparison:
+                      <span class="highlight-target">{{ selectedPairComparison.target1.targetId }}</span> ({{ selectedPairComparison.target1.geneName }})
+                      <span class="vs-badge">VS</span>
+                      <span class="highlight-target">{{ selectedPairComparison.target2.targetId }}</span> ({{ selectedPairComparison.target2.geneName }})
+                    </h4>
+                  </div>
+                  <div class="pair-stats">
+                    <span class="stat-badge cut-site-legend">✂ Cut Site</span>
+                    <span class="stat-badge similarity">Similarity: {{ selectedPairComparison.similarity | number:'1.1-1' }}%</span>
+                    <span class="stat-badge matches">Matches: {{ selectedPairComparison.matchCount }} / {{ selectedPairComparison.totalLen }} bp</span>
+                    <span class="stat-badge mismatches" *ngIf="selectedPairComparison.mismatchCount > 0">Mismatches: {{ selectedPairComparison.mismatchCount }}</span>
+                    <button type="button" class="btn-close-comparison" (click)="clearPairComparison()">&times;</button>
+                  </div>
+                </div>
+
+                <div class="alignment-box monospaced scrollable-drag" #alignBox
+                  (mousedown)="startDragScroll($event, alignBox)"
+                  (mouseleave)="stopDragScroll(alignBox)"
+                  (mouseup)="stopDragScroll(alignBox)"
+                  (mousemove)="onDragScroll($event, alignBox)">
+                  <!-- Row 1: Target 1 -->
+                  <div class="alignment-row">
+                    <div class="alignment-label" [title]="itemLabel(selectedPairComparison.target1)">
+                      {{ selectedPairComparison.target1.targetId }}
+                    </div>
+                    <div class="alignment-seq">
+                      <span *ngFor="let t of selectedPairComparison.tokens1"
+                        class="base-char"
+                        [class.match]="t.isMatch"
+                        [class.mismatch]="!t.isMatch && !t.isGap"
+                        [class.gap]="t.isGap"
+                        [class.cut-site]="t.isCutSite"
+                        [title]="t.isCutSite ? 'Cut Site Position' : ''">
+                        {{ t.char }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Row 2: Match Bar -->
+                  <div class="alignment-row match-bar-row">
+                    <div class="alignment-label"></div>
+                    <div class="alignment-seq match-bar">
+                      <span *ngFor="let m of selectedPairComparison.matchBar"
+                        class="match-icon"
+                        [class.match]="m === '|'"
+                        [class.mismatch]="m === '•'"
+                        [class.cut-site-icon]="m === '✂'">
+                        {{ m }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Row 3: Target 2 -->
+                  <div class="alignment-row">
+                    <div class="alignment-label" [title]="itemLabel(selectedPairComparison.target2)">
+                      {{ selectedPairComparison.target2.targetId }}
+                    </div>
+                    <div class="alignment-seq">
+                      <span *ngFor="let t of selectedPairComparison.tokens2"
+                        class="base-char"
+                        [class.match]="t.isMatch"
+                        [class.mismatch]="!t.isMatch && !t.isGap"
+                        [class.gap]="t.isGap"
+                        [class.cut-site]="t.isCutSite"
+                        [title]="t.isCutSite ? 'Cut Site Position' : ''">
+                        {{ t.char }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <div formArrayName="genes">
