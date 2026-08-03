@@ -270,8 +270,9 @@ const fileTextCache = new Map<string, string>();
             
             if (targetReadInner) {
               shouldInclude = (readWin === targetReadInner);
+            } else if (validGroupKeys.size > 0) {
+              shouldInclude = validGroupKeys.has(readWin);
             } else {
-              // Export all aligned reads for this target (matches Summary Table ALIGNED count 179)
               shouldInclude = true;
             }
 

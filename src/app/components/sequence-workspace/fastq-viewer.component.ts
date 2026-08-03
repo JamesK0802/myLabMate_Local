@@ -1,4 +1,4 @@
-import { Component, Input, OnInit, OnChanges, ViewChild, ElementRef, AfterViewInit } from '@angular/core';
+import { Component, Input, OnInit, OnChanges, SimpleChanges, ViewChild, ElementRef, AfterViewInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { FastqDocument } from '../../models/sequence.model';
@@ -25,7 +25,7 @@ export interface ProcessedRead {
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="fastq-viewer">
+    <div class="fastq-viewer" (scroll)="onViewerScroll($event)">
       <div class="reads-panel">
         <div class="reads-header">
           <div class="header-left">
@@ -147,7 +147,7 @@ export interface ProcessedRead {
         </div>
         
         <div class="load-more" *ngIf="hasMore">
-          <button (click)="loadMore()">Load More (Showing {{ visibleReads.length }} of {{ filteredReads.length }})</button>
+          <button (click)="loadMore()">Showing {{ visibleReads.length | number }} of {{ filteredReads.length | number }} (Scroll down to auto-load)</button>
         </div>
 
         <div class="empty-state" *ngIf="visibleReads.length === 0">
@@ -222,27 +222,30 @@ export interface ProcessedRead {
       border-radius: 4px;
       cursor: pointer;
     }
-    .search-box button:hover { background: #e2e8f0; }
-    
     .btn-align-toggle {
       display: inline-flex;
       align-items: center;
       gap: 6px;
       padding: 6px 14px;
-      background: #ffffff;
-      border: 1px solid #3b82f6;
-      color: #2563eb;
-      font-weight: 600;
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
       border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #334155;
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: all 0.2s ease;
     }
-    .btn-align-toggle:hover, .btn-align-toggle.active {
-      background: #2563eb;
-      color: #ffffff;
+    .btn-align-toggle:hover {
+      background: #f1f5f9;
+      border-color: #94a3b8;
+    }
+    .btn-align-toggle.active {
+      background: #eff6ff;
+      border-color: #3b82f6;
+      color: #2563eb;
     }
 
-    /* Align Config Panel */
     .align-config-panel {
       background: #f8fafc;
       border: 1px solid #cbd5e1;
@@ -257,16 +260,16 @@ export interface ProcessedRead {
       display: flex;
       gap: 8px;
       border-bottom: 1px solid #e2e8f0;
-      padding-bottom: 8px;
+      padding-bottom: 10px;
     }
     .mode-tab-btn {
-      padding: 6px 12px;
-      background: #e2e8f0;
-      border: none;
+      padding: 6px 14px;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
       border-radius: 4px;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 600;
-      color: #64748b;
+      color: #475569;
       cursor: pointer;
     }
     .mode-tab-btn.active {
@@ -471,12 +474,15 @@ export interface ProcessedRead {
 
     /* Unaligned Section */
     .unaligned-section {
-      margin-top: 12px;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 16px;
     }
     .unaligned-title {
-      font-size: 0.95rem;
+      margin: 0 0 12px 0;
       color: #64748b;
-      margin-bottom: 8px;
+      font-size: 0.95rem;
     }
     .unaligned-list {
       display: flex;
@@ -484,19 +490,18 @@ export interface ProcessedRead {
       gap: 8px;
     }
     .read-card {
+      background: #f8fafc;
       border: 1px solid #e2e8f0;
       border-radius: 6px;
-      padding: 8px 12px;
-      background: #fafbfc;
+      padding: 10px;
     }
     .read-header {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      margin-bottom: 4px;
-      font-size: 0.85rem;
+      margin-bottom: 6px;
+      font-size: 0.8rem;
     }
-    .read-id { font-weight: bold; color: #34495e; }
+    .read-id { font-weight: 600; color: #334155; }
     .read-len { color: #7f8c8d; }
     .read-seq-box {
       font-family: 'Courier New', Courier, monospace;
@@ -539,9 +544,27 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
   filteredReads: ProcessedRead[] = [];
   visibleReads: ProcessedRead[] = [];
   searchQuery = '';
-  chunkSize = 50;
+  chunkSize = 100;
   hasMore = false;
   maxPreCutLen = 0;
+  isLoadingMore = false;
+
+  onViewerScroll(event: Event) {
+    const el = event.target as HTMLElement;
+    if (!el || !this.hasMore || this.isLoadingMore) return;
+
+    const threshold = 350;
+    const position = el.scrollTop + el.clientHeight;
+    const height = el.scrollHeight;
+
+    if (height - position < threshold) {
+      this.isLoadingMore = true;
+      this.loadMore();
+      setTimeout(() => {
+        this.isLoadingMore = false;
+      }, 100);
+    }
+  }
 
   // Alignment State
   showAlignPanel = false;
@@ -562,19 +585,37 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
   startX = 0;
   scrollLeft = 0;
 
+  private currentDocId: string | null = null;
+
   constructor(private sequenceWorkspaceService: SequenceWorkspaceService) {}
 
   ngOnInit() {
     this.sequenceWorkspaceService.pendingAutoAlign$.subscribe(pending => {
-      if (pending) {
+      if (pending && this.document) {
         this.checkPendingAutoAlign();
       }
     });
   }
 
-  ngOnChanges() {
-    this.checkPendingAutoAlign();
-    this.initProcessedReads();
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['document']) {
+      const prevId = changes['document'].previousValue?.id;
+      const currId = changes['document'].currentValue?.id;
+
+      if (prevId !== currId) {
+        this.currentDocId = currId || null;
+        this.isAlignedActive = false;
+        this.alignedWindowSeq = '';
+        this.alignedCutSiteInWindow = -1;
+      }
+    }
+
+    const pending = this.sequenceWorkspaceService.getPendingAutoAlign() || (this.document as any)?.autoAlign;
+    if (pending) {
+      this.checkPendingAutoAlign();
+    } else {
+      this.initProcessedReads();
+    }
   }
 
   ngAfterViewInit() {
@@ -598,7 +639,8 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
   }
 
   private checkPendingAutoAlign() {
-    const pending = this.sequenceWorkspaceService.getPendingAutoAlign();
+    if (!this.document) return;
+    const pending = this.sequenceWorkspaceService.getPendingAutoAlign() || (this.document as any)?.autoAlign;
     if (pending) {
       this.inputWindowSeq = pending.windowSeq || '';
       this.inputRefSeq = pending.refSeq || '';
@@ -609,7 +651,9 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
       } else {
         this.alignMode = 'window';
       }
-      this.sequenceWorkspaceService.clearPendingAutoAlign();
+      if (this.sequenceWorkspaceService.getPendingAutoAlign()) {
+        this.sequenceWorkspaceService.clearPendingAutoAlign();
+      }
       this.runAlign();
     }
   }

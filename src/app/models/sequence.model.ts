@@ -84,6 +84,13 @@ export interface FastqStats {
   qualityDistribution: Record<number, number>;
 }
 
+export interface AutoAlignConfig {
+  windowSeq: string;
+  refSeq?: string;
+  grnaSeq?: string;
+  winSize?: number;
+}
+
 export interface FastqDocument {
   type: 'fastq';
   id: string;
@@ -94,6 +101,7 @@ export interface FastqDocument {
   createdTimestamp: number;
   updatedTimestamp: number;
   fileHandle?: any;
+  autoAlign?: AutoAlignConfig;
 }
 
 export type ProjectItem = SequenceDocument | AlignmentDocument | FastqDocument;

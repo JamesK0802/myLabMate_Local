@@ -1169,9 +1169,12 @@ export class AppStateService {
           windowSeq = extractWindow(refSeq, cutInfo.cut_site, winSize);
         }
 
+        const autoAlign = { windowSeq, refSeq, grnaSeq, winSize };
+        fastqDoc.autoAlign = autoAlign;
+
         await this.sequenceWorkspaceService.saveItem(fastqDoc);
         this.sequenceWorkspaceService.selectItem(fastqDoc.id);
-        this.sequenceWorkspaceService.setPendingAutoAlign({ windowSeq, refSeq, grnaSeq, winSize });
+        this.sequenceWorkspaceService.setPendingAutoAlign(autoAlign);
       }
     } catch (e: any) {
       console.error('Open group in workspace failed:', e);
@@ -1232,9 +1235,12 @@ export class AppStateService {
           windowSeq = extractWindow(refSeq, cutInfo.cut_site, winSize);
         }
 
+        const autoAlign = { windowSeq, refSeq, grnaSeq, winSize };
+        fastqDoc.autoAlign = autoAlign;
+
         await this.sequenceWorkspaceService.saveItem(fastqDoc);
         this.sequenceWorkspaceService.selectItem(fastqDoc.id);
-        this.sequenceWorkspaceService.setPendingAutoAlign({ windowSeq, refSeq, grnaSeq, winSize });
+        this.sequenceWorkspaceService.setPendingAutoAlign(autoAlign);
       }
     } catch (e: any) {
       console.error('Open all target in workspace failed:', e);
