@@ -127,6 +127,11 @@ export interface ProcessedRead {
                 <!-- Single vertical cut-site guide line down canvas -->
                 <div class="cut-site-vertical-guide" [style.left.px]="cutSiteGuideLeftPx"></div>
 
+                <!-- Top Sequence Header matched to READ ID header -->
+                <div class="msa-seq-header">
+                  <span class="msa-seq-header-title">ALIGNMENT CANVAS (Cut Site Centered ✂)</span>
+                </div>
+
                 <!-- Reference Sequence Header Row -->
                 <div class="msa-seq-row reference-seq-row">
                   <span class="pad-spaces">{{ refLeadPadding }}</span>
@@ -149,9 +154,11 @@ export interface ProcessedRead {
                     <ng-container *ngFor="let cell of read.grid; let k = index">
                       <span [class]="'grid-cell cell-' + cell.type" [class.is-cut-col]="k === alignedCutSiteInWindow">
                         {{ cell.char }}
-                      </span>
-                      <span class="ins-badge" *ngIf="cell.insertion" [title]="'Insertion (+' + cell.insertion.length + ' bp): ' + cell.insertion">
-                        +{{ cell.insertion.length }}bp
+                        <span class="ins-indicator" *ngIf="cell.insertion"
+                          [attr.data-tooltip]="'Insertion (+' + cell.insertion.length + ' bp): ' + cell.insertion"
+                          [title]="'Insertion (+' + cell.insertion.length + ' bp): ' + cell.insertion">
+                          +{{ cell.insertion.length }}
+                        </span>
                       </span>
                     </ng-container>
                   </span>
@@ -422,6 +429,7 @@ export interface ProcessedRead {
       color: #64748b;
       background: #f1f5f9;
       border-bottom: 1px solid #cbd5e1;
+      box-sizing: border-box;
     }
     .msa-id-row {
       height: 32px;
@@ -429,6 +437,7 @@ export interface ProcessedRead {
       align-items: center;
       padding: 0 12px;
       border-bottom: 1px solid #f1f5f9;
+      box-sizing: border-box;
     }
     .reference-id-row {
       background: #f1f5f9;
@@ -466,6 +475,22 @@ export interface ProcessedRead {
       position: relative;
     }
 
+    .msa-seq-header {
+      height: 32px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #64748b;
+      background: #f1f5f9;
+      border-bottom: 1px solid #cbd5e1;
+      box-sizing: border-box;
+    }
+    .msa-seq-header-title {
+      color: #475569;
+    }
+
     /* Single vertical red cut site line extending down canvas */
     .cut-site-vertical-guide {
       position: absolute;
@@ -487,6 +512,7 @@ export interface ProcessedRead {
       white-space: pre !important;
       border-bottom: 1px solid #f1f5f9;
       padding: 0 12px;
+      box-sizing: border-box;
     }
     .msa-seq-row:hover {
       background: #f8fafc;
@@ -508,13 +534,13 @@ export interface ProcessedRead {
     }
 
     .grid-cell {
+      position: relative;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       width: 1ch;
       text-align: center;
       font-family: 'Courier New', Courier, monospace;
-      position: relative;
     }
     .grid-cell.ref-cell {
       color: #0f172a;
@@ -544,24 +570,45 @@ export interface ProcessedRead {
 
     .ref-cut-badge {
       position: absolute;
-      top: -12px;
+      top: -11px;
       font-size: 10px;
       color: #dc2626;
       font-weight: bold;
     }
 
-    .ins-badge {
-      display: inline-flex;
-      align-items: center;
-      background: #f3e8ff;
-      color: #7e22ce;
-      border: 1px solid #d8b4fe;
-      border-radius: 3px;
-      font-size: 10px;
-      padding: 0 3px;
+    /* Zero-width absolute superscript badge for insertions */
+    .ins-indicator {
+      position: absolute;
+      top: -11px;
+      right: -4px;
+      background: #7e22ce;
+      color: #ffffff;
+      font-size: 8px;
       font-weight: bold;
-      margin: 0 1px;
-      user-select: none;
+      padding: 0 2px;
+      border-radius: 2px;
+      line-height: 1.1;
+      z-index: 6;
+      white-space: nowrap;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+    .ins-indicator:hover::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e1b4b;
+      color: #f3e8ff;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: bold;
+      white-space: nowrap;
+      z-index: 100;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      pointer-events: none;
     }
 
     .rc-tag {
@@ -860,9 +907,11 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
       r.leadPadding = ' '.repeat(padCount);
     }
 
-    // Single vertical red guide line position in pixels
+    // Exact pixel offset calculation for vertical cut-site red line
+    const charWidth = 7.8;
+    const paddingLeftPx = 12;
     const cutSiteColChar = maxPreFlankLen + (this.alignedCutSiteInWindow >= 0 ? this.alignedCutSiteInWindow : Math.floor(targetWin.length / 2));
-    this.cutSiteGuideLeftPx = (cutSiteColChar * 7.8) + 12;
+    this.cutSiteGuideLeftPx = (cutSiteColChar * charWidth) + paddingLeftPx;
 
     list.sort((a, b) => {
       if (a.isAligned && !b.isAligned) return -1;
