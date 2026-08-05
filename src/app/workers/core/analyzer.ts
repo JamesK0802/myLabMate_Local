@@ -58,49 +58,16 @@ export function classifyMutationWithAlignment(
   return { category, has_sub: hasSub, net_indel: netIndel, tokens };
 }
 
-export function alignReadToRefXaware(
-  refSeq: string,
-  readSeq: string,
-  leftX: number = 0,
-  rightX: number = 0
-): AlignmentToken[] {
+export function alignReadToRef(refSeq: string, readSeq: string): AlignmentToken[] {
   const matcher = new SequenceMatcher(null, refSeq, readSeq);
   const opcodes = matcher.getOpcodes();
 
   if (opcodes.length === 0) return [];
 
-  // ── Identify terminal opcodes ─────────────────────────────────────────────
-  const leadingTerminal = new Set<number>();
-  for (let idx = 0; idx < opcodes.length; idx++) {
-    const [tag] = opcodes[idx];
-    if (tag === 'delete') {
-      leadingTerminal.add(idx);
-    } else {
-      break;
-    }
-  }
-
-  const trailingTerminal = new Set<number>();
-  for (let idx = opcodes.length - 1; idx >= 0; idx--) {
-    const [tag, i1, i2, j1, j2] = opcodes[idx];
-    if (tag === 'delete') {
-      trailingTerminal.add(idx);
-    } else if (tag === 'insert' && i1 >= refSeq.length) {
-      trailingTerminal.add(idx);
-    } else {
-      break;
-    }
-  }
-
-  const terminalIndices = new Set([...leadingTerminal, ...trailingTerminal]);
-  const hasTruncation = leftX > 0 || rightX > 0;
-
-  // ── Generate tokens ───────────────────────────────────────────────────────
   const tokens: AlignmentToken[] = [];
 
   for (let idx = 0; idx < opcodes.length; idx++) {
     const [tag, i1, i2, j1, j2] = opcodes[idx];
-    const isTerminal = hasTruncation && terminalIndices.has(idx);
 
     if (tag === 'equal') {
       tokens.push({ type: 'equal', val: readSeq.substring(j1, j2) });
@@ -113,33 +80,57 @@ export function alignReadToRefXaware(
         tokens.push({ type: 'substitute', val: readChunk.substring(0, subLen) });
       }
       if (refChunk.length > subLen) {
-        const opType = isTerminal ? 'unobserved' : 'delete';
-        const val = isTerminal
-          ? 'X'.repeat(refChunk.length - subLen)
-          : '-'.repeat(refChunk.length - subLen);
-        tokens.push({ type: opType as AlignmentToken['type'], val });
+        tokens.push({ type: 'delete', val: '-'.repeat(refChunk.length - subLen) });
       } else if (readChunk.length > subLen) {
-        if (!isTerminal) {
-          tokens.push({ type: 'insert', val: readChunk.substring(subLen) });
-        }
+        tokens.push({ type: 'insert', val: readChunk.substring(subLen) });
       }
     } else if (tag === 'delete') {
-      if (isTerminal) {
-        tokens.push({ type: 'unobserved', val: 'X'.repeat(i2 - i1) });
-      } else {
-        tokens.push({ type: 'delete', val: '-'.repeat(i2 - i1) });
-      }
+      tokens.push({ type: 'delete', val: '-'.repeat(i2 - i1) });
     } else if (tag === 'insert') {
-      if (!isTerminal) {
-        tokens.push({ type: 'insert', val: readSeq.substring(j1, j2) });
-      }
+      tokens.push({ type: 'insert', val: readSeq.substring(j1, j2) });
     }
   }
 
   return tokens;
 }
 
-// ── Legacy compatibility wrapper ──────────────────────────────────────────────
-export function alignReadToRef(refSeq: string, readSeq: string): AlignmentToken[] {
-  return alignReadToRefXaware(refSeq, readSeq, 0, 0);
+export function alignReadToRefXaware(
+  refSeq: string,
+  readSeq: string,
+  leftX: number = 0,
+  rightX: number = 0
+): AlignmentToken[] {
+  if (leftX > 0 || rightX > 0) {
+    const leftPadLen = Math.min(leftX, refSeq.length);
+    const rightPadLen = Math.min(rightX, Math.max(0, refSeq.length - leftPadLen));
+    
+    const targetRef = refSeq.substring(leftPadLen, refSeq.length - rightPadLen);
+    
+    let realObserved = readSeq;
+    if (readSeq.startsWith('X')) {
+      realObserved = readSeq.substring(leftPadLen, Math.max(leftPadLen, readSeq.length - rightPadLen));
+    } else if (readSeq.endsWith('X')) {
+      realObserved = readSeq.substring(0, Math.max(0, readSeq.length - rightPadLen));
+    }
+
+    const tokens: AlignmentToken[] = [];
+    if (leftPadLen > 0) {
+      tokens.push({ type: 'unobserved', val: 'X'.repeat(leftPadLen) });
+    }
+
+    if (targetRef.length > 0 && realObserved.length > 0) {
+      const innerTokens = alignReadToRef(targetRef, realObserved);
+      tokens.push(...innerTokens);
+    } else if (targetRef.length > 0) {
+      tokens.push({ type: 'delete', val: '-'.repeat(targetRef.length) });
+    }
+
+    if (rightPadLen > 0) {
+      tokens.push({ type: 'unobserved', val: 'X'.repeat(rightPadLen) });
+    }
+
+    return tokens;
+  }
+
+  return alignReadToRef(refSeq, readSeq);
 }
