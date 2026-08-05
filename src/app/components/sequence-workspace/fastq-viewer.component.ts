@@ -4,20 +4,27 @@ import { FormsModule } from '@angular/forms';
 import { FastqDocument } from '../../models/sequence.model';
 import { SequenceWorkspaceService } from '../../services/sequence-workspace.service';
 import { isReadUsable, findGrnaCutSite, extractWindow, cutIndexInWindow, reverseComplement } from '../../workers/core/classifier';
+import { classifyMutationWithAlignment, AlignmentToken } from '../../workers/core/analyzer';
+
+export interface AlignmentTokenWithCut {
+  type: 'equal' | 'substitute' | 'delete' | 'insert' | 'unobserved' | 'cut_site';
+  val: string;
+}
 
 export interface ProcessedRead {
   id: string;
   seq: string;
   qualString?: string;
   isAligned: boolean;
-  windowStart?: number;
-  windowEnd?: number;
-  cutSiteInRead?: number;
+  category?: string;
+  netIndel?: number;
+  hasSub?: boolean;
+  tokens?: AlignmentTokenWithCut[];
   preWinSeq?: string;
-  winSeqPreCut?: string;
-  winSeqPostCut?: string;
   postWinSeq?: string;
+  preCutRefChars?: number;
   leadPadding?: string;
+  isRc?: boolean;
 }
 
 @Component({
@@ -118,12 +125,28 @@ export interface ProcessedRead {
                 <div class="msa-seq-row" *ngFor="let read of visibleAlignedReads">
                   <span class="pad-spaces">{{ read.leadPadding }}</span>
                   <span class="seq-flank pre-flank">{{ read.preWinSeq }}</span>
-                  <span class="seq-window-box" title="Extracted Target Window">
-                    <span class="win-seq-part">{{ read.winSeqPreCut }}</span>
-                    <span class="cut-site-badge" title="Cut Site Position">✂</span>
-                    <span class="win-seq-part">{{ read.winSeqPostCut }}</span>
+                  <span class="seq-window-box" title="Extracted Target Window Alignment">
+                    <ng-container *ngFor="let t of read.tokens">
+                      <ng-container *ngIf="t.type === 'equal'">
+                        <span class="tok-equal" *ngFor="let char of t.val.split('')">{{ char }}</span>
+                      </ng-container>
+                      <ng-container *ngIf="t.type === 'substitute'">
+                        <span class="tok-sub" *ngFor="let char of t.val.split('')" [title]="'Substitution: ' + char">{{ char }}</span>
+                      </ng-container>
+                      <ng-container *ngIf="t.type === 'delete'">
+                        <span class="tok-del" *ngFor="let char of t.val.split('')" title="Deletion">-</span>
+                      </ng-container>
+                      <ng-container *ngIf="t.type === 'insert'">
+                        <span class="tok-ins" [title]="'Insertion (+' + t.val.length + ' bp): ' + t.val">+{{ t.val.length }}</span>
+                      </ng-container>
+                      <ng-container *ngIf="t.type === 'unobserved'">
+                        <span class="tok-unobserved" *ngFor="let char of t.val.split('')">-</span>
+                      </ng-container>
+                      <span class="cut-site-badge" *ngIf="t.type === 'cut_site'" title="gRNA Cut Site ✂">✂</span>
+                    </ng-container>
                   </span>
                   <span class="seq-flank post-flank">{{ read.postWinSeq }}</span>
+                  <span class="rc-tag" *ngIf="read.isRc" title="Reverse Complement Strand (Re-oriented 5'->3')">3'←5'</span>
                 </div>
               </div>
             </div>
@@ -445,31 +468,65 @@ export interface ProcessedRead {
 
     /* Sequence formatting inside row */
     .pad-spaces { white-space: pre; }
-    .seq-flank { color: #475569; }
+    .seq-flank { color: #64748b; }
     .seq-window-box {
       display: inline-flex;
       align-items: center;
       background: #fff7ed;
       border: 1.5px solid #f97316;
       border-radius: 4px;
-      padding: 1px 5px;
-      color: #9a3412;
+      padding: 1px 6px;
       font-weight: bold;
     }
-    .win-seq-part { color: #c2410c; }
+    .tok-equal { color: #1e293b; }
+    .tok-sub {
+      background: #3b82f6;
+      color: #ffffff;
+      padding: 0 2px;
+      border-radius: 2px;
+      font-weight: bold;
+      margin: 0 1px;
+    }
+    .tok-del {
+      background: #ef4444;
+      color: #ffffff;
+      padding: 0 2px;
+      border-radius: 2px;
+      font-weight: bold;
+      margin: 0 1px;
+    }
+    .tok-ins {
+      background: #8b5cf6;
+      color: #ffffff;
+      padding: 0 4px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: bold;
+      margin: 0 2px;
+    }
+    .tok-unobserved { color: #cbd5e1; }
     .cut-site-badge {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      background: #ef4444;
+      background: #dc2626;
       color: #ffffff;
       font-size: 11px;
       padding: 0 4px;
       border-radius: 3px;
       font-weight: bold;
-      margin: 0 2px;
-      box-shadow: 0 0 3px rgba(239, 68, 68, 0.6);
+      margin: 0 3px;
+      box-shadow: 0 0 4px rgba(220, 38, 38, 0.6);
       user-select: none;
+    }
+    .rc-tag {
+      font-size: 10px;
+      background: #e2e8f0;
+      color: #475569;
+      padding: 1px 4px;
+      border-radius: 3px;
+      margin-left: 8px;
+      font-weight: bold;
     }
 
     /* Unaligned Section */
@@ -729,13 +786,14 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
         seq: r.seq,
         qualString: r.qualString,
         isAligned: res.isAligned,
-        windowStart: res.windowStart,
-        windowEnd: res.windowEnd,
-        cutSiteInRead: res.cutSiteInRead,
+        category: res.category,
+        netIndel: res.netIndel,
+        hasSub: res.hasSub,
+        tokens: res.tokens,
         preWinSeq: res.preWinSeq,
-        winSeqPreCut: res.winSeqPreCut,
-        winSeqPostCut: res.winSeqPostCut,
         postWinSeq: res.postWinSeq,
+        preCutRefChars: res.preCutRefChars,
+        isRc: res.isRc,
         leadPadding: ''
       };
     });
@@ -744,13 +802,13 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
     const alignedList = list.filter(r => r.isAligned);
     let maxPreCutLen = 0;
     for (const r of alignedList) {
-      const preLen = (r.preWinSeq?.length || 0) + (r.winSeqPreCut?.length || 0);
+      const preLen = r.preCutRefChars || 0;
       if (preLen > maxPreCutLen) maxPreCutLen = preLen;
     }
     this.maxPreCutLen = maxPreCutLen;
 
     for (const r of alignedList) {
-      const preLen = (r.preWinSeq?.length || 0) + (r.winSeqPreCut?.length || 0);
+      const preLen = r.preCutRefChars || 0;
       const padCount = Math.max(0, maxPreCutLen - preLen);
       r.leadPadding = ' '.repeat(padCount);
     }
@@ -823,54 +881,91 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
       return {
         isAligned: false,
         preWinSeq: readSeq,
-        winSeqPreCut: '',
-        winSeqPostCut: '',
-        postWinSeq: ''
+        tokens: [],
+        postWinSeq: '',
+        preCutRefChars: readSeq.length,
+        isRc: false
       };
     }
 
-    // Correct orientation if matched on reverse complement
-    const alignedSeq = bestRes.is_rc ? reverseComplement(readSeq) : readSeq;
+    const isRc = bestRes.is_rc;
+    const alignedSeq = isRc ? reverseComplement(readSeq) : readSeq;
     const cutPos = cutIdxInWin >= 0 ? cutIdxInWin : Math.floor(targetWin.length / 2);
 
-    // Anchor bounds
-    const leftAnchor = targetWin.substring(0, 12).toUpperCase();
-    const rightAnchor = targetWin.substring(Math.max(0, targetWin.length - 12)).toUpperCase();
+    const mutRes = classifyMutationWithAlignment(targetWin, bestRes.read_window, bestRes.left_x, bestRes.right_x);
+
+    const obsRead = bestRes.observed_read || alignedSeq;
     const seqUp = alignedSeq.toUpperCase();
+    const obsPos = seqUp.indexOf(obsRead.toUpperCase());
 
-    let leftPos = seqUp.indexOf(leftAnchor);
-    let rightPos = seqUp.indexOf(rightAnchor, leftPos !== -1 ? leftPos + 12 : 0);
-
-    if (leftPos === -1 && rightPos === -1) {
-      leftPos = Math.max(0, Math.floor(alignedSeq.length / 2) - cutPos);
-      rightPos = Math.min(alignedSeq.length, leftPos + targetWin.length);
-    } else if (leftPos === -1) {
-      leftPos = Math.max(0, rightPos - targetWin.length);
-    } else if (rightPos === -1) {
-      rightPos = Math.min(alignedSeq.length, leftPos + targetWin.length);
+    let preWinSeq = '';
+    let postWinSeq = '';
+    if (obsPos !== -1) {
+      preWinSeq = alignedSeq.substring(0, obsPos);
+      postWinSeq = alignedSeq.substring(obsPos + obsRead.length);
     } else {
-      rightPos += 12;
+      const approxStart = Math.max(0, Math.floor(alignedSeq.length / 2) - cutPos);
+      preWinSeq = alignedSeq.substring(0, approxStart);
+      postWinSeq = alignedSeq.substring(Math.min(alignedSeq.length, approxStart + targetWin.length));
     }
 
-    const windowStart = leftPos;
-    const windowEnd = rightPos;
-    const cutSiteInRead = Math.min(alignedSeq.length, windowStart + cutPos);
+    const tokensWithCut = this.insertCutSiteIntoTokens(mutRes.tokens, cutPos);
 
-    const preWinSeq = alignedSeq.substring(0, windowStart);
-    const winSeqPreCut = alignedSeq.substring(windowStart, cutSiteInRead);
-    const winSeqPostCut = alignedSeq.substring(cutSiteInRead, windowEnd);
-    const postWinSeq = alignedSeq.substring(windowEnd);
+    let preCutRefChars = preWinSeq.length;
+    for (const t of tokensWithCut) {
+      if (t.type === 'cut_site') break;
+      if (t.type === 'insert') continue;
+      preCutRefChars += t.val.length;
+    }
 
     return {
       isAligned: true,
-      windowStart,
-      windowEnd,
-      cutSiteInRead,
+      category: mutRes.category,
+      netIndel: mutRes.net_indel,
+      hasSub: mutRes.has_sub,
+      tokens: tokensWithCut,
       preWinSeq,
-      winSeqPreCut,
-      winSeqPostCut,
-      postWinSeq
+      postWinSeq,
+      preCutRefChars,
+      isRc
     };
+  }
+
+  private insertCutSiteIntoTokens(tokens: AlignmentToken[], cutIdx: number): AlignmentTokenWithCut[] {
+    if (cutIdx < 0) return tokens as AlignmentTokenWithCut[];
+
+    const result: AlignmentTokenWithCut[] = [];
+    let refPos = 0;
+    let cutInserted = false;
+
+    for (const t of tokens) {
+      const refLen = (t.type === 'insert') ? 0 : t.val.length;
+
+      if (!cutInserted && refPos <= cutIdx && (refPos + refLen >= cutIdx)) {
+        const offset = cutIdx - refPos;
+        if (offset === 0) {
+          result.push({ type: 'cut_site', val: '✂' });
+          cutInserted = true;
+          result.push({ ...t });
+        } else {
+          const valBefore = t.val.substring(0, offset);
+          const valAfter = t.val.substring(offset);
+          if (valBefore) result.push({ type: t.type, val: valBefore });
+          result.push({ type: 'cut_site', val: '✂' });
+          cutInserted = true;
+          if (valAfter) result.push({ type: t.type, val: valAfter });
+        }
+      } else {
+        result.push({ ...t });
+      }
+      refPos += refLen;
+    }
+
+    if (!cutInserted) {
+      result.push({ type: 'cut_site', val: '✂' });
+    }
+
+    return result;
   }
 
   searchReads() {
