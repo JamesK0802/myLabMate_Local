@@ -6,9 +6,10 @@ import { SequenceWorkspaceService } from '../../services/sequence-workspace.serv
 import { isReadUsable, findGrnaCutSite, extractWindow, cutIndexInWindow, reverseComplement } from '../../workers/core/classifier';
 import { classifyMutationWithAlignment, AlignmentToken } from '../../workers/core/analyzer';
 
-export interface AlignmentTokenWithCut {
-  type: 'equal' | 'substitute' | 'delete' | 'insert' | 'unobserved' | 'cut_site';
-  val: string;
+export interface WindowGridCell {
+  char: string;
+  type: 'equal' | 'substitute' | 'delete' | 'unobserved';
+  insertion?: string;
 }
 
 export interface ProcessedRead {
@@ -19,10 +20,9 @@ export interface ProcessedRead {
   category?: string;
   netIndel?: number;
   hasSub?: boolean;
-  tokens?: AlignmentTokenWithCut[];
+  grid?: WindowGridCell[];
   preWinSeq?: string;
   postWinSeq?: string;
-  preCutRefChars?: number;
   leadPadding?: string;
   isRc?: boolean;
 }
@@ -48,7 +48,7 @@ export interface ProcessedRead {
               <button (click)="clearSearch()" *ngIf="searchQuery">Clear</button>
             </div>
             <button type="button" class="btn-align-toggle" [class.active]="showAlignPanel" (click)="toggleAlignPanel()">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
               Align Controls {{ isAlignedActive ? '(Active)' : '' }}
             </button>
           </div>
@@ -108,6 +108,9 @@ export interface ProcessedRead {
             <!-- Left Sticky Read IDs Panel -->
             <div class="msa-ids-column">
               <div class="msa-id-header">READ ID</div>
+              <div class="msa-id-row reference-id-row">
+                <span class="msa-id-tag ref-tag">REFERENCE ({{ alignedWindowSeq.length }} bp)</span>
+              </div>
               <div class="msa-id-row" *ngFor="let read of visibleAlignedReads">
                 <span class="msa-id-tag" [title]="'@' + read.id">{{ '@' + read.id }}</span>
               </div>
@@ -121,28 +124,35 @@ export interface ProcessedRead {
               (mousemove)="onDragScroll($event, msaViewport)">
               
               <div class="msa-seq-rows-container monospaced">
-                <div class="msa-seq-header-spacer"></div>
+                <!-- Single vertical cut-site guide line down canvas -->
+                <div class="cut-site-vertical-guide" [style.left.px]="cutSiteGuideLeftPx"></div>
+
+                <!-- Reference Sequence Header Row -->
+                <div class="msa-seq-row reference-seq-row">
+                  <span class="pad-spaces">{{ refLeadPadding }}</span>
+                  <span class="seq-window-box ref-window-box">
+                    <span *ngFor="let char of alignedWindowSeq.split(''); let k = index"
+                      class="grid-cell ref-cell"
+                      [class.is-cut-col]="k === alignedCutSiteInWindow"
+                      [title]="'Ref Pos ' + (k + 1) + (k === alignedCutSiteInWindow ? ' (Cut Site ✂)' : '')">
+                      {{ char }}
+                      <span class="ref-cut-badge" *ngIf="k === alignedCutSiteInWindow" title="Cut Site ✂">✂</span>
+                    </span>
+                  </span>
+                </div>
+
+                <!-- Aligned Read Rows -->
                 <div class="msa-seq-row" *ngFor="let read of visibleAlignedReads">
                   <span class="pad-spaces">{{ read.leadPadding }}</span>
                   <span class="seq-flank pre-flank">{{ read.preWinSeq }}</span>
-                  <span class="seq-window-box" title="Extracted Target Window Alignment">
-                    <ng-container *ngFor="let t of read.tokens">
-                      <ng-container *ngIf="t.type === 'equal'">
-                        <span class="tok-equal" *ngFor="let char of t.val.split('')">{{ char }}</span>
-                      </ng-container>
-                      <ng-container *ngIf="t.type === 'substitute'">
-                        <span class="tok-sub" *ngFor="let char of t.val.split('')" [title]="'Substitution: ' + char">{{ char }}</span>
-                      </ng-container>
-                      <ng-container *ngIf="t.type === 'delete'">
-                        <span class="tok-del" *ngFor="let char of t.val.split('')" title="Deletion">-</span>
-                      </ng-container>
-                      <ng-container *ngIf="t.type === 'insert'">
-                        <span class="tok-ins" [title]="'Insertion (+' + t.val.length + ' bp): ' + t.val">+{{ t.val.length }}</span>
-                      </ng-container>
-                      <ng-container *ngIf="t.type === 'unobserved'">
-                        <span class="tok-unobserved" *ngFor="let char of t.val.split('')">-</span>
-                      </ng-container>
-                      <span class="cut-site-badge" *ngIf="t.type === 'cut_site'" title="gRNA Cut Site ✂">✂</span>
+                  <span class="seq-window-box">
+                    <ng-container *ngFor="let cell of read.grid; let k = index">
+                      <span [class]="'grid-cell cell-' + cell.type" [class.is-cut-col]="k === alignedCutSiteInWindow">
+                        {{ cell.char }}
+                      </span>
+                      <span class="ins-badge" *ngIf="cell.insertion" [title]="'Insertion (+' + cell.insertion.length + ' bp): ' + cell.insertion">
+                        +{{ cell.insertion.length }}bp
+                      </span>
                     </ng-container>
                   </span>
                   <span class="seq-flank post-flank">{{ read.postWinSeq }}</span>
@@ -414,11 +424,19 @@ export interface ProcessedRead {
       border-bottom: 1px solid #cbd5e1;
     }
     .msa-id-row {
-      height: 34px;
+      height: 32px;
       display: flex;
       align-items: center;
       padding: 0 12px;
-      border-bottom: 1px solid #f1f2f6;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .reference-id-row {
+      background: #f1f5f9;
+      border-bottom: 2px solid #cbd5e1;
+    }
+    .ref-tag {
+      color: #2563eb;
+      font-weight: 700;
     }
     .msa-id-tag {
       font-family: 'Courier New', Courier, monospace;
@@ -445,88 +463,116 @@ export interface ProcessedRead {
       display: inline-flex;
       flex-direction: column;
       min-width: 100%;
+      position: relative;
     }
-    .msa-seq-header-spacer {
-      height: 32px;
-      background: #f8fafc;
-      border-bottom: 1px solid #cbd5e1;
+
+    /* Single vertical red cut site line extending down canvas */
+    .cut-site-vertical-guide {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #ef4444;
+      z-index: 4;
+      pointer-events: none;
+      box-shadow: 0 0 4px rgba(239, 68, 68, 0.5);
     }
+
     .msa-seq-row {
-      height: 34px;
+      height: 32px;
       display: flex;
       align-items: center;
       font-family: 'Courier New', Courier, monospace;
       font-size: 13px;
       white-space: pre !important;
-      border-bottom: 1px solid #f1f2f6;
+      border-bottom: 1px solid #f1f5f9;
       padding: 0 12px;
-      transition: background 0.1s ease;
     }
     .msa-seq-row:hover {
-      background: #f0fdf4;
+      background: #f8fafc;
+    }
+    .reference-seq-row {
+      background: #f1f5f9;
+      border-bottom: 2px solid #cbd5e1;
+      font-weight: bold;
     }
 
-    /* Sequence formatting inside row */
     .pad-spaces { white-space: pre; }
-    .seq-flank { color: #64748b; }
+    .seq-flank { color: #94a3b8; }
+
     .seq-window-box {
       display: inline-flex;
       align-items: center;
-      background: #fff7ed;
-      border: 1.5px solid #f97316;
-      border-radius: 4px;
-      padding: 1px 6px;
-      font-weight: bold;
-    }
-    .tok-equal { color: #1e293b; }
-    .tok-sub {
-      background: #3b82f6;
-      color: #ffffff;
+      background: #ffffff;
       padding: 0 2px;
-      border-radius: 2px;
-      font-weight: bold;
-      margin: 0 1px;
     }
-    .tok-del {
-      background: #ef4444;
-      color: #ffffff;
-      padding: 0 2px;
-      border-radius: 2px;
-      font-weight: bold;
-      margin: 0 1px;
-    }
-    .tok-ins {
-      background: #8b5cf6;
-      color: #ffffff;
-      padding: 0 4px;
-      border-radius: 3px;
-      font-size: 11px;
-      font-weight: bold;
-      margin: 0 2px;
-    }
-    .tok-unobserved { color: #cbd5e1; }
-    .cut-site-badge {
+
+    .grid-cell {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      background: #dc2626;
-      color: #ffffff;
-      font-size: 11px;
-      padding: 0 4px;
-      border-radius: 3px;
+      width: 1ch;
+      text-align: center;
+      font-family: 'Courier New', Courier, monospace;
+      position: relative;
+    }
+    .grid-cell.ref-cell {
+      color: #0f172a;
       font-weight: bold;
-      margin: 0 3px;
-      box-shadow: 0 0 4px rgba(220, 38, 38, 0.6);
+    }
+    .grid-cell.cell-equal {
+      color: #1e293b;
+    }
+    .grid-cell.cell-substitute {
+      background: #fef3c7;
+      color: #d97706;
+      font-weight: bold;
+      border-radius: 2px;
+    }
+    .grid-cell.cell-delete {
+      background: #fee2e2;
+      color: #dc2626;
+      font-weight: bold;
+      border-radius: 2px;
+    }
+    .grid-cell.cell-unobserved {
+      color: #cbd5e1;
+    }
+    .grid-cell.is-cut-col {
+      border-left: 1px solid rgba(239, 68, 68, 0.4);
+    }
+
+    .ref-cut-badge {
+      position: absolute;
+      top: -12px;
+      font-size: 10px;
+      color: #dc2626;
+      font-weight: bold;
+    }
+
+    .ins-badge {
+      display: inline-flex;
+      align-items: center;
+      background: #f3e8ff;
+      color: #7e22ce;
+      border: 1px solid #d8b4fe;
+      border-radius: 3px;
+      font-size: 10px;
+      padding: 0 3px;
+      font-weight: bold;
+      margin: 0 1px;
       user-select: none;
     }
+
     .rc-tag {
       font-size: 10px;
-      background: #e2e8f0;
-      color: #475569;
+      background: #f1f5f9;
+      color: #64748b;
       padding: 1px 4px;
       border-radius: 3px;
       margin-left: 8px;
-      font-weight: bold;
+      font-weight: 600;
+      border: 1px solid #e2e8f0;
     }
 
     /* Unaligned Section */
@@ -604,6 +650,8 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
   chunkSize = 100;
   hasMore = false;
   maxPreCutLen = 0;
+  refLeadPadding = '';
+  cutSiteGuideLeftPx = 0;
   isLoadingMore = false;
 
   onViewerScroll(event: Event) {
@@ -789,31 +837,33 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
         category: res.category,
         netIndel: res.netIndel,
         hasSub: res.hasSub,
-        tokens: res.tokens,
+        grid: res.grid,
         preWinSeq: res.preWinSeq,
         postWinSeq: res.postWinSeq,
-        preCutRefChars: res.preCutRefChars,
         isRc: res.isRc,
         leadPadding: ''
       };
     });
 
-    // Calculate maximum pre-cut length for vertical cut-site centering
     const alignedList = list.filter(r => r.isAligned);
-    let maxPreCutLen = 0;
+    let maxPreFlankLen = 0;
     for (const r of alignedList) {
-      const preLen = r.preCutRefChars || 0;
-      if (preLen > maxPreCutLen) maxPreCutLen = preLen;
+      const preLen = r.preWinSeq?.length || 0;
+      if (preLen > maxPreFlankLen) maxPreFlankLen = preLen;
     }
-    this.maxPreCutLen = maxPreCutLen;
+    this.maxPreCutLen = maxPreFlankLen;
+    this.refLeadPadding = ' '.repeat(maxPreFlankLen);
 
     for (const r of alignedList) {
-      const preLen = r.preCutRefChars || 0;
-      const padCount = Math.max(0, maxPreCutLen - preLen);
+      const preLen = r.preWinSeq?.length || 0;
+      const padCount = Math.max(0, maxPreFlankLen - preLen);
       r.leadPadding = ' '.repeat(padCount);
     }
 
-    // Group 1 (Aligned reads) at the top, Group 2 (Unaligned reads) at the bottom
+    // Single vertical red guide line position in pixels
+    const cutSiteColChar = maxPreFlankLen + (this.alignedCutSiteInWindow >= 0 ? this.alignedCutSiteInWindow : Math.floor(targetWin.length / 2));
+    this.cutSiteGuideLeftPx = (cutSiteColChar * 7.8) + 12;
+
     list.sort((a, b) => {
       if (a.isAligned && !b.isAligned) return -1;
       if (!a.isAligned && b.isAligned) return 1;
@@ -837,11 +887,7 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
     setTimeout(() => {
       if (!this.msaViewportRef) return;
       const el = this.msaViewportRef.nativeElement as HTMLElement;
-      const charWidth = 8.5; // pixel width per character in 13px monospace font
-      const cutSiteColChar = this.maxPreCutLen + 4;
-      const cutSitePixelX = cutSiteColChar * charWidth;
-      const viewportWidth = el.clientWidth;
-      const targetScrollLeft = Math.max(0, cutSitePixelX - (viewportWidth / 2));
+      const targetScrollLeft = Math.max(0, this.cutSiteGuideLeftPx - (el.clientWidth / 2));
       el.scrollLeft = targetScrollLeft;
     }, 60);
   }
@@ -881,9 +927,8 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
       return {
         isAligned: false,
         preWinSeq: readSeq,
-        tokens: [],
+        grid: [],
         postWinSeq: '',
-        preCutRefChars: readSeq.length,
         isRc: false
       };
     }
@@ -909,63 +954,60 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
       postWinSeq = alignedSeq.substring(Math.min(alignedSeq.length, approxStart + targetWin.length));
     }
 
-    const tokensWithCut = this.insertCutSiteIntoTokens(mutRes.tokens, cutPos);
-
-    let preCutRefChars = preWinSeq.length;
-    for (const t of tokensWithCut) {
-      if (t.type === 'cut_site') break;
-      if (t.type === 'insert') continue;
-      preCutRefChars += t.val.length;
-    }
+    const grid = this.buildWindowGrid(mutRes.tokens, targetWin.length);
 
     return {
       isAligned: true,
       category: mutRes.category,
       netIndel: mutRes.net_indel,
       hasSub: mutRes.has_sub,
-      tokens: tokensWithCut,
+      grid,
       preWinSeq,
       postWinSeq,
-      preCutRefChars,
       isRc
     };
   }
 
-  private insertCutSiteIntoTokens(tokens: AlignmentToken[], cutIdx: number): AlignmentTokenWithCut[] {
-    if (cutIdx < 0) return tokens as AlignmentTokenWithCut[];
-
-    const result: AlignmentTokenWithCut[] = [];
-    let refPos = 0;
-    let cutInserted = false;
+  private buildWindowGrid(tokens: AlignmentToken[], winLen: number): WindowGridCell[] {
+    const grid: WindowGridCell[] = [];
+    let refIdx = 0;
 
     for (const t of tokens) {
-      const refLen = (t.type === 'insert') ? 0 : t.val.length;
-
-      if (!cutInserted && refPos <= cutIdx && (refPos + refLen >= cutIdx)) {
-        const offset = cutIdx - refPos;
-        if (offset === 0) {
-          result.push({ type: 'cut_site', val: '✂' });
-          cutInserted = true;
-          result.push({ ...t });
+      if (t.type === 'insert') {
+        if (grid.length > 0) {
+          const prevCell = grid[grid.length - 1];
+          prevCell.insertion = (prevCell.insertion || '') + t.val;
         } else {
-          const valBefore = t.val.substring(0, offset);
-          const valAfter = t.val.substring(offset);
-          if (valBefore) result.push({ type: t.type, val: valBefore });
-          result.push({ type: 'cut_site', val: '✂' });
-          cutInserted = true;
-          if (valAfter) result.push({ type: t.type, val: valAfter });
+          grid.push({
+            char: 'X',
+            type: 'unobserved',
+            insertion: t.val
+          });
+          refIdx++;
         }
       } else {
-        result.push({ ...t });
+        for (const char of t.val.split('')) {
+          if (refIdx < winLen) {
+            if (t.type === 'delete') {
+              grid.push({ char: '-', type: 'delete' });
+            } else if (t.type === 'substitute') {
+              grid.push({ char, type: 'substitute' });
+            } else if (t.type === 'unobserved') {
+              grid.push({ char: 'X', type: 'unobserved' });
+            } else {
+              grid.push({ char, type: 'equal' });
+            }
+            refIdx++;
+          }
+        }
       }
-      refPos += refLen;
     }
 
-    if (!cutInserted) {
-      result.push({ type: 'cut_site', val: '✂' });
+    while (grid.length < winLen) {
+      grid.push({ char: 'X', type: 'unobserved' });
     }
 
-    return result;
+    return grid;
   }
 
   searchReads() {
