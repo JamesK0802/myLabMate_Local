@@ -45,11 +45,14 @@ export interface ProcessedRead {
             <span class="unaligned-summary-tag" *ngIf="!isAlignedActive">
               Total Reads: <strong>{{ processedReads.length | number }}</strong>
             </span>
+            <span class="filter-count-tag" *ngIf="searchQuery.trim()">
+              Filtered: <strong>{{ filteredReads.length | number }}</strong> matches
+            </span>
           </div>
 
           <div class="top-bar-right">
             <div class="search-box">
-              <input type="text" [(ngModel)]="searchQuery" (keyup.enter)="searchReads()" placeholder="Search ID or sequence...">
+              <input type="text" [(ngModel)]="searchQuery" (ngModelChange)="searchReads()" (keyup.enter)="searchReads()" placeholder="Search ID or sequence...">
               <button (click)="searchReads()">Search</button>
               <button (click)="clearSearch()" *ngIf="searchQuery">Clear</button>
             </div>
@@ -269,6 +272,14 @@ export interface ProcessedRead {
       border-radius: 12px;
       border: 1px solid #cbd5e1;
     }
+    .filter-count-tag {
+      font-size: 0.78rem;
+      color: #0369a1;
+      background: #e0f2fe;
+      padding: 3px 8px;
+      border-radius: 12px;
+      border: 1px solid #bae6fd;
+    }
     .top-bar-right {
       display: flex;
       gap: 8px;
@@ -282,7 +293,7 @@ export interface ProcessedRead {
       padding: 5px 10px;
       border: 1px solid #cbd5e1;
       border-radius: 4px;
-      width: 200px;
+      width: 220px;
       font-size: 0.82rem;
     }
     .search-box button {
@@ -1046,13 +1057,18 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
   }
 
   private applyFilterAndPagination() {
-    if (!this.searchQuery.trim()) {
+    const q = this.searchQuery ? this.searchQuery.trim().toLowerCase() : '';
+    if (!q) {
       this.filteredReads = [...this.processedReads];
     } else {
-      const q = this.searchQuery.toLowerCase();
-      this.filteredReads = this.processedReads.filter(r =>
-        r.id.toLowerCase().includes(q) || r.seq.toLowerCase().includes(q)
-      );
+      this.filteredReads = this.processedReads.filter(r => {
+        const matchId = r.id ? r.id.toLowerCase().includes(q) : false;
+        const matchSeq = r.seq ? r.seq.toLowerCase().includes(q) : false;
+        const matchCat = r.category ? r.category.toLowerCase().includes(q) : false;
+        const matchPre = r.preWinSeq ? r.preWinSeq.toLowerCase().includes(q) : false;
+        const matchPost = r.postWinSeq ? r.postWinSeq.toLowerCase().includes(q) : false;
+        return matchId || matchSeq || matchCat || matchPre || matchPost;
+      });
     }
     this.visibleReads = this.filteredReads.slice(0, this.chunkSize);
     this.hasMore = this.filteredReads.length > this.visibleReads.length;

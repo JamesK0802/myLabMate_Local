@@ -22,7 +22,7 @@ import { SequenceWorkspaceService } from '../../services/sequence-workspace.serv
       <div class="panel viewer-panel">
         <app-main-viewer></app-main-viewer>
       </div>
-      <div class="panel inspector-panel">
+      <div class="panel inspector-panel" *ngIf="(workspace.selectedItem$ | async)?.type !== 'fastq'">
         <app-item-inspector></app-item-inspector>
       </div>
     </div>
