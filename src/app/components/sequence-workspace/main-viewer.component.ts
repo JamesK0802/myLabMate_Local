@@ -13,26 +13,26 @@ import { FastqViewerComponent } from './fastq-viewer.component';
   template: `
     <div class="viewer-container" *ngIf="workspace.selectedItem$ | async as item; else noSelection">
         
-        <div class="header-content">
-          <div class="doc-title">{{ item.name }}</div>
-          <div class="doc-meta" *ngIf="item.type === 'sequence'">
-            {{ item.topology }} • {{ item.sequence.length }} bp
+        <!-- Compact 1-line Header Bar -->
+        <div class="compact-doc-header">
+          <div class="doc-title-group">
+            <span class="doc-name" [title]="item.name">{{ item.name }}</span>
+            <span class="doc-badge fastq-badge" *ngIf="item.type === 'fastq'">FASTQ</span>
+            <span class="doc-badge seq-badge" *ngIf="item.type === 'sequence'">SEQ</span>
+            <span class="doc-meta-text" *ngIf="item.type === 'fastq'">{{ item.stats.readCount | number }} reads</span>
+            <span class="doc-meta-text" *ngIf="item.type === 'sequence'">{{ item.topology }} • {{ item.sequence.length }} bp</span>
           </div>
-          <div class="doc-meta" *ngIf="item.type === 'fastq'">
-            FASTQ • {{ item.stats.readCount | number }} reads
-          </div>
-        </div>
 
-        <div class="viewer-tabs" *ngIf="item.type === 'sequence'">
-          <button class="tab-btn" [class.active]="activeTab === 'sequence'" (click)="activeTab = 'sequence'">Sequence</button>
-          <button class="tab-btn" [class.active]="activeTab === 'map'" (click)="activeTab = 'map'">Map</button>
-          <button class="tab-btn" [class.active]="activeTab === 'features'" (click)="activeTab = 'features'">Features</button>
-          <button class="tab-btn" [class.active]="activeTab === 'restriction'" (click)="activeTab = 'restriction'">Restriction Sites</button>
+          <div class="viewer-tabs" *ngIf="item.type === 'sequence'">
+            <button class="tab-btn" [class.active]="activeTab === 'sequence'" (click)="activeTab = 'sequence'">Sequence</button>
+            <button class="tab-btn" [class.active]="activeTab === 'map'" (click)="activeTab = 'map'">Map</button>
+            <button class="tab-btn" [class.active]="activeTab === 'features'" (click)="activeTab = 'features'">Features</button>
+            <button class="tab-btn" [class.active]="activeTab === 'restriction'" (click)="activeTab = 'restriction'">Restriction Sites</button>
+          </div>
         </div>
 
         <div class="viewer-content">
           <ng-container *ngIf="item.type === 'sequence'">
-            
             <div *ngIf="activeTab === 'sequence'" class="tab-pane">
               <app-sequence-view [document]="item"></app-sequence-view>
             </div>
@@ -66,7 +66,6 @@ import { FastqViewerComponent } from './fastq-viewer.component';
             <div *ngIf="activeTab === 'restriction'" class="tab-pane restriction-pane">
               <p style="color: #7f8c8d;">Restriction enzyme analysis will be displayed here.</p>
             </div>
-
           </ng-container>
 
           <ng-container *ngIf="item.type === 'fastq'">
@@ -75,7 +74,6 @@ import { FastqViewerComponent } from './fastq-viewer.component';
             </div>
           </ng-container>
         </div>
-
     </div>
 
     <ng-template #noSelection>
@@ -88,17 +86,68 @@ import { FastqViewerComponent } from './fastq-viewer.component';
   styles: [`
     :host { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
     .viewer-container { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    
+    .compact-doc-header {
+      height: 38px;
+      padding: 0 14px;
+      background: #ffffff;
+      border-bottom: 1px solid #cbd5e1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .doc-title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      overflow: hidden;
+    }
+    .doc-name {
+      font-size: 0.92rem;
+      font-weight: 700;
+      color: #0f172a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .doc-badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .fastq-badge {
+      background: #eff6ff;
+      color: #2563eb;
+      border: 1px solid #bfdbfe;
+    }
+    .seq-badge {
+      background: #f0fdf4;
+      color: #16a34a;
+      border: 1px solid #bbf7d0;
+    }
+    .doc-meta-text {
+      font-size: 0.8rem;
+      color: #64748b;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
     .viewer-tabs {
-      display: flex; border-bottom: 1px solid var(--color-border); background: #fdfdfd; padding: 0 16px;
+      display: flex; gap: 4px;
     }
     .tab-btn {
-      background: none; border: none; padding: 12px 16px; cursor: pointer; font-size: 0.85rem; font-weight: 500;
-      color: #7f8c8d; border-bottom: 2px solid transparent; transition: 0.2s;
+      background: none; border: none; padding: 6px 12px; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+      color: #64748b; border-bottom: 2px solid transparent; transition: 0.2s;
     }
-    .tab-btn:hover { color: #34495e; }
-    .tab-btn.active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+    .tab-btn:hover { color: #1e293b; }
+    .tab-btn.active { color: #2563eb; border-bottom-color: #2563eb; }
+    
     .viewer-content { flex: 1; overflow: hidden; position: relative; display: flex; flex-direction: column; }
-    .tab-pane { flex: 1; overflow: hidden; padding: 16px; display: flex; flex-direction: column; }
+    .tab-pane { flex: 1; overflow: hidden; padding: 12px; display: flex; flex-direction: column; }
     .map-pane { display: flex; justify-content: center; align-items: center; background: #fafafa; }
     .empty-state {
       display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;

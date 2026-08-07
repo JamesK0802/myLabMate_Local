@@ -34,16 +34,22 @@ export interface ProcessedRead {
   template: `
     <div class="fastq-viewer" (scroll)="onViewerScroll($event)">
       <div class="reads-panel">
-        <div class="reads-header">
-          <div class="header-left">
-            <h3>Reads Alignment Workspace</h3>
+        
+        <!-- Compact Top Workspace Bar -->
+        <div class="workspace-top-bar">
+          <div class="top-bar-left">
+            <span class="workspace-title">Reads Workspace</span>
             <span class="aligned-summary-tag" *ngIf="isAlignedActive">
               Aligned: <strong>{{ alignedStats.alignedCount | number }}</strong> / {{ alignedStats.total | number }} ({{ alignedStats.percentage | number:'1.1-1' }}%)
             </span>
+            <span class="unaligned-summary-tag" *ngIf="!isAlignedActive">
+              Total Reads: <strong>{{ processedReads.length | number }}</strong>
+            </span>
           </div>
-          <div class="header-actions">
+
+          <div class="top-bar-right">
             <div class="search-box">
-              <input type="text" [(ngModel)]="searchQuery" (keyup.enter)="searchReads()" placeholder="Search by ID or sequence...">
+              <input type="text" [(ngModel)]="searchQuery" (keyup.enter)="searchReads()" placeholder="Search ID or sequence...">
               <button (click)="searchReads()">Search</button>
               <button (click)="clearSearch()" *ngIf="searchQuery">Clear</button>
             </div>
@@ -97,13 +103,8 @@ export interface ProcessedRead {
           </div>
         </div>
 
-        <!-- ── Unified Multi-Sequence Alignment Block (Group 1: Aligned Reads) ── -->
+        <!-- ── Aligned Reads Split Table (Group 1: Aligned Reads) ── -->
         <div class="msa-section" *ngIf="isAlignedActive && alignedReadsList.length > 0">
-          <div class="msa-section-header">
-            <h4>Aligned Reads Block (Centered at Cut Site)</h4>
-            <span class="msa-help-text">💡 Drag mouse or scroll horizontally — all reads move together as one block</span>
-          </div>
-
           <div class="msa-wrapper">
             <!-- Left Sticky Read IDs Panel -->
             <div class="msa-ids-column">
@@ -170,17 +171,29 @@ export interface ProcessedRead {
           </div>
         </div>
 
-        <!-- ── Unaligned Reads List (Group 2: Unaligned Reads) ── -->
-        <div class="unaligned-section" *ngIf="unalignedReadsList.length > 0">
-          <h4 class="unaligned-title">Unaligned Reads ({{ unalignedReadsList.length | number }})</h4>
-          <div class="unaligned-list">
-            <div class="read-card unaligned-card" *ngFor="let read of visibleUnalignedReads">
-              <div class="read-header">
-                <span class="read-id">{{ '@' + read.id }}</span>
-                <span class="read-len">{{ read.seq.length }} bp</span>
+        <!-- ── Compact Split Table for Unaligned Reads (Group 2 or Default View) ── -->
+        <div class="unaligned-section" *ngIf="!isAlignedActive || unalignedReadsList.length > 0">
+          <div class="unaligned-section-title" *ngIf="isAlignedActive">
+            <h4>Unaligned Reads ({{ unalignedReadsList.length | number }})</h4>
+          </div>
+
+          <div class="raw-table-wrapper">
+            <!-- Left Sticky Read IDs Column -->
+            <div class="raw-ids-column">
+              <div class="raw-id-header">READ ID</div>
+              <div class="raw-id-row" *ngFor="let read of (isAlignedActive ? visibleUnalignedReads : visibleReads)">
+                <span class="raw-id-tag" [title]="'@' + read.id">{{ '@' + read.id }}</span>
+                <span class="raw-len-badge">{{ read.seq.length }} bp</span>
               </div>
-              <div class="read-seq-box monospaced">
-                <span class="raw-seq-text">{{ read.seq }}</span>
+            </div>
+
+            <!-- Right Scrollable Raw Sequence Viewport -->
+            <div class="raw-seq-viewport">
+              <div class="raw-seq-container monospaced">
+                <div class="raw-seq-header">RAW SEQUENCE (5' → 3')</div>
+                <div class="raw-seq-row" *ngFor="let read of (isAlignedActive ? visibleUnalignedReads : visibleReads)">
+                  <span class="raw-seq-text">{{ read.seq }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -199,86 +212,99 @@ export interface ProcessedRead {
   styles: [`
     :host { display: flex; flex-direction: column; height: 100%; min-height: 0; width: 100%; }
     .fastq-viewer {
-      padding: 16px;
+      padding: 10px;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 10px;
       flex: 1;
       min-height: 0;
       overflow-y: auto;
-      background: #f8f9fa;
+      background: #f8fafc;
     }
     .reads-panel {
       background: white;
       border: 1px solid var(--color-border, #cbd5e1);
-      border-radius: 8px;
-      padding: 16px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      border-radius: 6px;
+      padding: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
       flex: 1;
       display: flex;
       flex-direction: column;
     }
-    .reads-header {
+
+    /* Top Compact Workspace Bar */
+    .workspace-top-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
+      margin-bottom: 10px;
       flex-wrap: wrap;
-      gap: 12px;
+      gap: 10px;
+      border-bottom: 1px solid #f1f5f9;
+      padding-bottom: 8px;
     }
-    .header-left {
+    .top-bar-left {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
-    .reads-header h3 { margin: 0; font-size: 1.15rem; color: #1e293b; }
+    .workspace-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
     .aligned-summary-tag {
-      font-size: 0.85rem;
+      font-size: 0.78rem;
       color: #15803d;
       background: #dcfce7;
-      padding: 4px 10px;
-      border-radius: 20px;
+      padding: 3px 8px;
+      border-radius: 12px;
       border: 1px solid #86efac;
     }
-    .header-actions {
+    .unaligned-summary-tag {
+      font-size: 0.78rem;
+      color: #475569;
+      background: #f1f5f9;
+      padding: 3px 8px;
+      border-radius: 12px;
+      border: 1px solid #cbd5e1;
+    }
+    .top-bar-right {
       display: flex;
-      gap: 12px;
+      gap: 8px;
       align-items: center;
     }
     .search-box {
       display: flex;
-      gap: 8px;
+      gap: 6px;
     }
     .search-box input {
-      padding: 6px 12px;
-      border: 1px solid var(--color-border, #cbd5e1);
+      padding: 5px 10px;
+      border: 1px solid #cbd5e1;
       border-radius: 4px;
-      width: 220px;
+      width: 200px;
+      font-size: 0.82rem;
     }
     .search-box button {
-      padding: 6px 12px;
+      padding: 5px 10px;
       background: #f1f5f9;
-      border: 1px solid var(--color-border, #cbd5e1);
+      border: 1px solid #cbd5e1;
       border-radius: 4px;
       cursor: pointer;
+      font-size: 0.8rem;
     }
     .btn-align-toggle {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 6px 14px;
+      gap: 5px;
+      padding: 5px 12px;
       background: #f8fafc;
       border: 1px solid #cbd5e1;
-      border-radius: 6px;
-      font-size: 0.85rem;
+      border-radius: 5px;
+      font-size: 0.8rem;
       font-weight: 600;
       color: #334155;
       cursor: pointer;
-      transition: all 0.2s ease;
-    }
-    .btn-align-toggle:hover {
-      background: #f1f5f9;
-      border-color: #94a3b8;
     }
     .btn-align-toggle.active {
       background: #eff6ff;
@@ -289,25 +315,25 @@ export interface ProcessedRead {
     .align-config-panel {
       background: #f8fafc;
       border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 16px;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 10px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 10px;
     }
     .align-mode-tabs {
       display: flex;
       gap: 8px;
       border-bottom: 1px solid #e2e8f0;
-      padding-bottom: 10px;
+      padding-bottom: 8px;
     }
     .mode-tab-btn {
-      padding: 6px 14px;
+      padding: 5px 12px;
       background: #ffffff;
       border: 1px solid #cbd5e1;
       border-radius: 4px;
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       font-weight: 600;
       color: #475569;
       cursor: pointer;
@@ -319,89 +345,29 @@ export interface ProcessedRead {
     .align-inputs-group {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
-    .form-row {
-      display: flex;
-      gap: 12px;
-    }
-    .form-field {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
+    .form-row { display: flex; gap: 10px; }
+    .form-field { display: flex; flex-direction: column; gap: 3px; }
     .form-field.full-width { width: 100%; }
     .form-field.flex-1 { flex: 1; }
     .form-field.flex-2 { flex: 2; }
-    .form-field label {
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: #475569;
-    }
-    .text-mono {
-      font-family: 'Courier New', Courier, monospace !important;
-      font-size: 0.85rem !important;
-    }
-    .form-control {
-      padding: 8px 10px;
-      border: 1px solid #cbd5e1;
-      border-radius: 4px;
-    }
-    .align-panel-actions {
-      display: flex;
-      gap: 10px;
-    }
+    .form-field label { font-size: 0.78rem; font-weight: 600; color: #475569; }
+    .text-mono { font-family: 'Courier New', Courier, monospace !important; font-size: 0.82rem !important; }
+    .form-control { padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 4px; }
+    .align-panel-actions { display: flex; gap: 8px; }
     .btn-run-align {
-      padding: 8px 16px;
-      background: #16a34a;
-      color: #ffffff;
-      font-weight: 600;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
+      padding: 6px 14px; background: #16a34a; color: #ffffff; font-weight: 600; border: none; border-radius: 5px; cursor: pointer; font-size: 0.8rem;
     }
-    .btn-run-align:hover { background: #15803d; }
     .btn-reset-align {
-      padding: 8px 16px;
-      background: #ef4444;
-      color: #ffffff;
-      font-weight: 600;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
+      padding: 6px 14px; background: #ef4444; color: #ffffff; font-weight: 600; border: none; border-radius: 5px; cursor: pointer; font-size: 0.8rem;
     }
-    .btn-reset-align:hover { background: #dc2626; }
 
     /* ── Unified Multi-Sequence Alignment Block ── */
     .msa-section {
       background: #ffffff;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 20px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
-    .msa-section-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      border-radius: 6px;
       margin-bottom: 12px;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .msa-section-header h4 {
-      margin: 0;
-      color: #1e293b;
-      font-size: 1.05rem;
-    }
-    .msa-help-text {
-      font-size: 0.78rem;
-      color: #16a34a;
-      background: #f0fdf4;
-      padding: 4px 10px;
-      border-radius: 4px;
-      border: 1px solid #bbf7d0;
-      font-weight: 600;
     }
     .msa-wrapper {
       display: flex;
@@ -423,8 +389,8 @@ export interface ProcessedRead {
       height: 32px;
       display: flex;
       align-items: center;
-      padding: 0 12px;
-      font-size: 0.75rem;
+      padding: 0 10px;
+      font-size: 0.73rem;
       font-weight: 700;
       color: #64748b;
       background: #f1f5f9;
@@ -435,7 +401,7 @@ export interface ProcessedRead {
       height: 32px;
       display: flex;
       align-items: center;
-      padding: 0 12px;
+      padding: 0 10px;
       border-bottom: 1px solid #f1f5f9;
       box-sizing: border-box;
     }
@@ -443,13 +409,10 @@ export interface ProcessedRead {
       background: #f1f5f9;
       border-bottom: 2px solid #cbd5e1;
     }
-    .ref-tag {
-      color: #2563eb;
-      font-weight: 700;
-    }
+    .ref-tag { color: #2563eb; font-weight: 700; }
     .msa-id-tag {
       font-family: 'Courier New', Courier, monospace;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       font-weight: bold;
       color: #334155;
       overflow: hidden;
@@ -464,10 +427,7 @@ export interface ProcessedRead {
       scrollbar-width: thin;
       background: #ffffff;
     }
-    .msa-seq-viewport.dragging {
-      cursor: grabbing;
-      user-select: none;
-    }
+    .msa-seq-viewport.dragging { cursor: grabbing; user-select: none; }
     .msa-seq-rows-container {
       display: inline-flex;
       flex-direction: column;
@@ -479,17 +439,15 @@ export interface ProcessedRead {
       height: 32px;
       display: flex;
       align-items: center;
-      padding: 0 12px;
-      font-size: 0.75rem;
+      padding: 0 10px;
+      font-size: 0.73rem;
       font-weight: 700;
       color: #64748b;
       background: #f1f5f9;
       border-bottom: 1px solid #cbd5e1;
       box-sizing: border-box;
     }
-    .msa-seq-header-title {
-      color: #475569;
-    }
+    .msa-seq-header-title { color: #475569; }
 
     /* Single vertical red cut site line extending down canvas */
     .cut-site-vertical-guide {
@@ -511,12 +469,10 @@ export interface ProcessedRead {
       font-size: 13px;
       white-space: pre !important;
       border-bottom: 1px solid #f1f5f9;
-      padding: 0 12px;
+      padding: 0 10px;
       box-sizing: border-box;
     }
-    .msa-seq-row:hover {
-      background: #f8fafc;
-    }
+    .msa-seq-row:hover { background: #f8fafc; }
     .reference-seq-row {
       background: #f1f5f9;
       border-bottom: 2px solid #cbd5e1;
@@ -542,39 +498,14 @@ export interface ProcessedRead {
       text-align: center;
       font-family: 'Courier New', Courier, monospace;
     }
-    .grid-cell.ref-cell {
-      color: #0f172a;
-      font-weight: bold;
-    }
-    .grid-cell.cell-equal {
-      color: #1e293b;
-    }
-    .grid-cell.cell-substitute {
-      background: #fef3c7;
-      color: #d97706;
-      font-weight: bold;
-      border-radius: 2px;
-    }
-    .grid-cell.cell-delete {
-      background: #fee2e2;
-      color: #dc2626;
-      font-weight: bold;
-      border-radius: 2px;
-    }
-    .grid-cell.cell-unobserved {
-      color: #cbd5e1;
-    }
-    .grid-cell.is-cut-col {
-      border-left: 1px solid rgba(239, 68, 68, 0.4);
-    }
+    .grid-cell.ref-cell { color: #0f172a; font-weight: bold; }
+    .grid-cell.cell-equal { color: #1e293b; }
+    .grid-cell.cell-substitute { background: #fef3c7; color: #d97706; font-weight: bold; border-radius: 2px; }
+    .grid-cell.cell-delete { background: #fee2e2; color: #dc2626; font-weight: bold; border-radius: 2px; }
+    .grid-cell.cell-unobserved { color: #cbd5e1; }
+    .grid-cell.is-cut-col { border-left: 1px solid rgba(239, 68, 68, 0.4); }
 
-    .ref-cut-badge {
-      position: absolute;
-      top: -11px;
-      font-size: 10px;
-      color: #dc2626;
-      font-weight: bold;
-    }
+    .ref-cut-badge { position: absolute; top: -11px; font-size: 10px; color: #dc2626; font-weight: bold; }
 
     /* Zero-width absolute superscript badge for insertions */
     .ins-indicator {
@@ -622,68 +553,114 @@ export interface ProcessedRead {
       border: 1px solid #e2e8f0;
     }
 
-    /* Unaligned Section */
+    /* ── Split Table UI for Unaligned / Raw Reads ── */
     .unaligned-section {
-      background: #ffffff;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      padding: 16px;
+      margin-top: 4px;
     }
-    .unaligned-title {
-      margin: 0 0 12px 0;
+    .unaligned-section-title h4 {
+      margin: 0 0 8px 0;
       color: #64748b;
-      font-size: 0.95rem;
+      font-size: 0.88rem;
     }
-    .unaligned-list {
+    .raw-table-wrapper {
       display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .read-card {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
+      border: 1px solid #cbd5e1;
       border-radius: 6px;
-      padding: 10px;
+      overflow: hidden;
+      background: #ffffff;
     }
-    .read-header {
+    .raw-ids-column {
+      flex-shrink: 0;
+      width: 280px;
+      background: #f8fafc;
+      border-right: 2px solid #cbd5e1;
+      user-select: none;
+    }
+    .raw-id-header {
+      height: 32px;
       display: flex;
-      justify-content: space-between;
-      margin-bottom: 6px;
-      font-size: 0.8rem;
+      align-items: center;
+      padding: 0 10px;
+      font-size: 0.73rem;
+      font-weight: 700;
+      color: #64748b;
+      background: #f1f5f9;
+      border-bottom: 1px solid #cbd5e1;
+      box-sizing: border-box;
     }
-    .read-id { font-weight: 600; color: #334155; }
-    .read-len { color: #7f8c8d; }
-    .read-seq-box {
+    .raw-id-row {
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      border-bottom: 1px solid #f1f5f9;
+      box-sizing: border-box;
+      gap: 6px;
+    }
+    .raw-id-tag {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.78rem;
+      font-weight: bold;
+      color: #334155;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .raw-len-badge {
+      font-size: 0.7rem;
+      color: #64748b;
+      background: #e2e8f0;
+      padding: 1px 5px;
+      border-radius: 3px;
+      white-space: nowrap;
+      font-weight: 600;
+    }
+    .raw-seq-viewport {
+      flex: 1;
+      overflow-x: auto;
+      overflow-y: hidden;
+      background: #ffffff;
+      scrollbar-width: thin;
+    }
+    .raw-seq-container {
+      display: inline-flex;
+      flex-direction: column;
+      min-width: 100%;
+    }
+    .raw-seq-header {
+      height: 32px;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      font-size: 0.73rem;
+      font-weight: 700;
+      color: #64748b;
+      background: #f1f5f9;
+      border-bottom: 1px solid #cbd5e1;
+      box-sizing: border-box;
+    }
+    .raw-seq-row {
+      height: 32px;
+      display: flex;
+      align-items: center;
       font-family: 'Courier New', Courier, monospace;
       font-size: 13px;
       white-space: nowrap;
-      overflow-x: auto;
-      background: #ffffff;
-      padding: 6px 10px;
-      border: 1px solid #edf2f7;
-      border-radius: 4px;
+      border-bottom: 1px solid #f1f5f9;
+      padding: 0 10px;
+      box-sizing: border-box;
     }
+    .raw-seq-row:hover { background: #f8fafc; }
     .raw-seq-text { color: #1e293b; }
 
-    .load-more {
-      text-align: center;
-      margin-top: 16px;
-    }
+    .load-more { text-align: center; margin-top: 12px; }
     .load-more button {
-      padding: 8px 16px;
-      background: #3498db;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-weight: 500;
+      padding: 6px 14px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600;
     }
-    .load-more button:hover { background: #2980b9; }
-    .empty-state {
-      text-align: center;
-      padding: 32px;
-      color: #7f8c8d;
-    }
+    .load-more button:hover { background: #2563eb; }
+    .empty-state { text-align: center; padding: 24px; color: #64748b; }
   `]
 })
 export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
@@ -909,7 +886,7 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
 
     // Exact pixel offset calculation for vertical cut-site red line
     const charWidth = 7.8;
-    const paddingLeftPx = 12;
+    const paddingLeftPx = 10;
     const cutSiteColChar = maxPreFlankLen + (this.alignedCutSiteInWindow >= 0 ? this.alignedCutSiteInWindow : Math.floor(targetWin.length / 2));
     this.cutSiteGuideLeftPx = (cutSiteColChar * charWidth) + paddingLeftPx;
 
