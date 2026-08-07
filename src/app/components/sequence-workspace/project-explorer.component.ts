@@ -1,7 +1,6 @@
-import { Component } from '@angular/core';
+import { Component, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SequenceWorkspaceService } from '../../services/sequence-workspace.service';
-import { ProjectItem } from '../../models/sequence.model';
 
 @Component({
   selector: 'app-project-explorer',
@@ -9,15 +8,15 @@ import { ProjectItem } from '../../models/sequence.model';
   imports: [CommonModule],
   template: `
     <div class="explorer-header">
-      <h3>Project Items</h3>
-      <div class="actions">
-        <button class="btn-action" (click)="workspace.openLocalDirectory()" title="Open Local Folder">📂 Folder</button>
-        <label class="btn-import" title="Import Files">
-          Import
-          <input type="file" multiple accept=".fasta,.fa,.gb,.gbk,.txt,.fastq,.fq,.fastq.gz,.fq.gz" (change)="onFileSelected($event)" style="display:none">
-        </label>
-        <button class="btn-clear" (click)="workspace.clearWorkspace()">Clear</button>
-      </div>
+      <label class="btn-import-primary" title="Import Files">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        IMPORT
+        <input type="file" multiple accept=".fasta,.fa,.gb,.gbk,.txt,.fastq,.fq,.fastq.gz,.fq.gz" (change)="onFileSelected($event)" style="display:none">
+      </label>
+
+      <button type="button" class="btn-collapse" (click)="collapse.emit()" title="Collapse Explorer Panel">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
     </div>
     
     <div class="item-list">
@@ -54,57 +53,92 @@ import { ProjectItem } from '../../models/sequence.model';
       </div>
       
       <div *ngIf="(workspace.items$ | async)?.length === 0" class="empty-state">
-        No sequences imported.<br>Use "Import" to add FASTA, GenBank, or raw text.
+        No items imported.<br>Click "IMPORT" above to add files.
       </div>
     </div>
   `,
   styles: [`
+    :host { display: flex; flex-direction: column; height: 100%; min-height: 0; width: 100%; }
     .explorer-header {
-      padding: 12px;
-      border-bottom: 1px solid var(--color-border);
+      height: 38px;
+      padding: 0 10px;
+      border-bottom: 1px solid #cbd5e1;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      background: #f8fafc;
+      box-sizing: border-box;
     }
-    .explorer-header h3 { margin: 0; font-size: 0.9rem; color: #34495e; }
-    .actions { display: flex; gap: 4px; flex-wrap: wrap; }
-    .btn-import, .btn-clear, .btn-action {
-      background: #f1f2f6; border: 1px solid var(--color-border); padding: 4px 8px; border-radius: 4px;
-      font-size: 0.75rem; cursor: pointer; color: #2c3e50; transition: 0.2s;
+    .btn-import-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #2563eb;
+      color: #ffffff;
+      padding: 5px 12px;
+      border-radius: 5px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      transition: background 0.2s;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
-    .btn-import:hover, .btn-action:hover { background: #e0e6ed; }
+    .btn-import-primary:hover {
+      background: #1d4ed8;
+    }
+    .btn-collapse {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      background: transparent;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      color: #64748b;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-collapse:hover {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+
     .item-list {
       flex: 1;
       overflow-y: auto;
-      padding: 8px 0;
+      padding: 4px 0;
     }
     .item-row {
       display: flex;
       align-items: center;
-      padding: 8px 12px;
+      padding: 8px 10px;
       cursor: pointer;
-      border-bottom: 1px solid #f1f2f6;
+      border-bottom: 1px solid #f1f5f9;
     }
-    .item-row:hover { background: #f8f9fa; }
-    .item-row.selected { background: #e8f4fd; }
-    .item-icon { margin-right: 8px; color: #7f8c8d; }
+    .item-row:hover { background: #f8fafc; }
+    .item-row.selected { background: #eff6ff; }
+    .item-icon { margin-right: 8px; color: #64748b; display: flex; align-items: center; }
     .item-details { flex: 1; overflow: hidden; }
-    .item-name { font-size: 0.85rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .item-meta { font-size: 0.75rem; color: #95a5a6; }
+    .item-name { font-size: 0.83rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #1e293b; }
+    .item-meta { font-size: 0.73rem; color: #64748b; }
     .item-actions { display: flex; opacity: 0; transition: opacity 0.2s; }
     .item-row:hover .item-actions { opacity: 1; }
     .icon-btn { 
-      background: none; border: none; font-size: 1rem; cursor: pointer; padding: 4px;
-      color: #bdc3c7; border-radius: 4px; margin-left: 2px;
+      background: none; border: none; font-size: 0.9rem; cursor: pointer; padding: 3px;
+      color: #94a3b8; border-radius: 4px; margin-left: 2px;
     }
-    .icon-btn:hover { background: #ecf0f1; color: #34495e; }
-    .delete-btn:hover { color: #e74c3c; background: #fadbd8; }
-    .save-btn:hover { color: #27ae60; background: #d5f5e3; }
+    .icon-btn:hover { background: #e2e8f0; color: #1e293b; }
+    .delete-btn:hover { color: #dc2626; background: #fee2e2; }
+    .save-btn:hover { color: #16a34a; background: #dcfce7; }
     
-    .empty-state { padding: 16px; text-align: center; color: #7f8c8d; font-size: 0.8rem; }
+    .empty-state { padding: 16px; text-align: center; color: #64748b; font-size: 0.78rem; line-height: 1.4; }
   `]
 })
 export class ProjectExplorerComponent {
+  @Output() collapse = new EventEmitter<void>();
+
   constructor(public workspace: SequenceWorkspaceService) {}
 
   onFileSelected(event: any) {
