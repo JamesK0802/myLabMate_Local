@@ -27,7 +27,7 @@ import { SequenceWorkspaceService } from '../../services/sequence-workspace.serv
       </button>
 
       <div class="panel viewer-panel">
-        <app-main-viewer></app-main-viewer>
+        <app-main-viewer [isSidebarCollapsed]="isSidebarCollapsed"></app-main-viewer>
       </div>
 
       <div class="panel inspector-panel" *ngIf="(workspace.selectedItem$ | async)?.type !== 'fastq'">
@@ -63,7 +63,7 @@ import { SequenceWorkspaceService } from '../../services/sequence-workspace.serv
     }
     .btn-expand-sidebar {
       position: absolute;
-      top: 6px;
+      top: 5px;
       left: 6px;
       z-index: 10;
       width: 28px;

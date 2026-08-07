@@ -27,6 +27,41 @@ export interface ProcessedRead {
   isRc?: boolean;
 }
 
+function buildMotifRegex(query: string): RegExp | null {
+  const q = query.trim().toUpperCase();
+  if (!q) return null;
+
+  const iupacMap: { [key: string]: string } = {
+    'A': 'A', 'C': 'C', 'G': 'G', 'T': 'T', 'U': 'T',
+    'N': '[ACGT]',
+    'R': '[GA]',
+    'Y': '[CT]',
+    'S': '[GC]',
+    'W': '[AT]',
+    'K': '[GT]',
+    'M': '[AC]',
+    'B': '[CGT]',
+    'D': '[AGT]',
+    'H': '[ACT]',
+    'V': '[ACG]'
+  };
+
+  let regexStr = '';
+  for (const char of q) {
+    if (iupacMap[char]) {
+      regexStr += iupacMap[char];
+    } else {
+      regexStr += char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+
+  try {
+    return new RegExp(regexStr, 'gi');
+  } catch (e) {
+    return null;
+  }
+}
+
 @Component({
   selector: 'app-fastq-viewer',
   standalone: true,
@@ -52,7 +87,7 @@ export interface ProcessedRead {
 
           <div class="top-bar-right">
             <div class="search-box">
-              <input type="text" [(ngModel)]="searchQuery" (ngModelChange)="searchReads()" (keyup.enter)="searchReads()" placeholder="Search ID or sequence...">
+              <input type="text" [(ngModel)]="searchQuery" (ngModelChange)="searchReads()" (keyup.enter)="searchReads()" placeholder="Search ID or motif (e.g. NGG)...">
               <button (click)="searchReads()">Search</button>
               <button (click)="clearSearch()" *ngIf="searchQuery">Clear</button>
             </div>
@@ -195,7 +230,7 @@ export interface ProcessedRead {
               <div class="raw-seq-container monospaced">
                 <div class="raw-seq-header">RAW SEQUENCE (5' → 3')</div>
                 <div class="raw-seq-row" *ngFor="let read of (isAlignedActive ? visibleUnalignedReads : visibleReads)">
-                  <span class="raw-seq-text">{{ read.seq }}</span>
+                  <span class="raw-seq-text" [innerHTML]="highlightSeq(read.seq)"></span>
                 </div>
               </div>
             </div>
@@ -293,7 +328,7 @@ export interface ProcessedRead {
       padding: 5px 10px;
       border: 1px solid #cbd5e1;
       border-radius: 4px;
-      width: 220px;
+      width: 240px;
       font-size: 0.82rem;
     }
     .search-box button {
@@ -665,6 +700,16 @@ export interface ProcessedRead {
     }
     .raw-seq-row:hover { background: #f8fafc; }
     .raw-seq-text { color: #1e293b; }
+    
+    /* Search Highlight Style */
+    ::ng-deep mark.search-hi {
+      background: #fef08a !important;
+      color: #854d0e !important;
+      font-weight: bold !important;
+      border-radius: 2px;
+      padding: 0 2px;
+      box-shadow: 0 0 3px rgba(234, 179, 8, 0.5);
+    }
 
     .load-more { text-align: center; margin-top: 12px; }
     .load-more button {
@@ -1047,6 +1092,17 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
     return grid;
   }
 
+  highlightSeq(seq: string): string {
+    if (!seq) return '';
+    const q = this.searchQuery ? this.searchQuery.trim() : '';
+    if (!q) return seq;
+
+    const regex = buildMotifRegex(q);
+    if (!regex) return seq;
+
+    return seq.replace(regex, match => `<mark class="search-hi">${match}</mark>`);
+  }
+
   searchReads() {
     this.applyFilterAndPagination();
   }
@@ -1061,13 +1117,28 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
     if (!q) {
       this.filteredReads = [...this.processedReads];
     } else {
+      const regex = buildMotifRegex(q);
       this.filteredReads = this.processedReads.filter(r => {
         const matchId = r.id ? r.id.toLowerCase().includes(q) : false;
-        const matchSeq = r.seq ? r.seq.toLowerCase().includes(q) : false;
         const matchCat = r.category ? r.category.toLowerCase().includes(q) : false;
-        const matchPre = r.preWinSeq ? r.preWinSeq.toLowerCase().includes(q) : false;
-        const matchPost = r.postWinSeq ? r.postWinSeq.toLowerCase().includes(q) : false;
-        return matchId || matchSeq || matchCat || matchPre || matchPost;
+
+        let matchSeq = false;
+        if (regex) {
+          regex.lastIndex = 0;
+          matchSeq = r.seq ? regex.test(r.seq) : false;
+          if (!matchSeq && r.preWinSeq) {
+            regex.lastIndex = 0;
+            matchSeq = regex.test(r.preWinSeq);
+          }
+          if (!matchSeq && r.postWinSeq) {
+            regex.lastIndex = 0;
+            matchSeq = regex.test(r.postWinSeq);
+          }
+        } else {
+          matchSeq = r.seq ? r.seq.toLowerCase().includes(q) : false;
+        }
+
+        return matchId || matchSeq || matchCat;
       });
     }
     this.visibleReads = this.filteredReads.slice(0, this.chunkSize);

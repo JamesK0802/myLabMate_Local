@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, Input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SequenceWorkspaceService } from '../../services/sequence-workspace.service';
 import { SequenceViewComponent } from './sequence-view.component';
@@ -14,7 +14,7 @@ import { FastqViewerComponent } from './fastq-viewer.component';
     <div class="viewer-container" *ngIf="workspace.selectedItem$ | async as item; else noSelection">
         
         <!-- Compact 1-line Header Bar -->
-        <div class="compact-doc-header">
+        <div class="compact-doc-header" [class.has-collapsed-padding]="isSidebarCollapsed">
           <div class="doc-title-group">
             <span class="doc-name" [title]="item.name">{{ item.name }}</span>
             <span class="doc-badge fastq-badge" *ngIf="item.type === 'fastq'">FASTQ</span>
@@ -27,7 +27,6 @@ import { FastqViewerComponent } from './fastq-viewer.component';
             <button class="tab-btn" [class.active]="activeTab === 'sequence'" (click)="activeTab = 'sequence'">Sequence</button>
             <button class="tab-btn" [class.active]="activeTab === 'map'" (click)="activeTab = 'map'">Map</button>
             <button class="tab-btn" [class.active]="activeTab === 'features'" (click)="activeTab = 'features'">Features</button>
-            <button class="tab-btn" [class.active]="activeTab === 'restriction'" (click)="activeTab = 'restriction'">Restriction Sites</button>
           </div>
         </div>
 
@@ -62,10 +61,6 @@ import { FastqViewerComponent } from './fastq-viewer.component';
                 </tbody>
               </table>
             </div>
-
-            <div *ngIf="activeTab === 'restriction'" class="tab-pane restriction-pane">
-              <p style="color: #7f8c8d;">Restriction enzyme analysis will be displayed here.</p>
-            </div>
           </ng-container>
 
           <ng-container *ngIf="item.type === 'fastq'">
@@ -96,7 +91,12 @@ import { FastqViewerComponent } from './fastq-viewer.component';
       align-items: center;
       justify-content: space-between;
       flex-shrink: 0;
+      transition: padding-left 0.2s ease;
     }
+    .compact-doc-header.has-collapsed-padding {
+      padding-left: 42px;
+    }
+
     .doc-title-group {
       display: flex;
       align-items: center;
@@ -162,6 +162,8 @@ import { FastqViewerComponent } from './fastq-viewer.component';
   `]
 })
 export class MainViewerComponent {
+  @Input() isSidebarCollapsed = false;
   activeTab = 'sequence';
+
   constructor(public workspace: SequenceWorkspaceService) {}
 }
