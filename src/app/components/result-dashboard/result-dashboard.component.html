@@ -395,6 +395,10 @@
       <div class="unified-row" style="border-bottom: 2px solid #f1f2f6;">
         <div class="sticky-left">REFERENCE 5'→3'</div>
         <div class="seq-center">
+          <span class="cut-site-marker"
+            *ngIf="state.selectedTarget.cut_site_index !== undefined && state.selectedTarget.cut_site_index !== null"
+            [style.left.px]="15 + (state.selectedTarget.cut_site_index * 13)"
+            title="Cut site"></span>
           <div class="grna-track"
             *ngIf="state.selectedTarget.grna_start_index !== undefined && state.selectedTarget.grna_start_index !== -1">
             <div style="position: absolute; display: flex; bottom: 2px; border-bottom: 2px solid #34495e;"
@@ -430,6 +434,10 @@
           <ng-container *ngIf="!isGroupExcludedObj(group)">GROUP {{ group.group_rank }}</ng-container>
         </div>
         <div class="seq-center" style="padding: 10px 15px 23px 15px; display: flex; align-items: flex-start;">
+          <span class="cut-site-marker"
+            *ngIf="state.selectedTarget.cut_site_index !== undefined && state.selectedTarget.cut_site_index !== null"
+            [style.left.px]="15 + (state.selectedTarget.cut_site_index * 13)"
+            title="Cut site"></span>
           <div class="seq-mono read-seq" style="display: flex; height: 16px;">
             <ng-container *ngFor="let t of group.tokens">
               <ng-container *ngIf="t.type === 'equal'">
@@ -506,6 +514,10 @@
       <!-- Reference Sequence Line -->
       <div class="mobile-sequence-line mobile-reference-line">
         <div class="seq-mono mobile-sequence-bases">
+          <span class="cut-site-marker"
+            *ngIf="state.selectedTarget.cut_site_index !== undefined && state.selectedTarget.cut_site_index !== null"
+            [style.left.px]="12 + (state.selectedTarget.cut_site_index * 13)"
+            title="Cut site"></span>
           <span class="base-box text-box"
             *ngFor="let char of (state.selectedTarget.ref_sequence || '').split(''); let i = index"
             [style.color]="(state.selectedTarget.grna_start_index >= 0 && i >= state.selectedTarget.grna_start_index && i < state.selectedTarget.grna_start_index + (state.selectedTarget.sgrna_seq?.length || 0)) ? '#3498db' : '#333'"
@@ -549,6 +561,10 @@
         <!-- Group Sequence Line -->
         <div class="mobile-sequence-line mobile-read-line" [class.excluded-row]="isGroupExcludedObj(group)">
           <div class="seq-mono mobile-sequence-bases">
+            <span class="cut-site-marker"
+              *ngIf="state.selectedTarget.cut_site_index !== undefined && state.selectedTarget.cut_site_index !== null"
+              [style.left.px]="12 + (state.selectedTarget.cut_site_index * 13)"
+              title="Cut site"></span>
             <ng-container *ngFor="let t of group.tokens">
               <ng-container *ngIf="t.type === 'equal'">
                 <span class="base-box text-box" *ngFor="let char of t.val.split('')">{{ char }}</span>
