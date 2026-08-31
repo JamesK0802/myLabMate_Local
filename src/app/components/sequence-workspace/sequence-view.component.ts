@@ -102,7 +102,10 @@ interface SequenceRow {
   styles: [`
     :host { display: flex; flex-direction: column; flex: 1; min-height: 0; }
     .seq-container { font-family: 'Courier New', Courier, 'SFMono-Regular', Consolas, monospace !important; display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    .controls { padding: 8px 0; border-bottom: 1px solid var(--color-border); margin-bottom: 16px; font-family: sans-serif; font-size: 0.85rem; display: flex; justify-content: space-between; flex-shrink: 0; }
+    .controls { padding: 8px 0; border-bottom: 1px solid var(--color-border); margin-bottom: 16px; font-family: sans-serif; font-size: 0.85rem; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+    .controls label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .controls label input { margin: 0; flex: 0 0 auto; }
+    .controls > span { white-space: nowrap; }
     .seq-body { flex: 1; overflow-y: auto; white-space: pre; position: relative; }
     .seq-row { display: flex; margin-bottom: 24px; font-size: 14px; line-height: 1.2; }
     .pos-label { flex: 0 0 60px; width: 60px; color: #95a5a6; text-align: right; margin-right: 16px; padding-top: 14px; user-select: none; font-family: 'Courier New', Courier, 'SFMono-Regular', Consolas, monospace !important; }

@@ -21,10 +21,9 @@ import { Subscription } from 'rxjs';
           placeholder="Search DNA (IUPAC supported)..." 
           class="search-input">
         <button class="search-btn" (click)="performSearch()">Search</button>
-      </div>
-      
-      <div class="search-options">
-        <label><input type="checkbox" [(ngModel)]="searchRevComp" (change)="performSearch()"> Both strands</label>
+        <div class="search-options">
+          <label><input type="checkbox" [(ngModel)]="searchRevComp" (change)="performSearch()"> Both strands</label>
+        </div>
       </div>
 
       <div class="results-header" *ngIf="hasSearched">
@@ -49,12 +48,13 @@ import { Subscription } from 'rxjs';
   styles: [`
     :host { display: flex; flex-direction: column; height: 100%; min-height: 0; }
     .search-panel { display: flex; flex-direction: column; height: 100%; padding: 12px; }
-    .search-input-group { display: flex; gap: 8px; margin-bottom: 8px; }
-    .search-input { flex: 1; padding: 6px 8px; border: 1px solid var(--color-border); border-radius: 4px; font-size: 0.85rem; }
-    .search-btn { padding: 6px 12px; background: var(--color-primary); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+    .search-input-group { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; min-width: 0; }
+    .search-input { flex: 1 1 auto; min-width: 0; padding: 6px 8px; border: 1px solid var(--color-border); border-radius: 4px; font-size: 0.85rem; }
+    .search-btn { flex: 0 0 auto; padding: 6px 12px; background: var(--color-primary); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
     .search-btn:hover { background: #2980b9; }
-    .search-options { font-size: 0.8rem; color: #7f8c8d; margin-bottom: 12px; }
-    .search-options label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+    .search-options { flex: 0 0 auto; font-size: 0.8rem; color: #7f8c8d; }
+    .search-options label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
+    .search-options input { margin: 0; }
     
     .results-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #34495e; font-weight: bold; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid var(--color-border); }
     .clear-btn { background: none; border: none; color: #e74c3c; cursor: pointer; font-size: 0.8rem; padding: 0; }

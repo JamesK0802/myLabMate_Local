@@ -25,6 +25,7 @@ export interface ProcessedRead {
   postWinSeq?: string;
   leadPadding?: string;
   isRc?: boolean;
+  alignmentFailureReason?: string;
 }
 
 function buildMotifRegex(query: string): RegExp | null {
@@ -83,6 +84,14 @@ function buildMotifRegex(query: string): RegExp | null {
             <span class="filter-count-tag" *ngIf="searchQuery.trim()">
               Filtered: <strong>{{ filteredReads.length | number }}</strong> matches
             </span>
+            <div class="read-order-toggle" *ngIf="isAlignedActive && alignedStats.unalignedCount > 0" aria-label="Read display order">
+              <button type="button" [class.active]="alignmentReadOrder === 'aligned'" (click)="setAlignmentReadOrder('aligned')">
+                Aligned first ({{ alignedStats.alignedCount | number }})
+              </button>
+              <button type="button" [class.active]="alignmentReadOrder === 'unaligned'" (click)="setAlignmentReadOrder('unaligned')">
+                Unaligned first ({{ alignedStats.unalignedCount | number }})
+              </button>
+            </div>
           </div>
 
           <div class="top-bar-right">
@@ -141,8 +150,9 @@ function buildMotifRegex(query: string): RegExp | null {
           </div>
         </div>
 
+        <div class="alignment-results" [class.unaligned-first]="isAlignedActive && alignmentReadOrder === 'unaligned'">
         <!-- ── Aligned Reads Split Table (Group 1: Aligned Reads) ── -->
-        <div class="msa-section" *ngIf="isAlignedActive && alignedReadsList.length > 0">
+        <div class="msa-section aligned-result-section" *ngIf="isAlignedActive && visibleAlignedReads.length > 0">
           <div class="msa-wrapper">
             <!-- Left Sticky Read IDs Panel -->
             <div class="msa-ids-column">
@@ -210,7 +220,7 @@ function buildMotifRegex(query: string): RegExp | null {
         </div>
 
         <!-- ── Compact Split Table for Unaligned Reads (Group 2 or Default View) ── -->
-        <div class="unaligned-section" *ngIf="!isAlignedActive || unalignedReadsList.length > 0">
+        <div class="unaligned-section unaligned-result-section" *ngIf="!isAlignedActive || visibleUnalignedReads.length > 0">
           <div class="unaligned-section-title" *ngIf="isAlignedActive">
             <h4>Unaligned Reads ({{ unalignedReadsList.length | number }})</h4>
           </div>
@@ -221,6 +231,12 @@ function buildMotifRegex(query: string): RegExp | null {
               <div class="raw-id-header">READ ID</div>
               <div class="raw-id-row" *ngFor="let read of (isAlignedActive ? visibleUnalignedReads : visibleReads)">
                 <span class="raw-id-tag" [title]="'@' + read.id">{{ '@' + read.id }}</span>
+                <span
+                  class="alignment-failure-badge"
+                  *ngIf="isAlignedActive && read.alignmentFailureReason"
+                  [title]="alignmentFailureDetail(read.alignmentFailureReason)">
+                  {{ alignmentFailureLabel(read.alignmentFailureReason) }}
+                </span>
                 <span class="raw-len-badge">{{ read.seq.length }} bp</span>
               </div>
             </div>
@@ -235,6 +251,7 @@ function buildMotifRegex(query: string): RegExp | null {
               </div>
             </div>
           </div>
+        </div>
         </div>
         
         <div class="load-more" *ngIf="hasMore">
@@ -314,6 +331,28 @@ function buildMotifRegex(query: string): RegExp | null {
       padding: 3px 8px;
       border-radius: 12px;
       border: 1px solid #bae6fd;
+    }
+    .read-order-toggle {
+      display: inline-flex;
+      padding: 2px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #f8fafc;
+    }
+    .read-order-toggle button {
+      border: 0;
+      border-radius: 4px;
+      padding: 3px 8px;
+      background: transparent;
+      color: #64748b;
+      font-size: 0.72rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .read-order-toggle button.active {
+      background: #ffffff;
+      color: #0f172a;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
     }
     .top-bar-right {
       display: flex;
@@ -410,6 +449,14 @@ function buildMotifRegex(query: string): RegExp | null {
     }
 
     /* ── Unified Multi-Sequence Alignment Block ── */
+    .alignment-results {
+      display: flex;
+      flex-direction: column;
+    }
+    .aligned-result-section { order: 1; }
+    .unaligned-result-section { order: 2; }
+    .alignment-results.unaligned-first .unaligned-result-section { order: 1; }
+    .alignment-results.unaligned-first .aligned-result-section { order: 2; }
     .msa-section {
       background: #ffffff;
       border-radius: 6px;
@@ -663,6 +710,17 @@ function buildMotifRegex(query: string): RegExp | null {
       white-space: nowrap;
       font-weight: 600;
     }
+    .alignment-failure-badge {
+      font-size: 0.68rem;
+      color: #9a3412;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      padding: 1px 5px;
+      border-radius: 999px;
+      white-space: nowrap;
+      font-weight: 600;
+      cursor: help;
+    }
     .raw-seq-viewport {
       flex: 1;
       overflow-x: auto;
@@ -764,6 +822,7 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
   alignedWindowSeq = '';
   alignedCutSiteInWindow = -1;
   alignedStats = { total: 0, alignedCount: 0, unalignedCount: 0, percentage: 0 };
+  alignmentReadOrder: 'aligned' | 'unaligned' = 'aligned';
 
   // Mouse drag scroll state
   isDragging = false;
@@ -790,6 +849,7 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
       if (prevId !== currId) {
         this.currentDocId = currId || null;
         this.isAlignedActive = false;
+        this.alignmentReadOrder = 'aligned';
         this.alignedWindowSeq = '';
         this.alignedCutSiteInWindow = -1;
       }
@@ -921,6 +981,7 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
         preWinSeq: res.preWinSeq,
         postWinSeq: res.postWinSeq,
         isRc: res.isRc,
+        alignmentFailureReason: res.alignmentFailureReason,
         leadPadding: ''
       };
     });
@@ -946,12 +1007,6 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
     const cutSiteColChar = maxPreFlankLen + (this.alignedCutSiteInWindow >= 0 ? this.alignedCutSiteInWindow : Math.floor(targetWin.length / 2));
     this.cutSiteGuideLeftPx = (cutSiteColChar * charWidth) + paddingLeftPx;
 
-    list.sort((a, b) => {
-      if (a.isAligned && !b.isAligned) return -1;
-      if (!a.isAligned && b.isAligned) return 1;
-      return 0;
-    });
-
     const total = list.length;
     this.alignedStats = {
       total,
@@ -961,6 +1016,7 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
     };
 
     this.processedReads = list;
+    this.sortProcessedReadsByAlignment();
     this.applyFilterAndPagination();
     this.centerCutSiteScroll();
   }
@@ -1002,8 +1058,25 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
     this.initProcessedReads();
   }
 
+  setAlignmentReadOrder(order: 'aligned' | 'unaligned') {
+    if (this.alignmentReadOrder === order) return;
+    this.alignmentReadOrder = order;
+    this.sortProcessedReadsByAlignment();
+    this.applyFilterAndPagination();
+    if (order === 'aligned') this.centerCutSiteScroll();
+  }
+
+  private sortProcessedReadsByAlignment() {
+    const alignedFirst = this.alignmentReadOrder === 'aligned';
+    this.processedReads.sort((a, b) => {
+      if (a.isAligned === b.isAligned) return 0;
+      if (alignedFirst) return a.isAligned ? -1 : 1;
+      return a.isAligned ? 1 : -1;
+    });
+  }
+
   private findAlignmentInRead(readSeq: string, targetWin: string, cutIdxInWin: number, sgrnaSeq?: string) {
-    const [usable, , bestRes] = isReadUsable(readSeq, null, targetWin, 0, sgrnaSeq || '', cutIdxInWin);
+    const [usable, failureReason, bestRes] = isReadUsable(readSeq, null, targetWin, 0, sgrnaSeq || '', cutIdxInWin);
 
     if (!usable || !bestRes) {
       return {
@@ -1011,7 +1084,8 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
         preWinSeq: readSeq,
         grid: [],
         postWinSeq: '',
-        isRc: false
+        isRc: false,
+        alignmentFailureReason: failureReason
       };
     }
 
@@ -1046,8 +1120,27 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
       grid,
       preWinSeq,
       postWinSeq,
-      isRc
+      isRc,
+      alignmentFailureReason: undefined
     };
+  }
+
+  alignmentFailureLabel(reason: string): string {
+    switch (reason) {
+      case 'no_anchor': return 'No anchor';
+      case 'no_coverage': return 'Low coverage';
+      case 'quality': return 'Low quality';
+      default: return 'No alignment';
+    }
+  }
+
+  alignmentFailureDetail(reason: string): string {
+    switch (reason) {
+      case 'no_anchor': return 'A candidate window was found, but the required anchor check did not pass.';
+      case 'no_coverage': return 'The read does not cover enough of the requested reference window.';
+      case 'quality': return 'Observed bases did not pass the configured quality threshold.';
+      default: return 'No compatible alignment to the requested reference window was found.';
+    }
   }
 
   private buildWindowGrid(tokens: AlignmentToken[], winLen: number): WindowGridCell[] {

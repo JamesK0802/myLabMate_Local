@@ -42,13 +42,20 @@ import { SequenceWorkspaceService } from '../../services/sequence-workspace.serv
           </svg>
         </div>
         <div class="item-details">
-          <div class="item-name" [title]="item.name">{{ item.name }}</div>
+          <div class="item-name" [title]="item.name" (dblclick)="renameItem(item, $event)">{{ item.name }}</div>
           <div class="item-meta" *ngIf="item.type === 'sequence'">{{ item.sequence.length }} bp</div>
           <div class="item-meta" *ngIf="item.type === 'fastq'">{{ item.stats.readCount | number }} reads</div>
         </div>
         <div class="item-actions">
-          <button *ngIf="item.type === 'sequence'" class="icon-btn save-btn" (click)="workspace.saveToDisk(item); $event.stopPropagation()" title="Save to disk">💾</button>
-          <button class="icon-btn delete-btn" (click)="deleteItem(item.id, $event)" title="Delete">✕</button>
+          <button class="icon-btn rename-btn" (click)="renameItem(item, $event)" title="Rename file" aria-label="Rename file">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </button>
+          <button class="icon-btn download-btn" (click)="workspace.downloadItem(item); $event.stopPropagation()" title="Download file" aria-label="Download file">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+          </button>
+          <button class="icon-btn delete-btn" (click)="deleteItem(item.id, $event)" title="Delete" aria-label="Delete">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 6-12 12M6 6l12 12"/></svg>
+          </button>
         </div>
       </div>
       
@@ -126,12 +133,15 @@ import { SequenceWorkspaceService } from '../../services/sequence-workspace.serv
     .item-actions { display: flex; opacity: 0; transition: opacity 0.2s; }
     .item-row:hover .item-actions { opacity: 1; }
     .icon-btn { 
-      background: none; border: none; font-size: 0.9rem; cursor: pointer; padding: 3px;
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; background: none; border: none; cursor: pointer; padding: 4px;
       color: #94a3b8; border-radius: 4px; margin-left: 2px;
     }
+    .icon-btn svg { width: 16px; height: 16px; }
     .icon-btn:hover { background: #e2e8f0; color: #1e293b; }
     .delete-btn:hover { color: #dc2626; background: #fee2e2; }
-    .save-btn:hover { color: #16a34a; background: #dcfce7; }
+    .download-btn:hover { color: #2563eb; background: #dbeafe; }
+    .rename-btn:hover { color: #7c3aed; background: #ede9fe; }
     
     .empty-state { padding: 16px; text-align: center; color: #64748b; font-size: 0.78rem; line-height: 1.4; }
   `]
@@ -141,10 +151,10 @@ export class ProjectExplorerComponent {
 
   constructor(public workspace: SequenceWorkspaceService) {}
 
-  onFileSelected(event: any) {
+  async onFileSelected(event: any) {
     const files: FileList = event.target.files;
     for (let i = 0; i < files.length; i++) {
-      this.workspace.importFile(files[i]);
+      await this.workspace.importFile(files[i]);
     }
     event.target.value = ''; // Reset
   }
@@ -152,5 +162,11 @@ export class ProjectExplorerComponent {
   deleteItem(id: string, event: Event) {
     event.stopPropagation();
     this.workspace.deleteItem(id);
+  }
+
+  async renameItem(item: any, event: Event) {
+    event.stopPropagation();
+    const name = prompt('Rename file:', item.name);
+    if (name !== null) await this.workspace.renameItem(item, name);
   }
 }

@@ -338,6 +338,43 @@ export class SequenceWorkspaceService {
     }
   }
 
+  async renameItem(item: ProjectItem, requestedName: string) {
+    const name = requestedName.trim();
+    if (!name || name === item.name) return;
+    item.name = name;
+    item.updatedTimestamp = Date.now();
+    await this.saveItem(item);
+  }
+
+  downloadItem(item: ProjectItem) {
+    let content: string;
+    let suggestedName = item.name;
+
+    if (item.type === 'fastq') {
+      content = item.reads.map(read => `@${read.id}\n${read.seq}\n+\n${read.qualString}`).join('\n') + '\n';
+      suggestedName = suggestedName.replace(/\.gz$/i, '');
+      if (!/\.(fastq|fq)$/i.test(suggestedName)) suggestedName += '.fastq';
+    } else if (item.type === 'sequence') {
+      if (item.sourceFormat === 'genbank') {
+        content = exportToGenBank(item);
+        if (!/\.(gb|gbk)$/i.test(suggestedName)) suggestedName += '.gb';
+      } else {
+        content = exportToFasta(item);
+        if (!/\.(fa|fasta)$/i.test(suggestedName)) suggestedName += '.fasta';
+      }
+    } else {
+      content = JSON.stringify(item, null, 2);
+      if (!/\.json$/i.test(suggestedName)) suggestedName += '.json';
+    }
+
+    const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = suggestedName;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
   async clearWorkspace() {
     if (!this.db) return;
     return new Promise<void>((resolve, reject) => {
