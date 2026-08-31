@@ -9,6 +9,7 @@ import { AutoAlignPayload, SequenceWorkspaceService } from '../../services/seque
 import type { IlluminaMateFailureReason, IlluminaPreprocessDiagnostics } from '../../workers/core/illumina-preprocessor';
 import { extractWindow, findGrnaCutSite } from '../../workers/core/classifier';
 import { SequenceMatcher } from '../../workers/core/sequence-matcher';
+import { parseIlluminaFilename } from '../../models/illumina.model';
 
 interface MergeTargetRow {
   targetName: string;
@@ -47,6 +48,7 @@ export class BenchmarkPageComponent {
   mergeAdvancedOpen = false;
   mergeR1File: File | null = null;
   mergeR2File: File | null = null;
+  mergeMateDragging = false;
   mergeWindow = 90;
   mergePhred = 20;
   mergeMargin = 10;
@@ -134,6 +136,53 @@ export class BenchmarkPageComponent {
       else this.mergeR2File = file;
     }
     input.value = '';
+  }
+
+  onMergeMateInput(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.assignMergeMateFiles(Array.from(input.files || []));
+    input.value = '';
+  }
+
+  onMergeMateDragOver(event: DragEvent): void {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    this.mergeMateDragging = true;
+  }
+
+  onMergeMateDragLeave(event: DragEvent): void {
+    event.preventDefault();
+    this.mergeMateDragging = false;
+  }
+
+  onMergeMateDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.mergeMateDragging = false;
+    this.assignMergeMateFiles(Array.from(event.dataTransfer?.files || []));
+  }
+
+  private assignMergeMateFiles(files: File[]): void {
+    const fastqFiles = files.filter(file => /\.(?:fastq|fq)(?:\.gz)?$/i.test(file.name)).slice(0, 2);
+    if (fastqFiles.length === 0) return;
+
+    let r1 = fastqFiles.length === 2 ? null : this.mergeR1File;
+    let r2 = fastqFiles.length === 2 ? null : this.mergeR2File;
+    const pending: File[] = [];
+
+    for (const file of fastqFiles) {
+      const mate = parseIlluminaFilename(file.name).mate;
+      if (mate === 'r1' && !r1) r1 = file;
+      else if (mate === 'r2' && !r2) r2 = file;
+      else pending.push(file);
+    }
+
+    for (const file of pending) {
+      if (!r1) r1 = file;
+      else if (!r2) r2 = file;
+    }
+
+    this.mergeR1File = r1;
+    this.mergeR2File = r2;
   }
 
   addMergeGene(): void {

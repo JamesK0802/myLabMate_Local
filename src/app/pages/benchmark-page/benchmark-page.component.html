@@ -121,10 +121,15 @@
     </section>
 
     <section class="bench-dataset-card">
-      <div class="bench-dataset-header"><div><h3>Mate Input</h3><p>Choose one or both paired-end FASTQ files.</p></div></div>
-      <div class="merge-mate-grid">
+      <div class="bench-dataset-header"><div><h3>Mate Input</h3><p>Drop R1 and R2 together, or choose either mate separately.</p></div></div>
+      <div class="merge-mate-dropzone" [class.dragging]="mergeMateDragging"
+        (dragover)="onMergeMateDragOver($event)" (dragleave)="onMergeMateDragLeave($event)" (drop)="onMergeMateDrop($event)">
+        <input #mergeMateInput type="file" multiple accept=".fastq,.fq,.fastq.gz,.fq.gz" (change)="onMergeMateInput($event)" hidden />
+        <button type="button" class="merge-mate-browse" (click)="mergeMateInput.click()">Drop two FASTQ files here or choose R1 + R2</button>
+        <div class="merge-mate-grid">
         <div class="merge-mate-card"><strong>R1</strong><label class="bench-file-label" [class.has-file]="mergeR1File" for="merge_r1">{{ mergeR1File?.name || 'Choose FASTQ' }}</label><input id="merge_r1" type="file" accept=".fastq,.fq,.fastq.gz,.fq.gz" (change)="onMergeFileSelected($event, 'r1')" hidden /><button type="button" class="bench-link-button" *ngIf="mergeR1File" (click)="mergeR1File = null">Clear file</button></div>
         <div class="merge-mate-card"><strong>R2</strong><label class="bench-file-label" [class.has-file]="mergeR2File" for="merge_r2">{{ mergeR2File?.name || 'Choose FASTQ' }}</label><input id="merge_r2" type="file" accept=".fastq,.fq,.fastq.gz,.fq.gz" (change)="onMergeFileSelected($event, 'r2')" hidden /><button type="button" class="bench-link-button" *ngIf="mergeR2File" (click)="mergeR2File = null">Clear file</button></div>
+        </div>
       </div>
     </section>
 
