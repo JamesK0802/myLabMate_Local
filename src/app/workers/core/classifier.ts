@@ -36,8 +36,8 @@ function toStr(seq: string | Uint8Array): string {
 }
 
 const COMP: Record<string, string> = {
-  A: 'T', T: 'A', G: 'C', C: 'G', N: 'N',
-  a: 't', t: 'a', g: 'c', c: 'g', n: 'n',
+  A: 'T', T: 'A', G: 'C', C: 'G', N: 'N', X: 'X',
+  a: 't', t: 'a', g: 'c', c: 'g', n: 'n', x: 'x',
 };
 
 export function reverseComplement(seq: string): string {
@@ -120,20 +120,25 @@ export function findGrnaCutSite(reference: string, grna: string): CutSiteInfo {
   return { strand: 'unknown', grna_start: -1, grna_end: -1, cut_site: Math.floor(refLen / 2), pam: 'N/A', pam_found: false };
 }
 
-export function getWindowBounds(reference: string, cutSite: number, windowSize: number): [number, number] {
+export function getWindowBounds(reference: string, cutSite: number, windowSize: number, leftSize?: number, rightSize?: number): [number, number] {
+  if (leftSize !== undefined && rightSize !== undefined) {
+    const start = Math.max(0, cutSite - Math.max(0, leftSize));
+    const end = Math.min(reference.length, cutSite + Math.max(0, rightSize));
+    return [start, end];
+  }
   const half = Math.floor(windowSize / 2);
   const start = Math.max(0, cutSite - half);
   const end = Math.min(reference.length, cutSite + half);
   return [start, end];
 }
 
-export function cutIndexInWindow(reference: string, cutSite: number, windowSize: number): number {
-  const [start] = getWindowBounds(reference, cutSite, windowSize);
+export function cutIndexInWindow(reference: string, cutSite: number, windowSize: number, leftSize?: number, rightSize?: number): number {
+  const [start] = getWindowBounds(reference, cutSite, windowSize, leftSize, rightSize);
   return Math.max(0, cutSite - start);
 }
 
-export function extractWindow(reference: string, cutSite: number, windowSize: number): string {
-  const [start, end] = getWindowBounds(reference, cutSite, windowSize);
+export function extractWindow(reference: string, cutSite: number, windowSize: number, leftSize?: number, rightSize?: number): string {
+  const [start, end] = getWindowBounds(reference, cutSite, windowSize, leftSize, rightSize);
   return reference.substring(start, end);
 }
 
@@ -427,6 +432,19 @@ export function isReadUsable(
     usabilityCache.set(cacheKey, result);
   }
   return [result[0], result[1], result[2] ? { ...result[2] } : null];
+}
+
+/** Illumina preprocessing needs each mate's own quality array, not the shared
+ * Nanopore memoized result for another read with the same sequence. */
+export function isReadUsableUncached(
+  seq: string,
+  qual: number[] | null,
+  refWindow: string,
+  phredThreshold: number,
+  sgrnaSeq: string = '',
+  cutIdxInWin: number = -1
+): [boolean, string, ReadResult | null] {
+  return isReadUsableCached(seq, qual, refWindow, phredThreshold, sgrnaSeq, cutIdxInWin);
 }
 
 export function clearClassifierCache(): void {

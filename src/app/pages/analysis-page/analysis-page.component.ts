@@ -7,6 +7,15 @@ import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { findGrnaCutSite, extractWindow, cutIndexInWindow } from '../../workers/core/classifier';
 import { SequenceMatcher } from '../../workers/core/sequence-matcher';
+import {
+  IlluminaMateSlot,
+  IlluminaFilePair,
+  SequencingPlatform,
+  addFilesToIlluminaPairs,
+  displayIlluminaPairName,
+  deriveIlluminaPairName,
+  moveIlluminaMate,
+} from '../../models/illumina.model';
 
 export interface ExtractedWindowItem {
   geneName: string;
@@ -105,9 +114,26 @@ export class AnalysisPageComponent implements OnInit {
     this.state.activateSlot('analysis');
   }
 
+  get sequencingPlatform(): SequencingPlatform {
+    return this.state.analysisForm.get('sequencingPlatform')?.value === 'illumina' ? 'illumina' : 'nanopore';
+  }
+
+  get illuminaUnitCount(): number {
+    return this.state.illuminaPairs.filter(pair => pair.r1 || pair.r2).length;
+  }
+
+  displayIlluminaPairName(pair: IlluminaFilePair): string {
+    return displayIlluminaPairName(pair);
+  }
+
+  setSequencingPlatform(platform: SequencingPlatform): void {
+    this.state.analysisForm.get('sequencingPlatform')?.setValue(platform);
+  }
+
   toggleWindowCheck() {
     this.showWindowCheck = !this.showWindowCheck;
     if (this.showWindowCheck) {
+      this.windowCheckSize = Number(this.state.analysisForm.get('interestRegion')?.value) || 90;
       this.recalculateWindowCheck();
     }
   }
@@ -258,6 +284,10 @@ export class AnalysisPageComponent implements OnInit {
     setTimeout(() => {
       try {
         const genesFormVal = this.state.analysisForm.get('genes')?.value || [];
+        const customWindowEnabled = Boolean(this.state.analysisForm.get('customWindowEnabled')?.value);
+        const customWindowLeft = Math.max(0, Number(this.state.analysisForm.get('customWindowLeft')?.value) || 0);
+        const customWindowRight = Math.max(0, Number(this.state.analysisForm.get('customWindowRight')?.value) || 0);
+        const displayWindowSize = customWindowEnabled ? customWindowLeft + customWindowRight : this.windowCheckSize;
         const extracted: ExtractedWindowItem[] = [];
 
         genesFormVal.forEach((g: any, gi: number) => {
@@ -276,8 +306,12 @@ export class AnalysisPageComponent implements OnInit {
               cutSite = Math.floor(refSeq.length / 2);
             }
 
-            const winSeq = extractWindow(refSeq, cutSite, this.windowCheckSize);
-            const cutWinIdx = cutInfo.grna_start !== -1 ? cutIndexInWindow(refSeq, cutSite, this.windowCheckSize) : -1;
+            const winSeq = extractWindow(refSeq, cutSite, displayWindowSize,
+              customWindowEnabled ? customWindowLeft : undefined,
+              customWindowEnabled ? customWindowRight : undefined);
+            const cutWinIdx = cutInfo.grna_start !== -1 ? cutIndexInWindow(refSeq, cutSite, displayWindowSize,
+              customWindowEnabled ? customWindowLeft : undefined,
+              customWindowEnabled ? customWindowRight : undefined) : -1;
 
             const refLength = refSeq.length;
             const grnaStart = cutInfo.grna_start;
@@ -287,9 +321,10 @@ export class AnalysisPageComponent implements OnInit {
             let winStart = 0;
             let winEnd = 0;
             if (cutSite >= 0) {
-              const halfWin = Math.floor(this.windowCheckSize / 2);
-              winStart = Math.max(0, cutSite - halfWin);
-              winEnd = Math.min(refLength, winStart + this.windowCheckSize);
+              const left = customWindowEnabled ? customWindowLeft : Math.floor(displayWindowSize / 2);
+              const right = customWindowEnabled ? customWindowRight : Math.floor(displayWindowSize / 2);
+              winStart = Math.max(0, cutSite - left);
+              winEnd = Math.min(refLength, cutSite + right);
             }
 
             const winLeftPercent = refLength > 0 ? (winStart / refLength) * 100 : 0;
@@ -423,20 +458,15 @@ export class AnalysisPageComponent implements OnInit {
   }
 
   onFileSelected(event: any) {
-    const files = event.target.files;
-    for (let i = 0; i < files.length; i++) {
-      if (files[i].name.match(/\.(fastq|fq)$/)) this.state.selectedFiles.push(files[i]);
-    }
+    this.addSequencingFiles(Array.from(event.target.files || []));
+    event.target.value = '';
   }
 
   onFileDropped(event: DragEvent) {
     event.preventDefault();
     this.state.isDragging = false;
     if (event.dataTransfer?.files) {
-      const files = event.dataTransfer.files;
-      for (let i = 0; i < files.length; i++) {
-        if (files[i].name.match(/\.(fastq|fq)$/)) this.state.selectedFiles.push(files[i]);
-      }
+      this.addSequencingFiles(Array.from(event.dataTransfer.files));
     }
   }
 
@@ -444,11 +474,64 @@ export class AnalysisPageComponent implements OnInit {
   onDragLeave(event: DragEvent) { event.preventDefault(); this.state.isDragging = false; }
   removeFile(i: number) { this.state.selectedFiles.splice(i, 1); }
 
+  private addSequencingFiles(files: File[]): void {
+    const fastqFiles = files.filter(file => /\.(?:fastq|fq)(?:\.gz)?$/i.test(file.name));
+    if (this.sequencingPlatform === 'illumina') {
+      this.state.illuminaPairs = addFilesToIlluminaPairs(this.state.illuminaPairs, fastqFiles);
+    } else {
+      this.state.selectedFiles.push(...fastqFiles);
+    }
+  }
+
+  removeIlluminaMate(pairId: string, slot: IlluminaMateSlot): void {
+    const pair = this.state.illuminaPairs.find(item => item.id === pairId);
+    if (!pair) return;
+    pair[slot] = null;
+    if (!pair.r1 && !pair.r2) {
+      this.state.illuminaPairs = this.state.illuminaPairs.filter(item => item.id !== pairId);
+    } else {
+      pair.name = deriveIlluminaPairName(pair);
+    }
+  }
+
+  startMateDrag(event: DragEvent, pairId: string, slot: IlluminaMateSlot): void {
+    event.stopPropagation();
+    event.dataTransfer?.setData('application/x-illumina-mate', JSON.stringify({ pairId, slot }));
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  allowMateDrop(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  }
+
+  dropMate(event: DragEvent, targetPairId: string, targetSlot: IlluminaMateSlot): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const encoded = event.dataTransfer?.getData('application/x-illumina-mate');
+    if (!encoded) return;
+    try {
+      const source = JSON.parse(encoded) as { pairId: string; slot: IlluminaMateSlot };
+      this.state.illuminaPairs = moveIlluminaMate(
+        this.state.illuminaPairs,
+        source.pairId,
+        source.slot,
+        targetPairId,
+        targetSlot
+      );
+    } catch {
+      return;
+    }
+  }
+
   runAnalysis() {
     const rawValue = this.state.analysisForm.value;
     const formInvalid = this.state.analysisForm.get('genes')?.invalid || this.state.analysisForm.get('interestRegion')?.invalid;
 
-    if (formInvalid || this.state.selectedFiles.length === 0) {
+    const platform: SequencingPlatform = rawValue.sequencingPlatform === 'illumina' ? 'illumina' : 'nanopore';
+    const inputCount = platform === 'illumina' ? this.illuminaUnitCount : this.state.selectedFiles.length;
+    if (formInvalid || inputCount === 0) {
       this.state.error = 'Validation failed. Check files and parameters.';
       return;
     }
@@ -462,19 +545,28 @@ export class AnalysisPageComponent implements OnInit {
 
     const distanceWeight = Number(rawValue.cutSiteDistanceWeight ?? 0);
     const exclusionFlank = Number(rawValue.cutSiteExclusionFlank ?? 0);
+    const customWindowEnabled = Boolean(rawValue.customWindowEnabled);
+    const customWindowLeft = Math.max(0, Number(rawValue.customWindowLeft) || 0);
+    const customWindowRight = Math.max(0, Number(rawValue.customWindowRight) || 0);
+    const windowSize = customWindowEnabled
+      ? customWindowLeft + customWindowRight
+      : Number(rawValue.interestRegion ?? 90);
 
     this.state.lastRunParams = {
-      windowSize: rawValue.interestRegion ?? 90,
+      windowSize,
       phredThreshold: phredVal,
       indelThreshold: indelVal,
       assignmentMargin: (rawValue.marginPercent ?? 3),
       rescueThreshold: rescueThreshold,
       cutSiteDistanceWeight: distanceWeight,
       cutSiteExclusionFlank: exclusionFlank,
+      customWindowEnabled,
+      customWindowLeft: customWindowEnabled ? customWindowLeft : undefined,
+      customWindowRight: customWindowEnabled ? customWindowRight : undefined,
       analyzeAmbiguous: rawValue.analyzeAmbiguous || false,
       rescueAmbiguous: rawValue.rescueAmbiguous || false,
-      dataType: 'single-end',
-      fileCount: this.state.selectedFiles.length
+      dataType: platform === 'illumina' ? 'paired-end' : 'single-end',
+      fileCount: inputCount
     };
 
     const genesPayload = rawValue.genes.map((g: any, gi: number) => ({
@@ -484,7 +576,9 @@ export class AnalysisPageComponent implements OnInit {
         target_id: t.target_id?.trim() || `T${ti + 1}`,
         sgrna_seq: t.gRNA,
         reference_seq: g.gene_reference,
-        window_size: Number(rawValue.interestRegion ?? 90)
+        window_size: windowSize,
+        window_left: customWindowEnabled ? customWindowLeft : undefined,
+        window_right: customWindowEnabled ? customWindowRight : undefined
       }))
     }));
 
@@ -496,13 +590,15 @@ export class AnalysisPageComponent implements OnInit {
         phredThreshold: phredVal,
         indelThreshold: indelVal,
         marginThreshold: marginVal,
-        windowSize: Number(rawValue.interestRegion ?? 90),
+        windowSize,
         analyzeAmbiguous: rawValue.analyzeAmbiguous || false,
         rescueAmbiguous: rawValue.rescueAmbiguous || false,
         rescueThreshold: rescueThreshold,
         cutSiteDistanceWeight: distanceWeight,
         cutSiteExclusionFlank: exclusionFlank,
-      }
+        sequencingPlatform: platform,
+      },
+      platform === 'illumina' ? this.state.illuminaPairs.map(pair => ({ ...pair })) : []
     );
   }
 }

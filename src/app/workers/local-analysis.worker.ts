@@ -22,7 +22,9 @@ import { parseFastqFile, readFileAsText } from './core/fastq-parser';
 import { processFile, buildFinalPayload, AnalysisParams, FileResult } from './core/analysis-pipeline';
 import { findGrnaCutSite, extractWindow, cutIndexInWindow, isReadUsable } from './core/classifier';
 import { GenePayload } from './core/multi-reference-assigner';
-import { runSplitPreview, runBenchmark } from './core/benchmark-pipeline';
+import { runBenchmark } from './core/benchmark-pipeline';
+import { IlluminaFilePair } from '../models/illumina.model';
+import { buildIlluminaPseudoReads, fastqReadsToString, preprocessIlluminaReads, suggestIlluminaAlignment } from './core/illumina-preprocessor';
 
 let cancelled = false;
 
@@ -36,20 +38,76 @@ addEventListener('message', async (event: MessageEvent) => {
 
   if (type === 'analyze') {
     cancelled = false;
-    const { files, genesPayload, params } = payload as {
+    const { files, genesPayload, params, illuminaPairs = [] } = payload as {
       files: File[];
       genesPayload: GenePayload[];
       params: AnalysisParams;
+      illuminaPairs?: IlluminaFilePair[];
     };
 
     try {
-      const totalFiles = files.length;
+      const isIllumina = params.sequencingPlatform === 'illumina';
+      const totalFiles = isIllumina ? illuminaPairs.length : files.length;
       const fileProgress: Record<string, number> = {};
-      for (const f of files) fileProgress[f.name] = 0;
+      if (isIllumina) {
+        for (const pair of illuminaPairs) fileProgress[pair.name] = 0;
+      } else {
+        for (const f of files) fileProgress[f.name] = 0;
+      }
 
       const allResults: FileResult[] = [];
 
-      for (let i = 0; i < totalFiles; i++) {
+      if (isIllumina) {
+        for (let i = 0; i < totalFiles; i++) {
+          if (cancelled) {
+            postMessage({ type: 'error', message: 'Analysis canceled by user.' });
+            return;
+          }
+
+          const pair = illuminaPairs[i];
+          fileProgress[pair.name] = 5;
+          postMessage({
+            type: 'progress',
+            percent: Math.round(10 + (i / totalFiles) * 85),
+            stage: `Parsing paired sample ${pair.name} (${i + 1}/${totalFiles})…`,
+            fileProgress: { ...fileProgress },
+          });
+
+          const [r1Reads, r2Reads] = await Promise.all([
+            pair.r1 ? parseFastqFile(pair.r1) : Promise.resolve(null),
+            pair.r2 ? parseFastqFile(pair.r2) : Promise.resolve(null),
+          ]);
+          const normalized = preprocessIlluminaReads(r1Reads, r2Reads, genesPayload, {
+            windowSize: params.windowSize,
+            phredThreshold: params.phredThreshold,
+            marginThreshold: params.marginThreshold,
+            cutSiteDistanceWeight: params.cutSiteDistanceWeight,
+            cutSiteExclusionFlank: params.cutSiteExclusionFlank,
+          });
+
+          if (cancelled) {
+            postMessage({ type: 'error', message: 'Analysis canceled by user.' });
+            return;
+          }
+
+          fileProgress[pair.name] = 20;
+          postMessage({
+            type: 'progress',
+            percent: Math.round(10 + ((i + 0.2) / totalFiles) * 85),
+            stage: `Analyzing ${normalized.reads.length.toLocaleString()} normalized molecules from ${pair.name}…`,
+            fileProgress: { ...fileProgress },
+          });
+
+          allResults.push(processFile(pair.name, normalized.reads, genesPayload, params));
+          fileProgress[pair.name] = 100;
+          postMessage({
+            type: 'progress',
+            percent: Math.round(10 + ((i + 1) / totalFiles) * 85),
+            stage: `Completed ${pair.name} (${i + 1}/${totalFiles})`,
+            fileProgress: { ...fileProgress },
+          });
+        }
+      } else for (let i = 0; i < totalFiles; i++) {
         if (cancelled) {
           postMessage({ type: 'error', message: 'Analysis canceled by user.' });
           return;
@@ -107,7 +165,9 @@ addEventListener('message', async (event: MessageEvent) => {
       }
 
       // Build final payload
-      const inputFilenames = files.map(f => f.name);
+      const inputFilenames = isIllumina
+        ? illuminaPairs.flatMap(pair => [pair.r1?.name, pair.r2?.name].filter((name): name is string => Boolean(name)))
+        : files.map(f => f.name);
       const finalPayload = buildFinalPayload(allResults, genesPayload, params, inputFilenames);
 
       postMessage({ type: 'result', payload: finalPayload });
@@ -120,38 +180,21 @@ addEventListener('message', async (event: MessageEvent) => {
     }
   }
 
-  if (type === 'benchmark-split') {
-    const { dataset } = payload as { dataset: Array<{ file: File; gene: string; target: string; reference: string; grna: string }> };
-    try {
-      const parsedDataset = [];
-      for (const row of dataset) {
-        const reads = await parseFastqFile(row.file);
-        parsedDataset.push({
-          gene: row.gene,
-          target: row.target,
-          reference: row.reference,
-          grna: row.grna,
-          reads: reads
-        });
-      }
-      const splitPreview = runSplitPreview(parsedDataset);
-      postMessage({ type: 'benchmark-split-result', payload: splitPreview });
-    } catch (err: any) {
-      postMessage({ type: 'error', message: err?.message || 'Failed to compute split preview.' });
-    }
-  }
-
   if (type === 'benchmark-run') {
     cancelled = false;
-    const { dataset, params, subset } = payload as {
-      dataset: Array<{ file: File; gene: string; target: string; reference: string; grna: string }>;
-      params: { phredThreshold: number; windowSize: number; marginThreshold: number };
-      subset: 'train' | 'test';
+    const { dataset, genesPayload, params } = payload as {
+      dataset: Array<{ file?: File | null; r1File?: File | null; r2File?: File | null; gene: string; target: string; reference: string; grna: string }>;
+      genesPayload: GenePayload[];
+      params: {
+        platform: 'nanopore' | 'illumina'; phredThreshold: number; windowSize: number; marginThreshold: number;
+        cutSiteDistanceWeight?: number; cutSiteExclusionFlank?: number; customWindowLeft?: number; customWindowRight?: number;
+      };
     };
 
     try {
       const parsedDataset = [];
       const totalFiles = dataset.length;
+      const prepTotals = { inputMolecules: 0, normalizedMolecules: 0, filteredMolecules: 0, consensusMolecules: 0, paddedMolecules: 0 };
       for (let i = 0; i < totalFiles; i++) {
         if (cancelled) {
           postMessage({ type: 'error', message: 'Benchmark canceled by user.' });
@@ -163,7 +206,21 @@ addEventListener('message', async (event: MessageEvent) => {
           percent: Math.round((i / totalFiles) * 15),
           stage: `Parsing FASTQ file for ${row.gene} › ${row.target} (${i + 1}/${totalFiles})…`
         });
-        const reads = await parseFastqFile(row.file);
+        let reads;
+        if (params.platform === 'illumina') {
+          const r1Reads = row.r1File ? await parseFastqFile(row.r1File) : null;
+          const r2Reads = row.r2File ? await parseFastqFile(row.r2File) : null;
+          const prepared = preprocessIlluminaReads(r1Reads, r2Reads, genesPayload, params);
+          reads = prepared.reads;
+          prepTotals.inputMolecules += prepared.stats.inputMolecules;
+          prepTotals.normalizedMolecules += prepared.stats.normalizedMolecules;
+          prepTotals.filteredMolecules += prepared.stats.filteredMolecules;
+          prepTotals.consensusMolecules += prepared.stats.consensusMolecules;
+          prepTotals.paddedMolecules += prepared.stats.paddedMolecules;
+        } else {
+          if (!row.file) throw new Error(`Missing FASTQ file for ${row.gene} › ${row.target}.`);
+          reads = await parseFastqFile(row.file);
+        }
         parsedDataset.push({
           gene: row.gene,
           target: row.target,
@@ -180,10 +237,7 @@ addEventListener('message', async (event: MessageEvent) => {
 
       const res = runBenchmark(
         parsedDataset,
-        params.phredThreshold,
-        params.windowSize,
-        params.marginThreshold,
-        subset,
+        { ...params, preprocessing: params.platform === 'illumina' ? prepTotals : undefined },
         (pct, stage) => {
           const finalPct = Math.round(15 + (pct / 100) * 85);
           postMessage({ type: 'progress', percent: finalPct, stage });
@@ -194,6 +248,44 @@ addEventListener('message', async (event: MessageEvent) => {
 
     } catch (err: any) {
       postMessage({ type: 'error', message: err?.message || 'Failed to run benchmark classification.' });
+    }
+  }
+
+  if (type === 'illumina-merge-bench') {
+    cancelled = false;
+    const { r1File, r2File, r1Sequence, r2Sequence, genesPayload, params } = payload as {
+      r1File?: File | null; r2File?: File | null; r1Sequence?: string; r2Sequence?: string;
+      genesPayload: GenePayload[];
+      params: { windowSize: number; phredThreshold: number; marginThreshold: number; cutSiteDistanceWeight?: number; cutSiteExclusionFlank?: number };
+    };
+    try {
+      postMessage({ type: 'progress', percent: 10, stage: 'Reading Illumina mates…' });
+      const manualRead = (sequence: string | undefined, mate: number) => {
+        const seq = (sequence || '').replace(/\s+/g, '').toUpperCase();
+        return seq ? [{ id: `manual/` + mate, seq, qual: new Array(seq.length).fill(40) }] : null;
+      };
+      const r1Reads = r1File ? await parseFastqFile(r1File) : manualRead(r1Sequence, 1);
+      const r2Reads = r2File ? await parseFastqFile(r2File) : manualRead(r2Sequence, 2);
+      if (!r1Reads && !r2Reads) throw new Error('Provide at least one mate file or sequence.');
+      postMessage({ type: 'progress', percent: 35, stage: 'Building stage-1 X-padded pseudo reads…' });
+      const stage1 = buildIlluminaPseudoReads(r1Reads, r2Reads, params.windowSize);
+      postMessage({ type: 'progress', percent: 60, stage: 'Running window and anchor guided consensus…' });
+      const stage2 = preprocessIlluminaReads(r1Reads, r2Reads, genesPayload, params);
+      const stage1AutoAlign = suggestIlluminaAlignment(stage1, genesPayload, params);
+      const stage2AutoAlign = suggestIlluminaAlignment(stage2.reads, genesPayload, params);
+      postMessage({
+        type: 'illumina-merge-result',
+        payload: {
+          stage1Fastq: fastqReadsToString(stage1),
+          stage2Fastq: fastqReadsToString(stage2.reads),
+          stage1AutoAlign,
+          stage2AutoAlign,
+          stats: stage2.stats,
+          diagnostics: stage2.diagnostics,
+        },
+      });
+    } catch (err: any) {
+      postMessage({ type: 'error', message: err?.message || 'Failed to run Illumina merge bench.' });
     }
   }
 
@@ -223,6 +315,8 @@ const fileTextCache = new Map<string, string>();
 
       const sgrnaSeq = target.sgrna_seq || '';
       const windowSize = target.window_size ?? 90;
+      const windowLeft = target.window_left;
+      const windowRight = target.window_right;
       let refWindow = target.ref_window || target.ref_sequence || target.reference_seq || '';
       let cutSiteIndexFixed = target.cut_site_index ?? -1;
 
@@ -230,8 +324,8 @@ const fileTextCache = new Map<string, string>();
       if (refWindow.length > (windowSize + 30)) {
         const cutInfo = findGrnaCutSite(refWindow, sgrnaSeq);
         const refCutSite = cutInfo.cut_site;
-        refWindow = extractWindow(refWindow, refCutSite, windowSize);
-        cutSiteIndexFixed = cutIndexInWindow(target.ref_sequence || target.reference_seq, refCutSite, windowSize);
+        refWindow = extractWindow(refWindow, refCutSite, windowSize, windowLeft, windowRight);
+        cutSiteIndexFixed = cutIndexInWindow(target.ref_sequence || target.reference_seq, refCutSite, windowSize, windowLeft, windowRight);
       }
 
       if (cutSiteIndexFixed < 0) {

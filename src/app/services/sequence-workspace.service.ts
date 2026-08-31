@@ -49,6 +49,15 @@ export class SequenceWorkspaceService {
     this.pendingAutoAlignSubject.next(null);
   }
 
+  /** Import an analysis-generated FASTQ into this local-only workspace. */
+  async importGeneratedFastq(file: File, autoAlign?: AutoAlignPayload): Promise<void> {
+    const document = await parseFastqFile(file);
+    if (autoAlign) document.autoAlign = autoAlign;
+    await this.saveItem(document);
+    this.selectItem(document.id);
+    if (autoAlign) this.setPendingAutoAlign(autoAlign);
+  }
+
   private history: Record<string, { past: SequenceDocument[], future: SequenceDocument[] }> = {};
   private readonly MAX_HISTORY = 20;
 

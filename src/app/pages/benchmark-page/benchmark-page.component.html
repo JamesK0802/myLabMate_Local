@@ -1,313 +1,281 @@
 <div class="bench-container">
   <div class="bench-header">
-    <h2>Classification Benchmark</h2>
-    <p class="bench-subtitle">Evaluate read-to-(gene, target) classification accuracy on train and test subsets offline.</p>
+    <h2>Benchmark</h2>
+    <p class="bench-subtitle">Test the current deterministic analysis pipeline against labelled reads, or inspect Illumina mate normalization.</p>
   </div>
 
-  <!-- ── Parameters Card ── -->
-  <div class="bench-params-card">
-    <h3>Parameters</h3>
-    <div class="bench-params-row">
-      <div class="bench-param-group">
-        <label>Phred Threshold</label>
-        <input type="number" [(ngModel)]="state.benchPhred" min="0" max="40" />
-      </div>
-      <div class="bench-param-group">
-        <label>Window Size (bp):</label>
-        <input type="number" [(ngModel)]="state.benchWindow" min="20" max="300" />
-      </div>
-      <div class="bench-param-group">
-        <label>Assignment Margin (%)</label>
-        <input type="number" [(ngModel)]="state.benchMargin" step="1" min="0" max="100" />
-      </div>
-    </div>
+  <div class="bench-mode-tabs">
+    <button type="button" [class.active]="benchmarkMode === 'classification'" (click)="setMode('classification')">Classification</button>
+    <button type="button" [class.active]="benchmarkMode === 'merge'" (click)="setMode('merge')">Illumina Merge</button>
   </div>
 
-  <!-- ── Source Dataset Card ── -->
-  <div class="bench-dataset-card">
-    <div class="bench-dataset-header">
-      <h3>Source Dataset</h3>
-      <button class="btn-add-small" (click)="state.addBenchRow()">+ Add Row</button>
-    </div>
-    <div class="bench-dataset-content">
-      <div class="bench-table-head">
-        <span>FASTQ File</span>
-        <span>Gene Name</span>
-        <span>Target Name</span>
-        <span>Reference Sequence</span>
-        <span>gRNA Sequence</span>
-        <span></span>
-      </div>
-      <div class="bench-row" *ngFor="let row of state.benchRows; let i = index">
-        <div class="bench-cell">
-          <label class="bench-file-label" [class.has-file]="row.file" [for]="'bfq_' + i">
-            {{ row.file ? row.file.name : '📁 Choose .fastq' }}
-          </label>
-          <input type="file" [id]="'bfq_' + i" accept=".fastq,.fq" (change)="onBenchFileSelected($event, i)" hidden />
+  <ng-container *ngIf="benchmarkMode === 'classification'">
+    <section class="bench-params-card">
+      <div class="bench-section-title">
+        <div>
+          <h3>Analysis Parameters</h3>
+          <p>Uses every supplied read and the same gene-level window allocation as Analysis.</p>
         </div>
-        <div class="bench-cell">
-          <input type="text" [(ngModel)]="row.geneName" placeholder="e.g. GeneA" class="bench-input" />
-        </div>
-        <div class="bench-cell">
-          <input type="text" [(ngModel)]="row.targetName" placeholder="e.g. Site1" class="bench-input" />
-        </div>
-        <div class="bench-cell">
-          <textarea [(ngModel)]="row.referenceSequence" class="bench-input bench-textarea" rows="2" placeholder="Reference seq"></textarea>
-        </div>
-        <div class="bench-cell">
-          <input type="text" [(ngModel)]="row.grnaSequence" placeholder="20bp gRNA" class="bench-input" />
-        </div>
-        <div class="bench-cell bench-cell-action">
-          <button class="btn-remove" (click)="state.removeBenchRow(i)" *ngIf="state.benchRows.length > 1">&times;</button>
+        <div class="platform-segmented" role="group" aria-label="Benchmark sequencing platform">
+          <button type="button" [class.active]="state.benchPlatform === 'nanopore'" (click)="state.benchPlatform = 'nanopore'">Nanopore</button>
+          <button type="button" [class.active]="state.benchPlatform === 'illumina'" (click)="state.benchPlatform = 'illumina'">Illumina</button>
         </div>
       </div>
+      <div class="bench-params-row">
+        <div class="bench-param-group"><label>Window Size (bp)</label><input type="number" [(ngModel)]="state.benchWindow" [disabled]="state.benchCustomWindow" min="10" max="500" /></div>
+        <div class="bench-param-group"><label>Data Filtering (Phred)</label><input type="number" [(ngModel)]="state.benchPhred" min="0" max="1000" /></div>
+        <div class="bench-param-group"><label>Assignment Margin (%)</label><input type="number" [(ngModel)]="state.benchMargin" min="0" max="100" /></div>
+      </div>
+      <div class="bench-advanced-toggle-bar">
+        <button type="button" class="bench-advanced-toggle" (click)="benchmarkAdvancedOpen = !benchmarkAdvancedOpen">Advanced {{ benchmarkAdvancedOpen ? '▼' : '▶' }}</button>
+      </div>
+      <div class="bench-advanced-panel" *ngIf="benchmarkAdvancedOpen">
+        <label class="bench-custom-window-toggle"><input type="checkbox" [(ngModel)]="state.benchCustomWindow" /> Use custom window</label>
+        <div class="bench-custom-window" *ngIf="state.benchCustomWindow">
+          <label>Left <input type="number" [(ngModel)]="state.benchWindowLeft" min="0" max="500" /> bp</label>
+          <label>Right <input type="number" [(ngModel)]="state.benchWindowRight" min="0" max="500" /> bp</label>
+        </div>
+        <div class="bench-advanced-grid">
+          <div class="bench-param-group"><label>Distance Weight</label><input type="number" [(ngModel)]="state.benchDistanceWeight" min="0" max="10" step="0.5" /></div>
+          <div class="bench-param-group"><label>Cut-site Exclusion (±bp)</label><input type="number" [(ngModel)]="state.benchExclusionFlank" min="0" max="10" /></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="bench-dataset-card">
+      <div class="bench-dataset-header">
+        <div><h3>Labelled Dataset</h3><p>Each row identifies the expected gene/reference for its reads. Reuse a gene name to add more target windows to that gene.</p></div>
+        <button type="button" class="btn-add-small" (click)="state.addBenchRow()">+ Add Class</button>
+      </div>
+      <div class="bench-class-row" *ngFor="let row of state.benchRows; let i = index">
+        <div class="bench-class-files">
+          <ng-container *ngIf="state.benchPlatform === 'nanopore'; else illuminaBenchFiles">
+            <label class="bench-file-label" [class.has-file]="row.file" [for]="'bench_file_' + i">{{ row.file?.name || 'Choose FASTQ' }}</label>
+            <input type="file" [id]="'bench_file_' + i" accept=".fastq,.fq,.fastq.gz,.fq.gz" (change)="onBenchFileSelected($event, i, 'file')" hidden />
+          </ng-container>
+          <ng-template #illuminaBenchFiles>
+            <label class="bench-file-label" [class.has-file]="row.r1File" [for]="'bench_r1_' + i">R1 · {{ row.r1File?.name || 'Choose file' }}</label>
+            <input type="file" [id]="'bench_r1_' + i" accept=".fastq,.fq,.fastq.gz,.fq.gz" (change)="onBenchFileSelected($event, i, 'r1File')" hidden />
+            <label class="bench-file-label" [class.has-file]="row.r2File" [for]="'bench_r2_' + i">R2 · {{ row.r2File?.name || 'Choose file' }}</label>
+            <input type="file" [id]="'bench_r2_' + i" accept=".fastq,.fq,.fastq.gz,.fq.gz" (change)="onBenchFileSelected($event, i, 'r2File')" hidden />
+          </ng-template>
+        </div>
+        <div class="bench-class-config">
+          <div class="bench-config-line">
+            <input type="text" [(ngModel)]="row.geneName" placeholder="Gene name" class="bench-input" />
+            <input type="text" [(ngModel)]="row.referenceSequence" placeholder="Reference sequence" class="bench-input bench-mono" />
+          </div>
+          <div class="bench-config-line">
+            <input type="text" [(ngModel)]="row.targetName" placeholder="Target name" class="bench-input" />
+            <input type="text" [(ngModel)]="row.grnaSequence" placeholder="gRNA sequence" class="bench-input bench-mono" />
+          </div>
+        </div>
+        <button type="button" class="btn-remove" (click)="state.removeBenchRow(i)" *ngIf="state.benchRows.length > 1" aria-label="Remove class">&times;</button>
+      </div>
+    </section>
+
+    <div class="bench-actions">
+      <button type="button" class="btn-bench btn-bench-train" (click)="runBenchmark()" [disabled]="state.benchIsLoading">▶ Run Benchmark</button>
+      <button type="button" class="btn-secondary" *ngIf="state.benchIsLoading" (click)="state.cancelBenchmark()">Cancel</button>
     </div>
-  </div>
 
-  <!-- ── Execution Actions ── -->
-  <div class="bench-actions">
-    <button class="btn-bench btn-bench-split" (click)="buildSplitPreview()" [disabled]="state.benchIsLoading">🔀 Build Train/Test Split</button>
-    <button class="btn-bench btn-bench-train" (click)="runTrainBenchmark()" [disabled]="state.benchIsLoading">▶ Run Train Benchmark</button>
-    <button class="btn-bench btn-bench-test" (click)="runTestBenchmark()" [disabled]="state.benchIsLoading">▶ Run Test Benchmark</button>
-    <button class="btn-bench-tab" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 8px 16px; cursor: pointer;" *ngIf="state.benchIsLoading" (click)="state.cancelBenchmark()">⏹ Cancel</button>
-  </div>
-
-  <!-- ── Progress Section ── -->
-  <div class="progress-section" *ngIf="state.benchIsLoading" style="margin-top: 20px;">
-    <div class="progress-header" style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-      <span class="stage-text" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-secondary);">{{ state.benchStage$ | async }}</span>
-      <span class="percent-text" style="font-size: 0.85rem; font-weight: 700; color: var(--color-primary);">{{ (state.benchProgressDisplay$ | async) | number:'1.0-0' }}%</span>
+    <div class="progress-section" *ngIf="state.benchIsLoading">
+      <div class="progress-header"><span>{{ state.benchStage$ | async }}</span><strong>{{ (state.benchProgressDisplay$ | async) | number:'1.0-0' }}%</strong></div>
+      <div class="progress-bar-bg"><div class="progress-bar-fill" [style.width.%]="state.benchProgressDisplay$ | async"></div></div>
     </div>
-    <div class="progress-bar-bg" style="background: var(--color-surface-alt); height: 8px; border-radius: 4px; overflow: hidden;">
-      <div class="progress-bar-fill" style="background: var(--color-primary); height: 100%; transition: width 0.1s ease-out;" [style.width.%]="state.benchProgressDisplay$ | async"></div>
-    </div>
-  </div>
+    <div *ngIf="state.benchError" class="error-box">{{ state.benchError }}</div>
 
-  <div *ngIf="state.benchError" class="error-box" style="margin-top: 20px; padding: 12px; background: #fdf2f2; border: 1px solid #f8b4b4; border-radius: 6px; color: #9b1c1c; font-size: 0.85rem;">
-    {{ state.benchError }}
-  </div>
-
-  <!-- ── Split Preview Card ── -->
-  <div *ngIf="state.splitPreview" class="bench-result-card" style="margin-top: 24px;">
-    <h3>🔀 Train / Test Split Preview</h3>
-    <div class="bench-split-totals">
-      <div class="bench-split-badge train">Train set: {{ state.splitPreview.train_count | number }} reads</div>
-      <div class="bench-split-badge test">Test set: {{ state.splitPreview.test_count | number }} reads</div>
-      <div class="bench-split-badge total">Total: {{ state.splitPreview.total | number }} reads</div>
-    </div>
-    <table class="bench-table">
-      <thead>
-        <tr>
-          <th>Gene</th>
-          <th>Target</th>
-          <th>Total</th>
-          <th>Train (80%)</th>
-          <th>Test (20%)</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr *ngFor="let row of state.splitPreview.rows">
-          <td>{{ row.gene }}</td>
-          <td><span class="badge" style="background: var(--color-primary-light); color: var(--color-primary);">{{ row.target }}</span></td>
-          <td>{{ row.total | number }}</td>
-          <td>{{ row.train_count | number }}</td>
-          <td>{{ row.test_count | number }}</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- ── Benchmark Execution Results ── -->
-  <div class="bench-results-row" *ngIf="state.trainResult || state.testResult" style="margin-top: 24px;">
-    
-    <!-- Train Result Panel -->
-    <div class="bench-result-card" *ngIf="state.trainResult">
-      <h3>🟢 Train Benchmark Results</h3>
-      
+    <section class="bench-result-card" *ngIf="state.benchmarkResult as result">
+      <div class="bench-result-heading"><div><h3>Classification Results</h3><p>{{ result.platform | titlecase }} · all {{ result.total_reads | number }} reads</p></div></div>
       <div class="bench-metric-grid">
-        <div class="bench-metric correct">
-          <span class="bm-label">Correct</span>
-          <span class="bm-value">{{ state.trainResult.correct_rate }}%</span>
-          <span class="bm-count">({{ state.trainResult.correct_count | number }} / {{ state.trainResult.usable_reads | number }} usable)</span>
+        <div class="bench-metric correct"><span class="bm-label">Correct gene</span><span class="bm-value">{{ result.correct_rate }}%</span><span class="bm-count">{{ result.correct_count | number }} / {{ result.usable_reads | number }}</span></div>
+        <div class="bench-metric wrong"><span class="bm-label">Wrong gene</span><span class="bm-value">{{ result.wrong_rate }}%</span><span class="bm-count">{{ result.wrong_count | number }} / {{ result.usable_reads | number }}</span></div>
+        <div class="bench-metric ambiguous"><span class="bm-label">Ambiguous</span><span class="bm-value">{{ result.ambiguous_rate }}%</span><span class="bm-count">{{ result.ambiguous_count | number }} / {{ result.usable_reads | number }}</span></div>
+      </div>
+      <div class="bench-prep-stats" *ngIf="result.preprocessing as prep">
+        <span>Input {{ prep.input_molecules | number }}</span><span>Normalized {{ prep.normalized_molecules | number }}</span><span>Consensus {{ prep.consensus_molecules | number }}</span><span>X-padded {{ prep.padded_molecules | number }}</span><span>Filtered {{ prep.filtered_molecules | number }}</span>
+      </div>
+      <div class="bench-usability-info" *ngIf="result.filtered_out > 0">Filtered {{ result.filtered_out | number }} · Quality {{ result.fail_quality | number }} · Anchor {{ result.fail_no_anchor | number }} · Coverage {{ result.fail_no_coverage | number }} · Alignment {{ result.fail_no_alignment | number }}</div>
+      <div class="bench-table-scroll"><table class="bench-table"><thead><tr><th>Expected class</th><th>Total</th><th>Filtered</th><th>Usable</th><th>Correct gene</th><th>Wrong</th><th>Ambiguous</th><th>Accuracy</th></tr></thead><tbody><tr *ngFor="let row of result.per_class"><td>{{ row.gene }} › {{ row.target }}</td><td>{{ row.total | number }}</td><td>{{ row.filtered | number }}</td><td>{{ row.total - row.filtered | number }}</td><td class="td-correct">{{ row.correct | number }}</td><td class="td-wrong">{{ row.wrong | number }}</td><td class="td-ambig">{{ row.ambiguous | number }}</td><td><strong>{{ row.correct_rate }}%</strong></td></tr></tbody></table></div>
+      <details class="bench-cutsite-details"><summary>Window and cut-site diagnostics</summary><table class="bench-table"><thead><tr><th>Class</th><th>Strand</th><th>Cut site</th><th>gRNA range</th><th>PAM</th></tr></thead><tbody><tr *ngFor="let cs of result.cut_sites"><td>{{ cs.gene }} › {{ cs.target }}</td><td>{{ cs.strand }}</td><td>{{ cs.cut_site }}</td><td>{{ cs.grna_start }}–{{ cs.grna_end }}</td><td><code>{{ cs.pam }}</code></td></tr></tbody></table></details>
+    </section>
+  </ng-container>
+
+  <ng-container *ngIf="benchmarkMode === 'merge'">
+    <section class="bench-params-card">
+      <div class="bench-section-title"><div><h3>Illumina Merge Bench</h3><p>Stage 1 exports R1 + window-sized X guard + R2 reverse-complement. Stage 2 exports the current window/anchor-guided normalized reads.</p></div></div>
+      <div class="bench-params-row">
+        <div class="bench-param-group"><label>Window Size (bp)</label><input type="number" [(ngModel)]="mergeWindow" (ngModelChange)="mergeShowWindowCheck && recalculateMergeWindowCheck()" min="10" max="500" /></div>
+        <div class="bench-param-group"><label>Phred Threshold</label><input type="number" [(ngModel)]="mergePhred" min="0" /></div>
+        <div class="bench-param-group"><label>Assignment Margin (%)</label><input type="number" [(ngModel)]="mergeMargin" min="0" max="100" /></div>
+      </div>
+      <div class="bench-advanced-toggle-bar">
+        <button type="button" class="bench-advanced-toggle" (click)="mergeAdvancedOpen = !mergeAdvancedOpen">Advanced {{ mergeAdvancedOpen ? '▼' : '▶' }}</button>
+      </div>
+      <div class="bench-advanced-panel" *ngIf="mergeAdvancedOpen">
+        <div class="bench-advanced-grid">
+          <div class="bench-param-group"><label>Distance Weight</label><input type="number" [(ngModel)]="mergeDistanceWeight" min="0" max="10" step="0.5" /></div>
+          <div class="bench-param-group"><label>Cut-site Exclusion (±bp)</label><input type="number" [(ngModel)]="mergeExclusionFlank" min="0" max="10" /></div>
         </div>
-        <div class="bench-metric wrong">
-          <span class="bm-label">Wrong</span>
-          <span class="bm-value">{{ state.trainResult.wrong_rate }}%</span>
-          <span class="bm-count">({{ state.trainResult.wrong_count | number }} / {{ state.trainResult.usable_reads | number }} usable)</span>
+      </div>
+    </section>
+
+    <section class="bench-dataset-card">
+      <div class="bench-dataset-header"><div><h3>Mate Input</h3><p>Choose one or both paired-end FASTQ files.</p></div></div>
+      <div class="merge-mate-grid">
+        <div class="merge-mate-card"><strong>R1</strong><label class="bench-file-label" [class.has-file]="mergeR1File" for="merge_r1">{{ mergeR1File?.name || 'Choose FASTQ' }}</label><input id="merge_r1" type="file" accept=".fastq,.fq,.fastq.gz,.fq.gz" (change)="onMergeFileSelected($event, 'r1')" hidden /><button type="button" class="bench-link-button" *ngIf="mergeR1File" (click)="mergeR1File = null">Clear file</button></div>
+        <div class="merge-mate-card"><strong>R2</strong><label class="bench-file-label" [class.has-file]="mergeR2File" for="merge_r2">{{ mergeR2File?.name || 'Choose FASTQ' }}</label><input id="merge_r2" type="file" accept=".fastq,.fq,.fastq.gz,.fq.gz" (change)="onMergeFileSelected($event, 'r2')" hidden /><button type="button" class="bench-link-button" *ngIf="mergeR2File" (click)="mergeR2File = null">Clear file</button></div>
+      </div>
+    </section>
+
+    <section class="bench-dataset-card analysis-page merge-reference-config">
+      <div class="targets-section">
+        <div class="section-header">
+          <h2>Reference Configuration</h2>
+          <div class="header-actions">
+            <button type="button" class="btn-autofill" (click)="mergeShowAutofill = !mergeShowAutofill">Auto Fill</button>
+            <button type="button" class="btn-window-check" [class.active]="mergeShowWindowCheck" (click)="toggleMergeWindowCheck()">Window Check</button>
+            <button type="button" class="btn-add" (click)="addMergeGene()">Add Gene</button>
+          </div>
         </div>
-        <div class="bench-metric ambiguous">
-          <span class="bm-label">Ambiguous</span>
-          <span class="bm-value">{{ state.trainResult.ambiguous_rate }}%</span>
-          <span class="bm-count">({{ state.trainResult.ambiguous_count | number }} / {{ state.trainResult.usable_reads | number }} usable)</span>
+
+        <div class="autofill-actions-panel" *ngIf="mergeShowAutofill">
+          <p class="autofill-hint">Use the same reference template as Analysis to configure genes and targets in bulk.</p>
+          <div class="autofill-buttons">
+            <button type="button" class="btn-template-download" (click)="downloadMergeTemplate()">Download Template</button>
+            <button type="button" class="btn-template-upload" (click)="mergeTemplateInput.click()">Upload Sequence (Excel)</button>
+            <input type="file" #mergeTemplateInput (change)="onMergeTemplateUpload($event)" hidden accept=".xlsx,.xls" />
+          </div>
+        </div>
+
+        <div class="window-check-panel" *ngIf="mergeShowWindowCheck">
+          <div class="window-check-header">
+            <div class="window-check-title">
+              <h3>Window Check & Pairwise Similarity Matrix</h3>
+              <p class="window-check-hint">These are the same candidate windows used for Illumina mate detection and consensus selection.</p>
+            </div>
+            <button type="button" class="btn-close-window-check" (click)="mergeShowWindowCheck = false">&times;</button>
+          </div>
+          <div class="window-controls-row">
+            <label class="control-label">Window Size (bp):</label>
+            <div class="slider-wrapper">
+              <input type="range" min="30" max="180" step="1" [(ngModel)]="mergeWindow" (ngModelChange)="recalculateMergeWindowCheck()" class="window-range-slider" />
+              <span class="range-bound min-bound">30</span><span class="range-bound max-bound">180</span>
+            </div>
+            <div class="number-input-wrapper">
+              <input type="number" min="1" max="1000" [(ngModel)]="mergeWindow" (ngModelChange)="recalculateMergeWindowCheck()" class="form-control window-number-input" />
+              <span class="unit-label">bp</span>
+            </div>
+          </div>
+          <div class="no-windows-alert" *ngIf="mergeWindows.length === 0">Enter at least one reference sequence and gRNA target to inspect its window.</div>
+          <div *ngIf="mergeWindows.length > 0">
+            <div class="windows-list-section">
+              <h4>Extracted Target Windows (Size: {{ mergeWindow }} bp)</h4>
+              <div class="windows-grid">
+                <div class="window-card" *ngFor="let item of mergeWindows">
+                  <div class="window-card-header"><span class="window-target-name">{{ item.geneName }} - {{ item.targetName }}</span><span class="window-length-badge">{{ item.sequence.length }} bp</span></div>
+                  <div class="window-meta" *ngIf="item.cutSite >= 0">Cut Site: {{ item.cutSite }} · Strand: {{ item.strand }} · PAM: <code>{{ item.pam }}</code></div>
+                  <div class="window-meta warning" *ngIf="item.cutSite < 0">gRNA not matched in reference (fallback center window shown; preprocessing will reject this target)</div>
+                  <div class="ref-map-bar-wrapper">
+                    <div class="ref-map-bar" [title]="'Reference: ' + item.referenceLength + ' bp · Window: ' + item.windowStart + '–' + item.windowEnd">
+                      <div class="ref-map-win" [style.left.%]="item.windowStart / item.referenceLength * 100" [style.width.%]="(item.windowEnd - item.windowStart) / item.referenceLength * 100"></div>
+                      <div class="ref-map-target" *ngIf="item.grnaStart >= 0" [style.left.%]="item.grnaStart / item.referenceLength * 100" [style.width.%]="item.grnaLength / item.referenceLength * 100"></div>
+                    </div>
+                  </div>
+                  <div class="window-seq monospaced">{{ item.sequence }}</div>
+                </div>
+              </div>
+              <div class="global-ref-map-legend-bottom"><span class="legend-item legend-ref"><span class="legend-box box-ref"></span>Reference</span><span class="legend-item legend-win"><span class="legend-box box-win"></span>Extracted Window</span><span class="legend-item legend-target"><span class="legend-box box-target"></span>Target (gRNA)</span></div>
+            </div>
+            <div class="similarity-matrix-section">
+              <div class="matrix-header-row"><h4>Pairwise Window Similarity Matrix (%)</h4><span class="matrix-hint">Every configured target competes during merge-window selection.</span></div>
+              <div class="matrix-table-wrapper">
+                <table class="similarity-table">
+                  <thead><tr><th class="corner-cell">Target</th><th *ngFor="let item of mergeWindows" class="col-header">{{ item.targetName }}</th></tr></thead>
+                  <tbody><tr *ngFor="let row of mergeWindows; let ri = index"><th class="row-header">{{ row.targetName }} ({{ row.geneName }})</th><td *ngFor="let col of mergeWindows; let ci = index" [class.diagonal]="ri === ci" [style.background-color]="mergeHeatmapColor(mergeSimilarityMatrix[ri][ci], ri === ci)"><span class="similarity-pct">{{ mergeSimilarityMatrix[ri][ci] | number:'1.1-1' }}%</span></td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="gene-block-card" *ngFor="let gene of mergeGenes; let gi = index">
+          <div class="gene-block-header">
+            <div class="gene-block-title"><span>Gene {{ gi + 1 }}</span></div>
+            <button type="button" class="btn-remove-target" (click)="removeMergeGene(gi)" *ngIf="mergeGenes.length > 1">Remove Gene</button>
+          </div>
+          <div class="gene-block-body">
+            <div class="form-row merge-gene-input-row">
+              <div class="form-group merge-gene-name"><label>Gene Name:</label><input type="text" [(ngModel)]="gene.geneName" placeholder="e.g. GeneA" /></div>
+              <div class="form-group full"><label>Reference Sequence:</label><textarea [(ngModel)]="gene.referenceSequence" rows="3" class="monospaced" (ngModelChange)="mergeShowWindowCheck && recalculateMergeWindowCheck()"></textarea></div>
+            </div>
+            <div class="gene-targets-section">
+              <div class="gene-targets-header"><span class="gene-targets-label">Targets within this gene</span><button type="button" class="btn-add-small" (click)="addMergeTarget(gi)">Add Target</button></div>
+              <div class="gene-target-row" *ngFor="let target of gene.targets; let ti = index">
+                <span class="gene-target-num">T{{ ti + 1 }}</span>
+                <div class="form-group merge-target-name"><label>Target Name:</label><input type="text" [(ngModel)]="target.targetName" /></div>
+                <div class="form-group full"><label>gRNA Sequence:</label><input type="text" [(ngModel)]="target.grnaSequence" (ngModelChange)="mergeShowWindowCheck && recalculateMergeWindowCheck()" /></div>
+                <button type="button" class="btn-remove" (click)="removeMergeTarget(gi, ti)" *ngIf="gene.targets.length > 1">&times;</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="bench-actions"><button type="button" class="btn-bench btn-bench-train" (click)="runMergeBench()" [disabled]="mergeIsLoading">Build Stage 1 & Stage 2 FASTQ</button></div>
+    <div class="progress-section" *ngIf="mergeIsLoading"><div class="progress-header"><span>{{ mergeStage }}</span><strong>{{ mergeProgress }}%</strong></div><div class="progress-bar-bg"><div class="progress-bar-fill" [style.width.%]="mergeProgress"></div></div></div>
+    <div *ngIf="mergeError" class="error-box">{{ mergeError }}</div>
+
+    <section class="merge-output-grid" *ngIf="mergeStage1File || mergeStage2File">
+      <article class="merge-output-card"><div><span class="merge-stage-label">STAGE 1</span><h3>X-padded pseudo reads</h3><p>R1 + {{ mergeWindow }} X bases + R2 reverse-complement</p></div><div class="merge-output-actions"><button type="button" (click)="downloadMergeFile(1)">Download FASTQ</button><button type="button" (click)="exportMergeFile(1)">Open in Sequence Viewer</button></div></article>
+      <article class="merge-output-card"><div><span class="merge-stage-label">STAGE 2</span><h3>Window-guided normalized reads</h3><p *ngIf="mergeStats">{{ mergeStats.normalizedMolecules | number }} output · {{ mergeStats.consensusMolecules | number }} consensus · {{ mergeStats.paddedMolecules | number }} X-padded · {{ mergeStats.filteredMolecules | number }} filtered</p></div><div class="merge-output-actions"><button type="button" (click)="downloadMergeFile(2)">Download FASTQ</button><button type="button" (click)="exportMergeFile(2)" [disabled]="!mergeStage2File?.size">Open in Sequence Viewer</button></div></article>
+    </section>
+
+    <section class="merge-filter-diagnostics" *ngIf="mergeStats && mergeDiagnostics">
+      <div class="merge-diagnostic-header">
+        <div>
+          <span class="merge-stage-label">STAGE 1 → STAGE 2</span>
+          <h3>Filtered molecule diagnostics</h3>
+          <p>
+            <strong>{{ mergeStats.filteredMolecules | number }}</strong> of
+            <strong>{{ mergeStats.inputMolecules | number }}</strong> molecules were removed because neither mate passed any configured window and anchor check.
+          </p>
+        </div>
+        <span class="merge-filter-rate" *ngIf="mergeStats.inputMolecules">
+          {{ (mergeStats.filteredMolecules / mergeStats.inputMolecules * 100) | number:'1.1-1' }}% filtered
+        </span>
+      </div>
+
+      <div class="merge-reason-grid" *ngIf="mergeStats.filteredMolecules > 0">
+        <div class="merge-reason-item" *ngFor="let reason of mergeFailureReasons" [title]="mergeFailureDescription(reason)">
+          <span>{{ mergeFailureLabel(reason) }}</span>
+          <strong>{{ mergeFailureCount(reason) | number }}</strong>
         </div>
       </div>
 
-      <div class="bench-total-line">
-        {{ state.trainResult.usable_reads | number }} usable reads ({{ state.trainResult.usable_rate }}% of {{ state.trainResult.total_reads | number }} total subset reads)
-      </div>
+      <div class="merge-no-filtered" *ngIf="mergeStats.filteredMolecules === 0">Every Stage 1 molecule was retained in Stage 2.</div>
 
-      <!-- Usability Filtering Diagnostics -->
-      <div class="bench-usability-info" *ngIf="state.trainResult.filtered_out > 0">
-        <div class="bu-main">Filtered reads: <strong>{{ state.trainResult.filtered_out | number }}</strong></div>
-        <div class="bu-breakdown">
-          Fail reasons: 
-          Quality = {{ state.trainResult.fail_quality | number }}, 
-          Anchor = {{ state.trainResult.fail_no_anchor | number }}, 
-          Similarity = {{ state.trainResult.fail_similarity | number }},
-          Coverage = {{ state.trainResult.fail_no_coverage | number }},
-          Alignment = {{ state.trainResult.fail_no_alignment | number }}
+      <details class="merge-filter-details" *ngIf="mergeStats.filteredMolecules > 0">
+        <summary>View filtered read details</summary>
+        <div class="bench-table-scroll">
+          <table class="bench-table">
+            <thead><tr><th>Record</th><th>Read ID</th><th>R1 result</th><th>R2 result</th><th>Pair decision</th></tr></thead>
+            <tbody>
+              <tr *ngFor="let row of mergeDiagnostics.filteredMolecules | slice:0:mergeDiagnosticLimit">
+                <td>{{ row.recordNumber | number }}</td>
+                <td><code>{{ row.readId }}</code></td>
+                <td><span class="merge-reason-badge" [title]="mergeFailureDescription(row.r1Reason)">{{ mergeFailureLabel(row.r1Reason) }}</span></td>
+                <td><span class="merge-reason-badge" [title]="mergeFailureDescription(row.r2Reason)">{{ mergeFailureLabel(row.r2Reason) }}</span></td>
+                <td>{{ mergeFailureLabel(row.reason) }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-      </div>
-
-      <!-- Per-Class Performance Table -->
-      <table class="bench-table">
-        <thead>
-          <tr>
-            <th>Class</th>
-            <th>Total</th>
-            <th>Filtered</th>
-            <th>Usable</th>
-            <th>Correct</th>
-            <th>Wrong</th>
-            <th>Ambig</th>
-            <th>Acc</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr *ngFor="let row of state.trainResult.per_class">
-            <td>{{ row.gene }} › <span class="badge" style="background: #e2e8f0; color: #475569;">{{ row.target }}</span></td>
-            <td>{{ row.total | number }}</td>
-            <td>{{ row.filtered | number }}</td>
-            <td>{{ row.total - row.filtered | number }}</td>
-            <td class="td-correct">{{ row.correct | number }}</td>
-            <td class="td-wrong">{{ row.wrong | number }}</td>
-            <td class="td-ambig">{{ row.ambiguous | number }}</td>
-            <td><strong>{{ row.correct_rate }}%</strong></td>
-          </tr>
-        </tbody>
-      </table>
-
-      <!-- Diagnostics details expansion -->
-      <details class="bench-cutsite-details" *ngIf="state.trainResult.cut_sites && state.trainResult.cut_sites.length > 0">
-        <summary>🧬 PAM and Cut Site Diagnostics</summary>
-        <table class="bench-table">
-          <thead>
-            <tr>
-              <th>Class</th>
-              <th>Strand</th>
-              <th>Cut Site</th>
-              <th>gRNA Range</th>
-              <th>PAM</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let cs of state.trainResult.cut_sites">
-              <td>{{ cs.gene }} › {{ cs.target }}</td>
-              <td><span class="strand-badge" [class.fwd]="cs.strand === 'forward'" [class.rev]="cs.strand === 'reverse'">{{ cs.strand }}</span></td>
-              <td>{{ cs.cut_site }}</td>
-              <td>{{ cs.grna_start }} - {{ cs.grna_end }}</td>
-              <td><code>{{ cs.pam }}</code> <span class="badge" style="font-size: 0.65rem;" [class.success]="cs.pam_found" [style.background]="cs.pam_found ? '#d5f5e3' : '#fcedf0'" [style.color]="cs.pam_found ? '#1a6e3e' : '#c0392b'">{{ cs.pam_found ? 'found' : 'fallback' }}</span></td>
-            </tr>
-          </tbody>
-        </table>
+        <button type="button" class="merge-show-more" *ngIf="mergeDiagnosticLimit < mergeDiagnostics.filteredMolecules.length" (click)="showMoreMergeDiagnostics()">
+          Show next 100 ({{ mergeDiagnosticLimit | number }} / {{ mergeDiagnostics.filteredMolecules.length | number }})
+        </button>
       </details>
-
-    </div>
-
-    <!-- Test Result Panel -->
-    <div class="bench-result-card" *ngIf="state.testResult">
-      <h3>🔵 Test Benchmark Results</h3>
-      
-      <div class="bench-metric-grid">
-        <div class="bench-metric correct">
-          <span class="bm-label">Correct</span>
-          <span class="bm-value">{{ state.testResult.correct_rate }}%</span>
-          <span class="bm-count">({{ state.testResult.correct_count | number }} / {{ state.testResult.usable_reads | number }} usable)</span>
-        </div>
-        <div class="bench-metric wrong">
-          <span class="bm-label">Wrong</span>
-          <span class="bm-value">{{ state.testResult.wrong_rate }}%</span>
-          <span class="bm-count">({{ state.testResult.wrong_count | number }} / {{ state.testResult.usable_reads | number }} usable)</span>
-        </div>
-        <div class="bench-metric ambiguous">
-          <span class="bm-label">Ambiguous</span>
-          <span class="bm-value">{{ state.testResult.ambiguous_rate }}%</span>
-          <span class="bm-count">({{ state.testResult.ambiguous_count | number }} / {{ state.testResult.usable_reads | number }} usable)</span>
-        </div>
-      </div>
-
-      <div class="bench-total-line">
-        {{ state.testResult.usable_reads | number }} usable reads ({{ state.testResult.usable_rate }}% of {{ state.testResult.total_reads | number }} total subset reads)
-      </div>
-
-      <!-- Usability Filtering Diagnostics -->
-      <div class="bench-usability-info" *ngIf="state.testResult.filtered_out > 0">
-        <div class="bu-main">Filtered reads: <strong>{{ state.testResult.filtered_out | number }}</strong></div>
-        <div class="bu-breakdown">
-          Fail reasons: 
-          Quality = {{ state.testResult.fail_quality | number }}, 
-          Anchor = {{ state.testResult.fail_no_anchor | number }}, 
-          Similarity = {{ state.testResult.fail_similarity | number }},
-          Coverage = {{ state.testResult.fail_no_coverage | number }},
-          Alignment = {{ state.testResult.fail_no_alignment | number }}
-        </div>
-      </div>
-
-      <!-- Per-Class Performance Table -->
-      <table class="bench-table">
-        <thead>
-          <tr>
-            <th>Class</th>
-            <th>Total</th>
-            <th>Filtered</th>
-            <th>Usable</th>
-            <th>Correct</th>
-            <th>Wrong</th>
-            <th>Ambig</th>
-            <th>Acc</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr *ngFor="let row of state.testResult.per_class">
-            <td>{{ row.gene }} › <span class="badge" style="background: #e2e8f0; color: #475569;">{{ row.target }}</span></td>
-            <td>{{ row.total | number }}</td>
-            <td>{{ row.filtered | number }}</td>
-            <td>{{ row.total - row.filtered | number }}</td>
-            <td class="td-correct">{{ row.correct | number }}</td>
-            <td class="td-wrong">{{ row.wrong | number }}</td>
-            <td class="td-ambig">{{ row.ambiguous | number }}</td>
-            <td><strong>{{ row.correct_rate }}%</strong></td>
-          </tr>
-        </tbody>
-      </table>
-
-      <!-- Diagnostics details expansion -->
-      <details class="bench-cutsite-details" *ngIf="state.testResult.cut_sites && state.testResult.cut_sites.length > 0">
-        <summary>🧬 PAM and Cut Site Diagnostics</summary>
-        <table class="bench-table">
-          <thead>
-            <tr>
-              <th>Class</th>
-              <th>Strand</th>
-              <th>Cut Site</th>
-              <th>gRNA Range</th>
-              <th>PAM</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let cs of state.testResult.cut_sites">
-              <td>{{ cs.gene }} › {{ cs.target }}</td>
-              <td><span class="strand-badge" [class.fwd]="cs.strand === 'forward'" [class.rev]="cs.strand === 'reverse'">{{ cs.strand }}</span></td>
-              <td>{{ cs.cut_site }}</td>
-              <td>{{ cs.grna_start }} - {{ cs.grna_end }}</td>
-              <td><code>{{ cs.pam }}</code> <span class="badge" style="font-size: 0.65rem;" [class.success]="cs.pam_found" [style.background]="cs.pam_found ? '#d5f5e3' : '#fcedf0'" [style.color]="cs.pam_found ? '#1a6e3e' : '#c0392b'">{{ cs.pam_found ? 'found' : 'fallback' }}</span></td>
-            </tr>
-          </tbody>
-        </table>
-      </details>
-
-    </div>
-
-  </div>
-
+    </section>
+  </ng-container>
 </div>

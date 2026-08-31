@@ -32,14 +32,23 @@
         <span>All analysis is performed locally in your browser. FASTQ files are not uploaded to any server.</span>
       </div>
 
-      <div class="upload-zone" [class.dragging]="state.isDragging" (drop)="onFileDropped($event)"
-        (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (click)="fileInput.click()">
-        <input type="file" #fileInput (change)="onFileSelected($event)" multiple hidden accept=".fastq,.fq" />
-        <p><strong>Upload files</strong></p>
-        <span class="hint">FASTQ / FQ · Multiple files allowed</span>
+      <div class="sequencing-platform-field">
+        <span class="platform-label">Platform</span>
+        <div class="platform-segmented" role="group" aria-label="Sequencing platform">
+          <button type="button" [class.active]="sequencingPlatform === 'nanopore'" (click)="setSequencingPlatform('nanopore')">Nanopore</button>
+          <button type="button" [class.active]="sequencingPlatform === 'illumina'" (click)="setSequencingPlatform('illumina')">Illumina</button>
+        </div>
       </div>
 
-      <div class="file-list" *ngIf="state.selectedFiles.length > 0">
+      <div class="upload-zone" [class.dragging]="state.isDragging" (drop)="onFileDropped($event)"
+        (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (click)="fileInput.click()">
+        <input type="file" #fileInput (change)="onFileSelected($event)" multiple hidden accept=".fastq,.fq,.fastq.gz,.fq.gz" />
+        <p><strong>{{ sequencingPlatform === 'illumina' ? 'Upload paired-end files' : 'Upload files' }}</strong></p>
+        <span class="hint" *ngIf="sequencingPlatform === 'nanopore'">FASTQ / FQ · Multiple files allowed</span>
+        <span class="hint" *ngIf="sequencingPlatform === 'illumina'">FASTQ / FQ / GZ · R1 and R2 names are paired automatically</span>
+      </div>
+
+      <div class="file-list" *ngIf="sequencingPlatform === 'nanopore' && state.selectedFiles.length > 0">
         <div *ngFor="let file of state.selectedFiles; let i = index" class="file-item">
           <span class="file-name">{{ file.name }}</span>
           <span class="file-size">({{ file.size / 1024 / 1024 | number:'1.1-1' }} MB)</span>
@@ -47,15 +56,39 @@
         </div>
       </div>
 
+      <div class="illumina-pair-grid" *ngIf="sequencingPlatform === 'illumina' && state.illuminaPairs.length > 0">
+        <article class="illumina-pair-card" *ngFor="let pair of state.illuminaPairs">
+          <div class="illumina-mate-slots">
+            <div class="illumina-mate-slot" [class.empty]="!pair.r1" aria-label="R1 slot" (dragover)="allowMateDrop($event)" (drop)="dropMate($event, pair.id, 'r1')">
+              <div class="mate-file" *ngIf="pair.r1" draggable="true" (dragstart)="startMateDrag($event, pair.id, 'r1')">
+                <span class="mate-file-copy" [title]="pair.r1.name">{{ pair.r1.name }}</span>
+                <button type="button" class="btn-remove" (click)="removeIlluminaMate(pair.id, 'r1')" aria-label="Remove R1">&times;</button>
+              </div>
+              <span class="mate-empty" *ngIf="!pair.r1">Drop R1 file</span>
+            </div>
+            <div class="illumina-mate-slot" [class.empty]="!pair.r2" aria-label="R2 slot" (dragover)="allowMateDrop($event)" (drop)="dropMate($event, pair.id, 'r2')">
+              <div class="mate-file" *ngIf="pair.r2" draggable="true" (dragstart)="startMateDrag($event, pair.id, 'r2')">
+                <span class="mate-file-copy" [title]="pair.r2.name">{{ pair.r2.name }}</span>
+                <button type="button" class="btn-remove" (click)="removeIlluminaMate(pair.id, 'r2')" aria-label="Remove R2">&times;</button>
+              </div>
+              <span class="mate-empty" *ngIf="!pair.r2">Drop R2 file</span>
+            </div>
+          </div>
+          <strong class="illumina-pair-name" [title]="displayIlluminaPairName(pair)">{{ displayIlluminaPairName(pair) }}</strong>
+        </article>
+      </div>
+
       <div class="form-row analysis-controls-grid">
         <div class="form-group flex-wide">
           <label>
             Window Size (bp)
+            <span class="custom-window-badge" *ngIf="state.analysisForm.get('customWindowEnabled')?.value">Custom</span>
             <span class="info-icon">?
               <span class="tooltip-text">Total analysis width around cut site.</span>
             </span>
           </label>
-          <input type="number" formControlName="interestRegion" class="form-control" />
+          <input type="number" formControlName="interestRegion" class="form-control"
+            [readonly]="state.analysisForm.get('customWindowEnabled')?.value" />
         </div>
         <div class="form-group flex-wide">
           <label>
@@ -120,11 +153,22 @@
       </div>
 
       <div class="similar-window-settings-panel" *ngIf="showSimilarWindowSettings">
-        <div class="similar-window-header">
-          <h4>Similar Window Setting</h4>
-          <span class="similar-window-subtitle">Advanced parameters to enhance classification accuracy for targets with high sequence similarity.</span>
+        <div class="custom-window-row">
+          <label class="custom-window-toggle">
+            <input type="checkbox" formControlName="customWindowEnabled" />
+            <span>Use custom window</span>
+          </label>
+          <div class="custom-window-inputs" *ngIf="state.analysisForm.get('customWindowEnabled')?.value">
+            <label>Left: <input type="number" min="0" formControlName="customWindowLeft" class="form-control" /> bp</label>
+            <label>Right: <input type="number" min="0" formControlName="customWindowRight" class="form-control" /> bp</label>
+          </div>
         </div>
-        <div class="slider-group-container">
+        <section class="similar-window-card">
+          <div class="similar-window-header">
+            <h4>Similar Window Setting</h4>
+            <span class="similar-window-subtitle">Advanced parameters to enhance classification accuracy for targets with high sequence similarity.</span>
+          </div>
+          <div class="slider-group-container">
           <div class="form-group slider-group">
             <div class="slider-header">
               <label>
@@ -152,7 +196,8 @@
             <input type="range" min="0" max="10" step="1" formControlName="cutSiteExclusionFlank" class="form-range" />
             <p class="slider-description">Excludes indels/mutations starting within cut site ±N bp from similarity calculations to prevent score distortion.</p>
           </div>
-        </div>
+          </div>
+        </section>
       </div>
 
       <hr class="divider" />
@@ -430,7 +475,11 @@
         </div>
       </div>
 
-      <button type="submit" [disabled]="state.isLoading || (state.selectedFiles.length === 0)" class="btn-primary">
+      <button
+        type="submit"
+        [disabled]="state.isLoading || (sequencingPlatform === 'illumina' ? illuminaUnitCount === 0 : state.selectedFiles.length === 0)"
+        class="btn-primary"
+      >
         Start Local Analysis
       </button>
     </div>

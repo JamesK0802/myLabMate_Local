@@ -5,11 +5,11 @@ import { ExcelExportService, ExportParams } from './excel-export.service';
 import { CurationService } from './curation.service';
 import { LocalAnalysisService, LocalAnalysisEvent } from './local-analysis.service';
 import { SequenceWorkspaceService } from './sequence-workspace.service';
-import { parseFastqText } from '../utils/parsers.utils';
 import { extractWindow, findGrnaCutSite } from '../workers/core/classifier';
-import { GeneResult, MultiReferenceResponse, BenchmarkRow, BenchmarkResult, SplitPreview } from '../models/analysis.model';
+import { GeneResult, MultiReferenceResponse, BenchmarkRow, BenchmarkResult } from '../models/analysis.model';
 import { CurationConfig, emptyCurationConfig, targetKey, groupKey } from '../models/curation.model';
 import { Chart } from 'chart.js/auto';
+import { IlluminaFilePair } from '../models/illumina.model';
 
 /** Independent result data container */
 export interface ResultSlot {
@@ -55,6 +55,7 @@ export interface AnalysisTab {
   name: string;
   formValue: any;
   selectedFiles: File[];
+  illuminaPairs: IlluminaFilePair[];
   slot: ResultSlot;
 }
 
@@ -62,6 +63,7 @@ export interface AnalysisTab {
 export class AppStateService {
   analysisForm!: FormGroup;
   selectedFiles: File[] = [];
+  illuminaPairs: IlluminaFilePair[] = [];
   isDragging = false;
 
   // ── Multi-Tab Analysis State ──
@@ -190,6 +192,7 @@ export class AppStateService {
       name: 'Analysis 1',
       formValue: this.analysisForm ? this.analysisForm.getRawValue() : null,
       selectedFiles: [],
+      illuminaPairs: [],
       slot: emptySlot()
     };
     this.tabs = [tab1];
@@ -204,6 +207,7 @@ export class AppStateService {
         tab.formValue = this.analysisForm.getRawValue();
       }
       tab.selectedFiles = [...this.selectedFiles];
+      tab.illuminaPairs = this.illuminaPairs.map(pair => ({ ...pair }));
       tab.slot = this.analysisSlot;
     }
   }
@@ -214,12 +218,14 @@ export class AppStateService {
     const tabName = name || `Analysis ${newTabNumber}`;
     const currentFormVal = this.analysisForm ? this.analysisForm.getRawValue() : null;
     const currentFiles = [...this.selectedFiles];
+    const currentIlluminaPairs = this.illuminaPairs.map(pair => ({ ...pair }));
 
     const newTab: AnalysisTab = {
       id: 'tab_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
       name: tabName,
       formValue: currentFormVal,
       selectedFiles: currentFiles,
+      illuminaPairs: currentIlluminaPairs,
       slot: emptySlot()
     };
 
@@ -237,6 +243,7 @@ export class AppStateService {
     this.activeTabId = tabId;
     this.analysisSlot = targetTab.slot;
     this.selectedFiles = [...targetTab.selectedFiles];
+    this.illuminaPairs = (targetTab.illuminaPairs || []).map(pair => ({ ...pair }));
 
     if (targetTab.formValue && this.analysisForm) {
       this.restoreFormValue(targetTab.formValue);
@@ -249,9 +256,11 @@ export class AppStateService {
     if (this.tabs.length <= 1) {
       this.analysisSlot = emptySlot();
       this.selectedFiles = [];
+      this.illuminaPairs = [];
       if (this.tabs[0]) {
         this.tabs[0].slot = this.analysisSlot;
         this.tabs[0].selectedFiles = [];
+        this.tabs[0].illuminaPairs = [];
       }
       this.resultsUpdated$.next();
       return;
@@ -281,6 +290,7 @@ export class AppStateService {
   private restoreFormValue(val: any) {
     if (!val || !this.analysisForm) return;
     this.analysisForm.patchValue({
+      sequencingPlatform: val.sequencingPlatform ?? 'nanopore',
       interestRegion: val.interestRegion ?? 90,
       phredThreshold: val.phredThreshold ?? 20,
       rescueThreshold: val.rescueThreshold ?? 20,
@@ -288,6 +298,9 @@ export class AppStateService {
       indelPercent: val.indelPercent ?? 2,
       cutSiteDistanceWeight: val.cutSiteDistanceWeight ?? 0,
       cutSiteExclusionFlank: val.cutSiteExclusionFlank ?? 0,
+      customWindowEnabled: val.customWindowEnabled ?? false,
+      customWindowLeft: val.customWindowLeft ?? 45,
+      customWindowRight: val.customWindowRight ?? 45,
       analyzeAmbiguous: val.analyzeAmbiguous ?? false,
       rescueAmbiguous: val.rescueAmbiguous ?? false
     }, { emitEvent: false });
@@ -324,6 +337,7 @@ export class AppStateService {
   // ── Form ──
   private initForm() {
     this.analysisForm = this.fb.group({
+      sequencingPlatform: ['nanopore'],
       interestRegion: [90, [Validators.required, Validators.min(10), Validators.max(500)]],
       phredThreshold: [20, [Validators.required, Validators.min(1), Validators.max(1000)]],
       rescueThreshold: [20, [Validators.required, Validators.min(1), Validators.max(1000)]],
@@ -331,12 +345,24 @@ export class AppStateService {
       indelPercent: [2, [Validators.required, Validators.min(0), Validators.max(100)]],
       cutSiteDistanceWeight: [0, [Validators.required, Validators.min(0), Validators.max(10)]],
       cutSiteExclusionFlank: [0, [Validators.required, Validators.min(0), Validators.max(10)]],
+      customWindowEnabled: [false],
+      customWindowLeft: [45, [Validators.required, Validators.min(0), Validators.max(500)]],
+      customWindowRight: [45, [Validators.required, Validators.min(0), Validators.max(500)]],
       analyzeAmbiguous: [false], rescueAmbiguous: [false],
       genes: this.fb.array([this.createGeneGroup()])
     });
     this.analysisForm.get('analyzeAmbiguous')?.valueChanges.subscribe(val => {
       if (!val) this.analysisForm.get('rescueAmbiguous')?.setValue(false, { emitEvent: false });
     });
+    const syncCustomWindowSize = () => {
+      if (!this.analysisForm.get('customWindowEnabled')?.value) return;
+      const left = Math.max(0, Number(this.analysisForm.get('customWindowLeft')?.value) || 0);
+      const right = Math.max(0, Number(this.analysisForm.get('customWindowRight')?.value) || 0);
+      this.analysisForm.get('interestRegion')?.setValue(left + right, { emitEvent: false });
+    };
+    ['customWindowEnabled', 'customWindowLeft', 'customWindowRight'].forEach(control =>
+      this.analysisForm.get(control)?.valueChanges.subscribe(syncCustomWindowSize)
+    );
   }
   private createGeneGroup(): FormGroup {
     return this.fb.group({ gene_name: [''], gene_reference: ['', Validators.required], geneTargets: this.fb.array([this.createGeneTargetGroup()]) });
@@ -419,7 +445,7 @@ export class AppStateService {
   }
 
   // ── Local Mode Analysis ──
-  runLocalAnalysis(files: File[], genesPayload: any[], params: any) {
+  runLocalAnalysis(files: File[], genesPayload: any[], params: any, illuminaPairs: IlluminaFilePair[] = []) {
     this.saveCurrentTabState();
     this.activateSlot('analysis');
     this.isLoading = true;
@@ -436,10 +462,11 @@ export class AppStateService {
       rescueThreshold: params.rescueThreshold,
       cutSiteDistanceWeight: params.cutSiteDistanceWeight ?? 0,
       cutSiteExclusionFlank: params.cutSiteExclusionFlank ?? 0,
+      sequencingPlatform: params.sequencingPlatform ?? 'nanopore',
     };
 
     this.localAnalysisSub = this.localAnalysisService.startAnalysis(
-      files, genesPayload, analysisParams
+      files, genesPayload, analysisParams, illuminaPairs
     ).subscribe({
       next: (event: LocalAnalysisEvent) => {
         this.ngZone.run(() => {
@@ -625,6 +652,7 @@ export class AppStateService {
     this.clearProgress();
     this.debugLogs = [];
     this.selectedFiles = [];
+    this.illuminaPairs = [];
   }
 
   newViewer() {
@@ -1158,7 +1186,6 @@ export class AppStateService {
       if (blobs.length > 0) {
         const text = await new Blob(blobs, { type: 'text/plain' }).text();
         const filename = `${target.target_id}_Group_${group.group_rank}.fastq`;
-        const fastqDoc = parseFastqText(text, filename);
 
         const refSeq = target.ref_sequence || target.reference_seq || '';
         const grnaSeq = target.sgrna_seq || '';
@@ -1170,11 +1197,8 @@ export class AppStateService {
         }
 
         const autoAlign = { windowSeq, refSeq, grnaSeq, winSize };
-        fastqDoc.autoAlign = autoAlign;
-
-        await this.sequenceWorkspaceService.saveItem(fastqDoc);
-        this.sequenceWorkspaceService.selectItem(fastqDoc.id);
-        this.sequenceWorkspaceService.setPendingAutoAlign(autoAlign);
+        const generatedFile = new File([text], filename, { type: 'text/plain' });
+        await this.sequenceWorkspaceService.importGeneratedFastq(generatedFile, autoAlign);
       }
     } catch (e: any) {
       console.error('Open group in workspace failed:', e);
@@ -1224,7 +1248,6 @@ export class AppStateService {
       if (blobs.length > 0) {
         const text = await new Blob(blobs, { type: 'text/plain' }).text();
         const filename = `${target.target_id}_All_Reads.fastq`;
-        const fastqDoc = parseFastqText(text, filename);
 
         const refSeq = target.ref_sequence || target.reference_seq || '';
         const grnaSeq = target.sgrna_seq || '';
@@ -1236,11 +1259,8 @@ export class AppStateService {
         }
 
         const autoAlign = { windowSeq, refSeq, grnaSeq, winSize };
-        fastqDoc.autoAlign = autoAlign;
-
-        await this.sequenceWorkspaceService.saveItem(fastqDoc);
-        this.sequenceWorkspaceService.selectItem(fastqDoc.id);
-        this.sequenceWorkspaceService.setPendingAutoAlign(autoAlign);
+        const generatedFile = new File([text], filename, { type: 'text/plain' });
+        await this.sequenceWorkspaceService.importGeneratedFastq(generatedFile, autoAlign);
       }
     } catch (e: any) {
       console.error('Open all target in workspace failed:', e);
@@ -1252,24 +1272,28 @@ export class AppStateService {
   }
 
   // ── Benchmark ──────────────────────────────────────────────────────────────
-  benchPhred = 10;
+  benchPlatform: 'nanopore' | 'illumina' = 'nanopore';
+  benchPhred = 20;
   benchWindow = 90;
-  benchMargin = 3;
-  benchRows: BenchmarkRow[] = [{ file: null, geneName: '', targetName: '', referenceSequence: '', grnaSequence: '' }];
+  benchMargin = 10;
+  benchDistanceWeight = 0;
+  benchExclusionFlank = 0;
+  benchCustomWindow = false;
+  benchWindowLeft = 45;
+  benchWindowRight = 45;
+  benchRows: BenchmarkRow[] = [{ file: null, r1File: null, r2File: null, geneName: '', targetName: '', referenceSequence: '', grnaSequence: '' }];
   benchIsLoading = false;
   benchProgress$ = new BehaviorSubject<number>(0);
   benchProgressDisplay$ = new BehaviorSubject<number>(0);
   benchStage$ = new BehaviorSubject<string>('');
   benchError: string | null = null;
-  splitPreview: SplitPreview | null = null;
-  trainResult: BenchmarkResult | null = null;
-  testResult: BenchmarkResult | null = null;
+  benchmarkResult: BenchmarkResult | null = null;
   private benchDestroy$ = new Subject<void>();
   private benchProgressAnimId: any = null;
   private localBenchSub: Subscription | null = null;
 
   addBenchRow() {
-    this.benchRows.push({ file: null, geneName: '', targetName: '', referenceSequence: '', grnaSequence: '' });
+    this.benchRows.push({ file: null, r1File: null, r2File: null, geneName: '', targetName: '', referenceSequence: '', grnaSequence: '' });
   }
 
   removeBenchRow(i: number) {
@@ -1315,87 +1339,60 @@ export class AppStateService {
     });
   }
 
-  buildSplitPreviewLocal() {
+  runBenchmarkLocal() {
     this.benchIsLoading = true;
-    this.splitPreview = null;
     this.benchError = null;
     this.clearBenchProgress();
-    this.setBenchProgress(10, 'Preparing split preview dataset…');
+    this.setBenchProgress(0, 'Starting classification benchmark…');
 
     const dataset = this.benchRows.map((r, idx) => ({
-      file: r.file!,
+      file: r.file,
+      r1File: r.r1File,
+      r2File: r.r2File,
       gene: r.geneName?.trim() || `G${idx + 1}`,
       target: r.targetName?.trim() || `T${idx + 1}`,
       reference: r.referenceSequence,
       grna: r.grnaSequence
     }));
 
-    if (this.localBenchSub) {
-      this.localBenchSub.unsubscribe();
-    }
-
-    this.localBenchSub = this.localAnalysisService.startBenchmarkSplit(dataset).subscribe({
-      next: (event: any) => {
-        this.ngZone.run(() => {
-          if (event.type === 'benchmark-split-result') {
-            this.splitPreview = event.payload;
-            this.setBenchProgress(100, 'Split preview ready ✓');
-            setTimeout(() => {
-              this.ngZone.run(() => { this.benchIsLoading = false; });
-            }, 800);
-          } else if (event.type === 'error') {
-            this.benchError = event.message;
-            this.benchIsLoading = false;
-            this.clearBenchProgress();
-          }
-        });
-      },
-      error: (err) => {
-        this.ngZone.run(() => {
-          this.benchError = err?.message || 'Split preview calculation failed.';
-          this.benchIsLoading = false;
-          this.clearBenchProgress();
-        });
-      }
-    });
-  }
-
-  runBenchmarkLocal(subset: 'train' | 'test') {
-    this.benchIsLoading = true;
-    this.benchError = null;
-    this.clearBenchProgress();
-    this.setBenchProgress(0, `Starting ${subset} benchmark…`);
-
-    const dataset = this.benchRows.map((r, idx) => ({
-      file: r.file!,
-      gene: r.geneName?.trim() || `G${idx + 1}`,
-      target: r.targetName?.trim() || `T${idx + 1}`,
-      reference: r.referenceSequence,
-      grna: r.grnaSequence
-    }));
-
+    const windowSize = this.benchCustomWindow ? this.benchWindowLeft + this.benchWindowRight : this.benchWindow;
     const params = {
+      platform: this.benchPlatform,
       phredThreshold: this.benchPhred,
-      windowSize: this.benchWindow,
-      marginThreshold: this.benchMargin / 100
+      windowSize,
+      marginThreshold: this.benchMargin / 100,
+      cutSiteDistanceWeight: this.benchDistanceWeight,
+      cutSiteExclusionFlank: this.benchExclusionFlank,
+      customWindowLeft: this.benchCustomWindow ? this.benchWindowLeft : undefined,
+      customWindowRight: this.benchCustomWindow ? this.benchWindowRight : undefined,
     };
 
+    const genesByName = new Map<string, any>();
+    dataset.forEach((row, idx) => {
+      const existing = genesByName.get(row.gene);
+      const target = {
+        target_id: row.target || `T${idx + 1}`,
+        sgrna_seq: row.grna,
+        window_size: windowSize,
+        window_left: params.customWindowLeft,
+        window_right: params.customWindowRight,
+      };
+      if (existing) existing.targets.push(target);
+      else genesByName.set(row.gene, { gene: row.gene, sequence: row.reference, targets: [target] });
+    });
+
     if (this.localBenchSub) {
       this.localBenchSub.unsubscribe();
     }
 
-    this.localBenchSub = this.localAnalysisService.startBenchmarkRun(dataset, params, subset).subscribe({
+    this.localBenchSub = this.localAnalysisService.startBenchmarkRun(dataset, [...genesByName.values()], params).subscribe({
       next: (event: any) => {
         this.ngZone.run(() => {
           if (event.type === 'progress') {
             this.setBenchProgress(event.percent, event.stage);
           } else if (event.type === 'benchmark-result') {
-            if (subset === 'train') {
-              this.trainResult = event.payload;
-            } else {
-              this.testResult = event.payload;
-            }
-            this.setBenchProgress(100, `${subset.toUpperCase()} Benchmark Complete ✓`);
+            this.benchmarkResult = event.payload;
+            this.setBenchProgress(100, 'Benchmark complete ✓');
             setTimeout(() => {
               this.ngZone.run(() => { this.benchIsLoading = false; });
             }, 800);
@@ -1408,7 +1405,7 @@ export class AppStateService {
       },
       error: (err) => {
         this.ngZone.run(() => {
-          this.benchError = err?.message || `${subset} benchmark calculation failed.`;
+          this.benchError = err?.message || 'Benchmark calculation failed.';
           this.benchIsLoading = false;
           this.clearBenchProgress();
         });

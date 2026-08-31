@@ -7,6 +7,7 @@ import { CurationConfig } from '../models/curation.model';
 export interface ExportParams {
   windowSize: number; phredThreshold: number; indelThreshold: number;
   assignmentMargin: number; rescueThreshold: number; cutSiteDistanceWeight?: number; cutSiteExclusionFlank?: number;
+  customWindowEnabled?: boolean; customWindowLeft?: number; customWindowRight?: number;
   analyzeAmbiguous: boolean; rescueAmbiguous: boolean;
   dataType: string; fileCount: number;
 }

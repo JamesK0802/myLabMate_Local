@@ -13,8 +13,14 @@
  */
 
 export interface FastqRead {
+  id?: string;
   seq: string;
   qual: number[];
+}
+
+export function normalizeFastqReadId(identifier: string): string {
+  const firstToken = identifier.trim().replace(/^@/, '').split(/\s+/)[0] || '';
+  return firstToken.replace(/\/[12]$/, '');
 }
 
 /**
@@ -55,7 +61,7 @@ export function parseFastqString(text: string): FastqRead[] {
       for (let q = 0; q < qualStr.length; q++) {
         qual[q] = qualStr.charCodeAt(q) - 33;
       }
-      results.push({ seq, qual });
+      results.push({ id: lines[i].trim().replace(/^@/, ''), seq, qual });
     }
 
     i += 4;

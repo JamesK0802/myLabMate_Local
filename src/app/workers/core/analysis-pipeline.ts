@@ -23,6 +23,7 @@ import {
 import { classifyMutationWithAlignment, AlignmentToken } from './analyzer';
 import { assignReadsToReferences, GenePayload, DemuxResult } from './multi-reference-assigner';
 import { FastqRead } from './fastq-parser';
+import { SequencingPlatform } from '../../models/illumina.model';
 
 const SUBSTITUTION_POLICY = 'separate_category_indel_editing_excludes_substitutions';
 
@@ -35,6 +36,8 @@ export interface TargetConfig {
   reference_seq: string;
   sgrna_seq: string;
   window_size?: number;
+  window_left?: number;
+  window_right?: number;
 }
 
 export interface TopGroup {
@@ -206,8 +209,8 @@ function runAnalysisOnReads(
       continue;
     }
 
-    const refWindow = extractWindow(referenceSeq, refCutSite, windowSize);
-    const cutSiteIndexFixed = cutIndexInWindow(referenceSeq, refCutSite, windowSize);
+    const refWindow = extractWindow(referenceSeq, refCutSite, windowSize, target.window_left, target.window_right);
+    const cutSiteIndexFixed = cutIndexInWindow(referenceSeq, refCutSite, windowSize, target.window_left, target.window_right);
     const refInnerFixed = refWindow.toUpperCase();
 
     // Calculate gRNA position in window
@@ -514,6 +517,8 @@ export function runMultiReferenceAnalysis(
       reference_seq: genePayload.sequence,
       sgrna_seq: t.sgrna_seq,
       window_size: t.window_size ?? 90,
+      window_left: t.window_left,
+      window_right: t.window_right,
     }));
 
     const geneReadsData: Array<[string, number[] | null]> = assignedReadsInfo.map(r => [r.seq, r.qual]);
@@ -565,8 +570,8 @@ export function runMultiReferenceAnalysis(
         for (const t of g.targets || []) {
           const cutInfo = findGrnaCutSite(g.sequence, t.sgrna_seq);
           const winSize = t.window_size ?? 90;
-          const refWin = extractWindow(g.sequence, cutInfo.cut_site, winSize);
-          const cutIdx = cutIndexInWindow(g.sequence, cutInfo.cut_site, winSize);
+          const refWin = extractWindow(g.sequence, cutInfo.cut_site, winSize, t.window_left, t.window_right);
+          const cutIdx = cutIndexInWindow(g.sequence, cutInfo.cut_site, winSize, t.window_left, t.window_right);
           classifierClasses.push({
             gene: g.gene,
             target: t.target_id,
@@ -633,6 +638,8 @@ export function runMultiReferenceAnalysis(
             reference_seq: genePayload.sequence,
             sgrna_seq: t.sgrna_seq,
             window_size: t.window_size ?? 90,
+            window_left: t.window_left,
+            window_right: t.window_right,
           }));
 
           const rawRescued = runAnalysisOnReads(rescuedReads, gTargets, phredThreshold, indelThreshold);
@@ -666,6 +673,8 @@ export function runMultiReferenceAnalysis(
           reference_seq: genePayload.sequence,
           sgrna_seq: t.sgrna_seq,
           window_size: t.window_size ?? 90,
+          window_left: t.window_left,
+          window_right: t.window_right,
         }));
 
         const rawAmb = runAnalysisOnReads(ambReadsToAnalyze, gTargets, phredThreshold, indelThreshold);
@@ -704,6 +713,7 @@ export interface AnalysisParams {
   rescueThreshold?: number;
   cutSiteDistanceWeight?: number;
   cutSiteExclusionFlank?: number;
+  sequencingPlatform?: SequencingPlatform;
 }
 
 export function processFile(
@@ -763,6 +773,7 @@ export function buildFinalPayload(
         rescue_filtering_threshold: params.rescueThreshold,
         analyze_ambiguous: params.analyzeAmbiguous ?? false,
         rescue_ambiguous: params.rescueAmbiguous ?? false,
+        sequencing_platform: params.sequencingPlatform ?? 'nanopore',
       },
       references: genesPayload.map(g => ({
         gene: g.gene,
@@ -773,4 +784,3 @@ export function buildFinalPayload(
     results: fileResults,
   };
 }
-

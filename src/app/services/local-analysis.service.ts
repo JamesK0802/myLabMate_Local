@@ -6,7 +6,10 @@
  */
 
 import { Injectable } from '@angular/core';
-import { Observable, Subject } from 'rxjs';
+import { Observable, ReplaySubject, Subject } from 'rxjs';
+import { IlluminaFilePair, SequencingPlatform } from '../models/illumina.model';
+import type { AutoAlignPayload } from './sequence-workspace.service';
+import type { IlluminaPreprocessDiagnostics } from '../workers/core/illumina-preprocessor';
 
 export interface LocalProgressEvent {
   type: 'progress';
@@ -35,12 +38,24 @@ export interface LocalBenchmarkResultEvent {
   payload: any;
 }
 
+export interface LocalIlluminaMergeResultEvent {
+  type: 'illumina-merge-result';
+  payload: {
+    stage1Fastq: string;
+    stage2Fastq: string;
+    stage1AutoAlign: AutoAlignPayload | null;
+    stage2AutoAlign: AutoAlignPayload | null;
+    stats: any;
+    diagnostics: IlluminaPreprocessDiagnostics;
+  };
+}
+
 export interface LocalExportGroupFastqResultEvent {
   type: 'export-group-fastq-result';
   payload: Blob;
 }
 
-export type LocalAnalysisEvent = LocalProgressEvent | LocalResultEvent | LocalErrorEvent | LocalBenchmarkSplitResultEvent | LocalBenchmarkResultEvent | LocalExportGroupFastqResultEvent;
+export type LocalAnalysisEvent = LocalProgressEvent | LocalResultEvent | LocalErrorEvent | LocalBenchmarkSplitResultEvent | LocalBenchmarkResultEvent | LocalIlluminaMergeResultEvent | LocalExportGroupFastqResultEvent;
 
 @Injectable({ providedIn: 'root' })
 export class LocalAnalysisService {
@@ -52,7 +67,8 @@ export class LocalAnalysisService {
   startAnalysis(
     files: File[],
     genesPayload: any[],
-    params: { phredThreshold: number; indelThreshold: number; marginThreshold: number; windowSize: number; cutSiteDistanceWeight?: number; cutSiteExclusionFlank?: number }
+    params: { phredThreshold: number; indelThreshold: number; marginThreshold: number; windowSize: number; cutSiteDistanceWeight?: number; cutSiteExclusionFlank?: number; sequencingPlatform?: SequencingPlatform },
+    illuminaPairs: IlluminaFilePair[] = []
   ): Observable<LocalAnalysisEvent> {
     const subject = new Subject<LocalAnalysisEvent>();
     this.terminate();
@@ -99,7 +115,7 @@ export class LocalAnalysisService {
 
     this.worker.postMessage({
       type: 'analyze',
-      payload: { files, genesPayload, params },
+      payload: { files, genesPayload, params, illuminaPairs },
     });
 
     return subject.asObservable();
@@ -216,8 +232,11 @@ export class LocalAnalysisService {
    */
   startBenchmarkRun(
     dataset: any[],
-    params: { phredThreshold: number; windowSize: number; marginThreshold: number },
-    subset: 'train' | 'test'
+    genesPayload: any[],
+    params: {
+      platform: SequencingPlatform; phredThreshold: number; windowSize: number; marginThreshold: number;
+      cutSiteDistanceWeight?: number; cutSiteExclusionFlank?: number; customWindowLeft?: number; customWindowRight?: number;
+    }
   ): Observable<LocalAnalysisEvent> {
     const subject = new Subject<LocalAnalysisEvent>();
     this.terminate();
@@ -263,9 +282,48 @@ export class LocalAnalysisService {
 
     this.worker.postMessage({
       type: 'benchmark-run',
-      payload: { dataset, params, subset }
+      payload: { dataset, genesPayload, params }
     });
 
+    return subject.asObservable();
+  }
+
+  startIlluminaMergeBench(payload: {
+    r1File?: File | null; r2File?: File | null; r1Sequence?: string; r2Sequence?: string;
+    genesPayload: any[];
+    params: { windowSize: number; phredThreshold: number; marginThreshold: number; cutSiteDistanceWeight?: number; cutSiteExclusionFlank?: number };
+  }): Observable<LocalAnalysisEvent> {
+    // Manual sequence inputs can finish before the component subscribes to the
+    // returned observable. Keep the latest event so that a synchronous worker
+    // result is not lost between postMessage() and subscribe().
+    const subject = new ReplaySubject<LocalAnalysisEvent>(1);
+    this.terminate();
+    try {
+      this.worker = new Worker(new URL('../workers/local-analysis.worker', import.meta.url), { type: 'module' });
+    } catch (err: any) {
+      subject.error(new Error('Failed to create Web Worker: ' + (err?.message || 'Unknown error')));
+      return subject.asObservable();
+    }
+    this.worker.onmessage = (event: MessageEvent) => {
+      const msg = event.data;
+      if (msg.type === 'progress') subject.next({ type: 'progress', percent: msg.percent, stage: msg.stage });
+      if (msg.type === 'illumina-merge-result') {
+        subject.next({ type: 'illumina-merge-result', payload: msg.payload });
+        subject.complete();
+        this.terminate();
+      }
+      if (msg.type === 'error') {
+        subject.next({ type: 'error', message: msg.message });
+        subject.complete();
+        this.terminate();
+      }
+    };
+    this.worker.onerror = (err) => {
+      subject.next({ type: 'error', message: err.message || 'Worker error' });
+      subject.complete();
+      this.terminate();
+    };
+    this.worker.postMessage({ type: 'illumina-merge-bench', payload });
     return subject.asObservable();
   }
 
@@ -289,4 +347,3 @@ export class LocalAnalysisService {
     }
   }
 }
-

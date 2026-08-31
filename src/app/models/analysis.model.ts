@@ -168,6 +168,8 @@ export interface MultiRefFileResult {
 
 export interface BenchmarkRow {
   file: File | null;
+  r1File?: File | null;
+  r2File?: File | null;
   geneName: string;
   targetName: string;
   referenceSequence: string;
@@ -213,6 +215,14 @@ export interface BenchmarkClassResult {
 
 export interface BenchmarkResult {
   subset: string;
+  platform?: 'nanopore' | 'illumina';
+  preprocessing?: {
+    input_molecules: number;
+    normalized_molecules: number;
+    filtered_molecules: number;
+    consensus_molecules: number;
+    padded_molecules: number;
+  };
   // Raw counts
   total_reads: number;
   filtered_out: number;

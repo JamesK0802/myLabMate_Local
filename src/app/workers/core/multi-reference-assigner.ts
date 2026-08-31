@@ -27,6 +27,8 @@ export interface GenePayload {
     target_id: string;
     sgrna_seq: string;
     window_size?: number;
+    window_left?: number;
+    window_right?: number;
   }>;
 }
 
@@ -78,8 +80,8 @@ export function assignReadsToReferences(
     for (const t of g.targets || []) {
       const cutInfo = findGrnaCutSite(geneRef, t.sgrna_seq);
       const winSize = t.window_size ?? 90;
-      const refWin = extractWindow(geneRef, cutInfo.cut_site, winSize);
-      const cutIdx = cutIndexInWindow(geneRef, cutInfo.cut_site, winSize);
+      const refWin = extractWindow(geneRef, cutInfo.cut_site, winSize, t.window_left, t.window_right);
+      const cutIdx = cutIndexInWindow(geneRef, cutInfo.cut_site, winSize, t.window_left, t.window_right);
       geneClasses[geneName].push({
         target: t.target_id,
         gene: geneName,
