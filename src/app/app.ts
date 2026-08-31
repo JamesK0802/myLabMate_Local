@@ -16,8 +16,7 @@ import { SequenceWorkspacePageComponent } from './pages/sequence-workspace-page/
       <nav class="top-nav">
         <div class="nav-left">
           <div class="nav-brand" style="cursor: pointer;" (click)="activeTab = 'analysis'">
-            <img src="logo.png" alt="My Lab Mate" class="nav-brand-logo">
-            <span class="brand-local">.local</span>
+            <img src="casmango-logo.jpg" alt="CasMango" class="nav-brand-logo">
           </div>
 
           <div class="desktop-nav-links">
@@ -31,8 +30,7 @@ import { SequenceWorkspacePageComponent } from './pages/sequence-workspace-page/
               Benchmark
             </button>
             <button class="nav-tab btn-tab" [class.active]="activeTab === 'workspace'" (click)="activeTab = 'workspace'">
-              Sequence Workspace
-              <span *ngIf="!workspaceUnlocked" style="font-size: 0.8em; margin-left: 4px;">🔒</span>
+              Sequence Viewer
             </button>
           </div>
         </div>
@@ -51,24 +49,14 @@ import { SequenceWorkspacePageComponent } from './pages/sequence-workspace-page/
             <app-benchmark-page *ngIf="activeTab === 'benchmark'"></app-benchmark-page>
             
             <ng-container *ngIf="activeTab === 'workspace'">
-              <div *ngIf="!workspaceUnlocked" class="lock-screen">
-                <div class="lock-box">
-                  <h3>Restricted Access 🔒</h3>
-                  <p>The Sequence Workspace is currently under development.</p>
-                  <div class="lock-input-group">
-                    <input type="password" #pwdInput (keyup.enter)="checkWorkspacePwd(pwdInput.value)" placeholder="Enter password" class="lock-input">
-                    <button (click)="checkWorkspacePwd(pwdInput.value)" class="lock-btn">Unlock</button>
-                  </div>
-                </div>
-              </div>
-              <app-sequence-workspace-page *ngIf="workspaceUnlocked"></app-sequence-workspace-page>
+              <app-sequence-workspace-page></app-sequence-workspace-page>
             </ng-container>
           </div>
 
           <!-- Footer Notice -->
           <footer class="app-footer">
             <div class="footer-content">
-              <p>This page is a part of the mylabmate service, and only the CRISPR analysis tool has been extracted. Server-side execution is not supported here; only local runs are supported.</p>
+              <p>CasMango runs CRISPR analysis entirely in your browser. Sequencing files remain on this device and are never uploaded to a server.</p>
             </div>
           </footer>
       <!-- ── Global Export Loading Overlay ── -->
@@ -109,17 +97,6 @@ styles: [`
     color: var(--color-primary);
     background: var(--color-primary-light);
   }
-  .brand-local {
-    font-family: 'Outfit', 'Inter', sans-serif;
-    font-size: 1.15rem;
-    font-weight: 500;
-    color: #3c4257;
-    margin-left: 4px;
-    letter-spacing: -0.5px;
-    margin-top: -1px;
-    display: inline-block;
-    vertical-align: middle;
-  }
     .crispr-shell {
       display: flex;
       flex-direction: column;
@@ -156,43 +133,17 @@ styles: [`
       }
     }
     
-    /* Lock Screen Styles */
-    .lock-screen {
-      display: flex; align-items: center; justify-content: center; height: 100%; width: 100%; background: var(--color-background);
-    }
-    .lock-box {
-      background: #ffffff; padding: 32px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; border: 1px solid var(--color-border);
-    }
-    .lock-box h3 { margin: 0 0 12px 0; color: #2c3e50; font-size: 1.25rem; font-weight: 600; }
-    .lock-box p { color: #7f8c8d; margin-bottom: 24px; font-size: 0.95rem; }
-    .lock-input-group { display: flex; gap: 8px; justify-content: center; }
-    .lock-input { padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 4px; font-size: 1rem; width: 200px; outline: none; }
-    .lock-input:focus { border-color: var(--color-primary); }
-    .lock-btn { padding: 10px 20px; background: var(--color-primary); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; font-weight: 500; transition: 0.2s; }
-    .lock-btn:hover { background: #2980b9; }
   `]
 })
 export class App implements OnInit {
   activeTab: 'analysis' | 'viewer' | 'benchmark' | 'workspace' = 'analysis';
-  workspaceUnlocked = false;
 
   constructor(public state: AppStateService) {}
-
-  checkWorkspacePwd(pwd: string) {
-    if (pwd === '1026') {
-      this.workspaceUnlocked = true;
-    } else {
-      alert('Incorrect password.');
-    }
-  }
 
   ngOnInit() {
     this.state.activateSlot('analysis');
     this.state.activeMainTab$.subscribe(tab => {
       this.activeTab = tab;
-      if (tab === 'workspace') {
-        this.workspaceUnlocked = true;
-      }
     });
   }
 }

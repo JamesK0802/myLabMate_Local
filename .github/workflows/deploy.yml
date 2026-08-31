@@ -38,7 +38,7 @@ jobs:
 
         with:
 
-          path: dist/crispr-local-web/browser
+          path: dist/casmango/browser
 
   deploy:
 

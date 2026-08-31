@@ -1,6 +1,5 @@
 /* ============================================================
-   GLOBAL DESIGN SYSTEM — My Lab Mate
-   ANU RSB Research Platform
+   GLOBAL DESIGN SYSTEM — CasMango
    UI-1 Unification Pass
    ============================================================ */
 
@@ -33,14 +32,14 @@
   --fw-black:   800;
 
   /* --- Colors --- */
-  --color-primary:        #166534;   /* ANU green, main CTA */
-  --color-primary-hover:  #14532d;
-  --color-primary-light:  #f0fdf4;   /* soft green bg */
-  --color-primary-subtle: #dcfce7;   /* badge, chip */
-  --color-primary-border: #bbf7d0;
+  --color-primary:        #f59e0b;   /* mango orange, main CTA */
+  --color-primary-hover:  #d97706;
+  --color-primary-light:  #fffbeb;
+  --color-primary-subtle: #fef3c7;
+  --color-primary-border: #fde68a;
 
-  --color-accent:         #22c55e;   /* bright green accent */
-  --color-accent-subtle:  #86efac;
+  --color-accent:         #65a30d;   /* mango leaf green */
+  --color-accent-subtle:  #bef264;
 
   --color-bg:             #f7f8fa;   /* page background */
   --color-surface:        #ffffff;   /* card / panel bg */

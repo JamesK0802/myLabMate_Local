@@ -1,6 +1,6 @@
-# CRISPR Local — Standalone Browser-Side Analysis Tool
+# CasMango — Local CRISPR Analysis
 
-**CRISPR Local** is a lightweight, pure static web application designed for fast, secure, and private CRISPR sequence editing analysis. Operating entirely within the user's browser, all file parsing, target alignment, and mutation classification are executed locally on the client's CPU using Web Workers.
+**CasMango** is a standalone browser application for fast, private CRISPR sequence-editing analysis. It supports Nanopore and Illumina paired-end FASTQ data, multi-reference target assignment, configurable cut-site windows, mutation classification, benchmarking, and an integrated Sequence Viewer. All processing runs locally with Web Workers.
 
 > [!IMPORTANT]
 > **100% Privacy Guarantee**: 
@@ -20,6 +20,9 @@ This is a **pure frontend SPA (Single Page Application)**.
 ## Features
 
 - **Local FASTQ Processing**: Parse and analyze sequencing data (FASTQ/FQ formats) using multithreaded client-side Web Workers.
+- **Nanopore and Illumina**: Preserve the Nanopore workflow while normalizing paired-end Illumina reads through target-aware consensus preprocessing.
+- **Flexible Cut-Site Windows**: Use symmetric windows or configure independent left/right window sizes.
+- **Sequence Viewer**: Inspect generated and imported FASTQ reads with reference-aware alignment controls.
 - **Reference Configuration**: Bulk-configure reference genes and gRNA targets using a simple downloadable Excel template or via the interactive UI.
 - **Interactive Mutation Dashboard**: View out-of-frame, in-frame, unmodified, and substitution distributions, with responsive charts powered by Chart.js.
 - **Unified Sequence Alignment & Annotation**: Inspect exact base-level mutations (deletions, insertions, and substitutions) aligned against your reference sequences, with direct cut-site indicator visualization.
@@ -55,13 +58,13 @@ Compile the optimized production bundle:
 npm run build
 ```
 The compiled static web application will be generated in:
-**`dist/crispr-local-web/browser/`**
+**`dist/casmango/browser/`**
 
 ---
 
 ## Production Static Deployment
 
-The compiled `dist/crispr-local-web/browser/` directory contains standard static files. You can upload this folder directly to any static host:
+The compiled `dist/casmango/browser/` directory contains standard static files. You can upload this folder directly to any static host:
 
 - **GitHub Pages**
 - **Cloudflare Pages**

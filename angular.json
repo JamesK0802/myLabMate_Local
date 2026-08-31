@@ -3,7 +3,7 @@
   "version": 1,
   "newProjectRoot": "projects",
   "projects": {
-    "crispr-local-web": {
+    "casmango": {
       "projectType": "application",
       "schematics": {},
       "root": "",
@@ -13,7 +13,7 @@
         "build": {
           "builder": "@angular/build:application",
           "options": {
-            "outputPath": "dist/crispr-local-web",
+            "outputPath": "dist/casmango",
             "index": "src/index.html",
             "browser": "src/main.ts",
             "tsConfig": "tsconfig.app.json",
@@ -35,6 +35,11 @@
           },
           "configurations": {
             "production": {
+              "optimization": {
+                "scripts": true,
+                "styles": true,
+                "fonts": false
+              },
               "budgets": [
                 {
                   "type": "initial",
@@ -55,14 +60,14 @@
         "serve": {
           "builder": "@angular/build:dev-server",
           "options": {
-            "buildTarget": "crispr-local-web:build"
+            "buildTarget": "casmango:build"
           },
           "configurations": {
             "production": {
-              "buildTarget": "crispr-local-web:build:production"
+              "buildTarget": "casmango:build:production"
             },
             "development": {
-              "buildTarget": "crispr-local-web:build:development"
+              "buildTarget": "casmango:build:development"
             }
           },
           "defaultConfiguration": "development"
