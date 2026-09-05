@@ -18,6 +18,7 @@
  */
 
 import { SequenceMatcher } from './sequence-matcher';
+import type { QualityScores } from './fastq-parser';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -49,7 +50,7 @@ export function reverseComplement(seq: string): string {
   return result;
 }
 
-export function avgPhred(qual: number[] | null): number {
+export function avgPhred(qual: QualityScores | null): number {
   if (!qual || qual.length === 0) return 40.0;
   let sum = 0;
   for (let i = 0; i < qual.length; i++) sum += qual[i];
@@ -176,14 +177,14 @@ interface AlignResult {
   fail: string | null;
   observed_read?: string;
   read_window?: string;
-  qual_observed?: number[] | null;
+  qual_observed?: QualityScores | null;
   left_x?: number;
   right_x?: number;
 }
 
 function alignReadToWindow(
   seq: string,
-  qual: number[] | null,
+  qual: QualityScores | null,
   refWindow: string,
   cutIdxInWindow: number,
   sgrnaSeq: string
@@ -243,7 +244,7 @@ function alignReadToWindow(
   let readWindow: string;
   let leftX: number;
   let rightX: number;
-  let qualObserved: number[] | null;
+  let qualObserved: QualityScores | null;
 
   if (bestLi !== -1 && bestRi !== -1) {
     // CASE A: Both anchors found
@@ -330,7 +331,7 @@ export interface ReadResult {
   fail: null;
   observed_read: string;
   read_window: string;
-  qual_observed: number[] | null;
+  qual_observed: QualityScores | null;
   left_x: number;
   right_x: number;
   is_rc: boolean;
@@ -338,7 +339,7 @@ export interface ReadResult {
 
 function isReadUsableCached(
   seq: string,
-  qualTuple: number[] | null,
+  qualTuple: QualityScores | null,
   refWindow: string,
   phredThreshold: number,
   sgrnaSeq: string,
@@ -415,7 +416,7 @@ function isReadUsableCached(
 
 export function isReadUsable(
   seq: string,
-  qual: number[] | null,
+  qual: QualityScores | null,
   refWindow: string,
   phredThreshold: number,
   sgrnaSeq: string = '',
@@ -428,7 +429,11 @@ export function isReadUsable(
 
   const result = isReadUsableCached(seq, qual, refWindow, phredThreshold, sgrnaSeq, cutIdxInWin);
   // Only cache if the map isn't too large (prevents memory issues)
-  if (usabilityCache.size < 131072) {
+  // A cache entry retains the full read sequence. A large limit turns a
+  // multi-file run into an accidental in-memory FASTQ copy, especially on
+  // Safari. This still captures common duplicate reads without risking a tab
+  // reload.
+  if (usabilityCache.size < 8192) {
     usabilityCache.set(cacheKey, result);
   }
   return [result[0], result[1], result[2] ? { ...result[2] } : null];
@@ -438,7 +443,7 @@ export function isReadUsable(
  * Nanopore memoized result for another read with the same sequence. */
 export function isReadUsableUncached(
   seq: string,
-  qual: number[] | null,
+  qual: QualityScores | null,
   refWindow: string,
   phredThreshold: number,
   sgrnaSeq: string = '',
@@ -601,7 +606,7 @@ export interface ClassificationResult {
 
 export function applyClassification(
   readSeq: string,
-  readQual: number[] | null,
+  readQual: QualityScores | null,
   classes: ClassInfo[],
   phredThreshold: number,
   margin: number,
@@ -668,7 +673,7 @@ export function applyClassification(
 
 export function applyGeneClassification(
   readSeq: string,
-  readQual: number[] | null,
+  readQual: QualityScores | null,
   geneClasses: Record<string, ClassInfo[]>,
   phredThreshold: number,
   margin: number,

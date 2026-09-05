@@ -326,7 +326,7 @@ export function buildIlluminaPseudoReads(
 export function fastqReadsToString(reads: FastqRead[]): string {
   return reads.map((read, index) => {
     const id = read.id || `read_${index + 1}`;
-    const quality = read.qual.map(score => String.fromCharCode(Math.max(0, Math.min(93, score)) + 33)).join('');
+    const quality = Array.from(read.qual, score => String.fromCharCode(Math.max(0, Math.min(93, score)) + 33)).join('');
     return `@${id}\n${read.seq}\n+\n${quality}`;
   }).join('\n') + (reads.length ? '\n' : '');
 }

@@ -18,7 +18,7 @@
 
 /// <reference lib="webworker" />
 
-import { parseFastqFile, readFileAsText } from './core/fastq-parser';
+import { parseFastqFile, parseFastqFileInBatches, readFileAsText } from './core/fastq-parser';
 import { processFile, buildFinalPayload, AnalysisParams, FileResult } from './core/analysis-pipeline';
 import { findGrnaCutSite, extractWindow, cutIndexInWindow, isReadUsable } from './core/classifier';
 import { GenePayload } from './core/multi-reference-assigner';
@@ -27,6 +27,123 @@ import { IlluminaFilePair } from '../models/illumina.model';
 import { buildIlluminaPseudoReads, fastqReadsToString, preprocessIlluminaReads, suggestIlluminaAlignment } from './core/illumina-preprocessor';
 
 let cancelled = false;
+
+// Files below this size already run reliably through the normal in-memory
+// path. Switch only genuinely large inputs to batch processing.
+const LARGE_FASTQ_BYTES = 500 * 1024 * 1024;
+
+function addNumericFields(target: Record<string, any>, source: Record<string, any>): void {
+  for (const [key, value] of Object.entries(source || {})) {
+    if (typeof value === 'number') target[key] = (target[key] || 0) + value;
+  }
+}
+
+function mergeTargetResult(target: any, source: any): void {
+  addNumericFields(target.summary, source.summary);
+  addNumericFields(target.breakdown, source.breakdown);
+  target.summary.failure_reasons ||= {};
+  target.breakdown.failure_reasons ||= {};
+  addNumericFields(target.summary.failure_reasons, source.summary?.failure_reasons || {});
+  addNumericFields(target.breakdown.failure_reasons, source.breakdown?.failure_reasons || {});
+
+  const groups = new Map<string, any>();
+  for (const group of [...(target.top_groups || []), ...(source.top_groups || [])]) {
+    const existing = groups.get(group.read_inner);
+    if (existing) existing.read_count += group.read_count;
+    else groups.set(group.read_inner, { ...group });
+  }
+  target.top_groups = [...groups.values()];
+}
+
+function finalizeTargetResult(target: any): void {
+  const summary = target.summary;
+  const breakdown = target.breakdown;
+  const aligned = summary.aligned_reads || 0;
+  const pct = (value: number) => aligned ? Math.round((value / aligned) * 10000) / 100 : 0;
+  summary.modified = breakdown.out_of_frame + breakdown.in_frame;
+  summary.unmodified = breakdown.no_indel;
+  summary.substitution_reads = breakdown.substitution;
+  summary.out_of_frame_pct = pct(breakdown.out_of_frame);
+  summary.in_frame_pct = pct(breakdown.in_frame);
+  summary.no_indel_pct = pct(breakdown.no_indel);
+  summary.substitution_pct = pct(breakdown.substitution);
+  summary.editing_efficiency = pct(summary.modified);
+  summary.indel_editing_efficiency = pct(summary.modified);
+  target.top_groups = (target.top_groups || [])
+    .sort((a: any, b: any) => b.read_count - a.read_count)
+    .slice(0, 10)
+    .map((group: any, index: number) => ({
+      ...group,
+      group_rank: index + 1,
+      read_pct: pct(group.read_count),
+    }));
+}
+
+function mergeMultiTargetSummary(target: any, source: any): void {
+  if (!source) return;
+  if (!target) return source;
+  addNumericFields(target, source);
+  target.edit_distribution ||= {};
+  addNumericFields(target.edit_distribution, source.edit_distribution || {});
+  const pairs = new Map<string, any>();
+  for (const item of [...(target.co_editing_matrix || []), ...(source.co_editing_matrix || [])]) {
+    const key = `${item.target_a}\u0000${item.target_b}`;
+    const existing = pairs.get(key);
+    if (existing) existing.co_edited_reads += item.co_edited_reads;
+    else pairs.set(key, { ...item });
+  }
+  target.co_editing_matrix = [...pairs.values()];
+}
+
+/** Combine independently analysed FASTQ batches into one file-level result. */
+function mergeFileResult(target: FileResult | null, source: FileResult): FileResult {
+  if (!target) return source;
+  const current = target.multi_reference_result as any;
+  const incoming = source.multi_reference_result as any;
+  current.ambiguous_read_count += incoming.ambiguous_read_count || 0;
+  for (const key of [
+    'total_reads_parsed', 'phred_passed_count', 'anchor_matched_count',
+    'usable_for_assignment_count', 'assignment_filtered_count',
+  ]) {
+    current.debug[key] = (current.debug[key] || 0) + (incoming.debug?.[key] || 0);
+  }
+
+  const genes = new Map<string, any>((current.genes || []).map((gene: any) => [gene.gene, gene]));
+  for (const incomingGene of incoming.genes || []) {
+    const gene = genes.get(incomingGene.gene);
+    if (!gene) {
+      const copy = structuredClone(incomingGene);
+      current.genes.push(copy);
+      genes.set(copy.gene, copy);
+      continue;
+    }
+    gene.assigned_read_count += incomingGene.assigned_read_count || 0;
+    const targets = new Map((gene.analysis_result.targets || []).map((item: any) => [item.target_id, item]));
+    for (const incomingTarget of incomingGene.analysis_result.targets || []) {
+      const existing = targets.get(incomingTarget.target_id);
+      if (existing) mergeTargetResult(existing, incomingTarget);
+      else gene.analysis_result.targets.push(structuredClone(incomingTarget));
+    }
+    if (incomingGene.analysis_result.multi_target_summary) {
+      const existingSummary = gene.analysis_result.multi_target_summary;
+      gene.analysis_result.multi_target_summary = mergeMultiTargetSummary(existingSummary, incomingGene.analysis_result.multi_target_summary);
+    }
+  }
+  const debugGenes = new Map<string, any>((current.debug.genes || []).map((gene: any) => [gene.gene, gene]));
+  for (const incomingGene of incoming.debug?.genes || []) {
+    const existing = debugGenes.get(incomingGene.gene);
+    if (existing) existing.assigned_reads_analyzed += incomingGene.assigned_reads_analyzed || 0;
+    else current.debug.genes.push(structuredClone(incomingGene));
+  }
+  return target;
+}
+
+function finalizeFileResult(result: FileResult): FileResult {
+  for (const gene of result.multi_reference_result.genes as any[]) {
+    for (const target of gene.analysis_result.targets || []) finalizeTargetResult(target);
+  }
+  return result;
+}
 
 addEventListener('message', async (event: MessageEvent) => {
   const { type, payload } = event.data;
@@ -73,10 +190,10 @@ addEventListener('message', async (event: MessageEvent) => {
             fileProgress: { ...fileProgress },
           });
 
-          const [r1Reads, r2Reads] = await Promise.all([
-            pair.r1 ? parseFastqFile(pair.r1) : Promise.resolve(null),
-            pair.r2 ? parseFastqFile(pair.r2) : Promise.resolve(null),
-          ]);
+          // Read mates one at a time. Parallel parsing doubles the peak memory
+          // for every paired sample and was enough for Safari to reload a tab.
+          const r1Reads = pair.r1 ? await parseFastqFile(pair.r1) : null;
+          const r2Reads = pair.r2 ? await parseFastqFile(pair.r2) : null;
           const normalized = preprocessIlluminaReads(r1Reads, r2Reads, genesPayload, {
             windowSize: params.windowSize,
             phredThreshold: params.phredThreshold,
@@ -126,25 +243,43 @@ addEventListener('message', async (event: MessageEvent) => {
           fileProgress: { ...fileProgress },
         });
 
-        // Parse FASTQ
-        const reads = await parseFastqFile(file);
-
-        if (cancelled) {
-          postMessage({ type: 'error', message: 'Analysis canceled by user.' });
-          return;
+        let fileResult: FileResult;
+        if (file.size >= LARGE_FASTQ_BYTES) {
+          // Keep large FASTQ files out of a single JavaScript array. Each batch
+          // is classified and released before the next batch is read.
+          let merged: FileResult | null = null;
+          let parsedReads = 0;
+          const estimatedBatches = Math.max(1, Math.ceil(file.size / (20 * 1024 * 1024)));
+          await parseFastqFileInBatches(file, async batch => {
+            if (cancelled) throw new Error('Analysis canceled by user.');
+            parsedReads += batch.length;
+            merged = mergeFileResult(merged, processFile(fileName, batch, genesPayload, params));
+            const batchProgress = Math.min(78, 20 + Math.round((parsedReads / Math.max(1, estimatedBatches * 10000)) * 58));
+            fileProgress[fileName] = batchProgress;
+            postMessage({
+              type: 'progress',
+              percent: Math.round(10 + ((i + batchProgress / 100) / totalFiles) * 85),
+              stage: `Analyzing ${parsedReads.toLocaleString()} reads from large file ${fileName}…`,
+              fileProgress: { ...fileProgress },
+            });
+          });
+          if (!merged) throw new Error(`No FASTQ reads were found in ${fileName}.`);
+          fileResult = finalizeFileResult(merged);
+        } else {
+          const reads = await parseFastqFile(file);
+          if (cancelled) {
+            postMessage({ type: 'error', message: 'Analysis canceled by user.' });
+            return;
+          }
+          fileProgress[fileName] = 20;
+          postMessage({
+            type: 'progress',
+            percent: Math.round(10 + ((i + 0.2) / totalFiles) * 85),
+            stage: `Analyzing ${reads.length.toLocaleString()} reads from ${fileName} (file ${i + 1}/${totalFiles})…`,
+            fileProgress: { ...fileProgress },
+          });
+          fileResult = processFile(fileName, reads, genesPayload, params);
         }
-
-        // Progress: analyzing
-        fileProgress[fileName] = 20;
-        postMessage({
-          type: 'progress',
-          percent: Math.round(10 + ((i + 0.2) / totalFiles) * 85),
-          stage: `Analyzing ${reads.length.toLocaleString()} reads from ${fileName} (file ${i + 1}/${totalFiles})…`,
-          fileProgress: { ...fileProgress },
-        });
-
-        // Run analysis
-        const fileResult = processFile(fileName, reads, genesPayload, params);
 
         // Progress: complete for this file
         fileProgress[fileName] = 100;

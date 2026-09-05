@@ -19,6 +19,7 @@ import {
   applyGeneClassification,
   ClassInfo,
 } from './classifier';
+import type { QualityScores } from './fastq-parser';
 
 export interface GenePayload {
   gene: string;
@@ -35,7 +36,7 @@ export interface GenePayload {
 export interface ReadObj {
   read_index: number;
   seq: string;
-  qual: number[] | null;
+  qual: QualityScores | null;
   best_score: number;
 }
 
@@ -64,7 +65,7 @@ export interface DemuxResult {
 }
 
 export function assignReadsToReferences(
-  readsData: Array<[string, number[] | null]>,
+  readsData: Array<[string, QualityScores | null]>,
   genePayloads: GenePayload[],
   phredThreshold: number = 10,
   marginThreshold: number = 0.05,

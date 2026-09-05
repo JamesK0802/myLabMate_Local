@@ -396,8 +396,8 @@
         <div class="sticky-left">REFERENCE 5'→3'</div>
         <div class="seq-center">
           <span class="cut-site-marker"
-            *ngIf="state.selectedTarget.cut_site_index !== undefined && state.selectedTarget.cut_site_index !== null"
-            [style.left.px]="15 + (state.selectedTarget.cut_site_index * 13)"
+            *ngIf="annotationCutSiteIndex !== null"
+            [style.left.px]="15 + (annotationCutSiteIndex! * 13)"
             title="Cut site"></span>
           <div class="grna-track"
             *ngIf="state.selectedTarget.grna_start_index !== undefined && state.selectedTarget.grna_start_index !== -1">
@@ -435,8 +435,8 @@
         </div>
         <div class="seq-center" style="padding: 10px 15px 23px 15px; display: flex; align-items: flex-start;">
           <span class="cut-site-marker"
-            *ngIf="state.selectedTarget.cut_site_index !== undefined && state.selectedTarget.cut_site_index !== null"
-            [style.left.px]="15 + (state.selectedTarget.cut_site_index * 13)"
+            *ngIf="annotationCutSiteIndex !== null"
+            [style.left.px]="15 + (annotationCutSiteIndex! * 13)"
             title="Cut site"></span>
           <div class="seq-mono read-seq" style="display: flex; height: 16px;">
             <ng-container *ngFor="let t of group.tokens">
@@ -515,8 +515,8 @@
       <div class="mobile-sequence-line mobile-reference-line">
         <div class="seq-mono mobile-sequence-bases">
           <span class="cut-site-marker"
-            *ngIf="state.selectedTarget.cut_site_index !== undefined && state.selectedTarget.cut_site_index !== null"
-            [style.left.px]="12 + (state.selectedTarget.cut_site_index * 13)"
+            *ngIf="annotationCutSiteIndex !== null"
+            [style.left.px]="12 + (annotationCutSiteIndex! * 13)"
             title="Cut site"></span>
           <span class="base-box text-box"
             *ngFor="let char of (state.selectedTarget.ref_sequence || '').split(''); let i = index"
@@ -562,8 +562,8 @@
         <div class="mobile-sequence-line mobile-read-line" [class.excluded-row]="isGroupExcludedObj(group)">
           <div class="seq-mono mobile-sequence-bases">
             <span class="cut-site-marker"
-              *ngIf="state.selectedTarget.cut_site_index !== undefined && state.selectedTarget.cut_site_index !== null"
-              [style.left.px]="12 + (state.selectedTarget.cut_site_index * 13)"
+              *ngIf="annotationCutSiteIndex !== null"
+              [style.left.px]="12 + (annotationCutSiteIndex! * 13)"
               title="Cut site"></span>
             <ng-container *ngFor="let t of group.tokens">
               <ng-container *ngIf="t.type === 'equal'">

@@ -22,7 +22,7 @@ import {
 } from './classifier';
 import { classifyMutationWithAlignment, AlignmentToken } from './analyzer';
 import { assignReadsToReferences, GenePayload, DemuxResult } from './multi-reference-assigner';
-import { FastqRead } from './fastq-parser';
+import { FastqRead, QualityScores } from './fastq-parser';
 import { SequencingPlatform } from '../../models/illumina.model';
 
 const SUBSTITUTION_POLICY = 'separate_category_indel_editing_excludes_substitutions';
@@ -176,7 +176,7 @@ interface ReadResult {
 }
 
 function runAnalysisOnReads(
-  data: Array<[string, number[] | null]>,
+  data: Array<[string, QualityScores | null]>,
   targets: TargetConfig[],
   phredThreshold: number = 10,
   indelThreshold: number = 1.0
@@ -470,7 +470,7 @@ function runAnalysisOnReads(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function runMultiReferenceAnalysis(
-  data: Array<[string, number[] | null]>,
+  data: Array<[string, QualityScores | null]>,
   genesPayload: GenePayload[],
   assignmentMarginThreshold: number = 0.05,
   phredThreshold: number = 10,
@@ -521,7 +521,7 @@ export function runMultiReferenceAnalysis(
       window_right: t.window_right,
     }));
 
-    const geneReadsData: Array<[string, number[] | null]> = assignedReadsInfo.map(r => [r.seq, r.qual]);
+    const geneReadsData: Array<[string, QualityScores | null]> = assignedReadsInfo.map(r => [r.seq, r.qual]);
     const assignedCount = geneReadsData.length;
 
     const rawAnalysis = runAnalysisOnReads(geneReadsData, targets, phredThreshold, indelThreshold);
@@ -549,14 +549,14 @@ export function runMultiReferenceAnalysis(
 
   // ── Step 5c: OPTIONAL: Analyze Ambiguous Reads separately for each class ──
   if (analyzeAmbiguous && demuxResult.ambiguous_reads.length > 0) {
-    const ambReadsData: Array<[string, number[] | null]> = demuxResult.ambiguous_reads.map(r => [r.seq, r.qual]);
+    const ambReadsData: Array<[string, QualityScores | null]> = demuxResult.ambiguous_reads.map(r => [r.seq, r.qual]);
 
     let ambReadsToAnalyze = ambReadsData;
 
     if (rescueAmbiguous) {
-      const rescuedByClass: Record<string, Array<[string, number[] | null]>> = {};
+      const rescuedByClass: Record<string, Array<[string, QualityScores | null]>> = {};
       for (const g of genesPayload) rescuedByClass[g.gene] = [];
-      const unresolvedReads: Array<[string, number[] | null]> = [];
+      const unresolvedReads: Array<[string, QualityScores | null]> = [];
 
       const classifierClasses: Array<{
         gene: string;
@@ -583,7 +583,7 @@ export function runMultiReferenceAnalysis(
       }
 
       // 1. Loosely assign each read to a target and extract read_window
-      const geneReadGroups: Record<string, Record<string, Array<[[string, number[] | null], string]>>> = {};
+      const geneReadGroups: Record<string, Record<string, Array<[[string, QualityScores | null], string]>>> = {};
       for (const g of genesPayload) geneReadGroups[g.gene] = {};
 
       for (const r of ambReadsData) {
@@ -724,7 +724,7 @@ export function processFile(
 ): FileResult {
   clearClassifierCache();
 
-  const data: Array<[string, number[] | null]> = reads.map(r => [r.seq, r.qual]);
+  const data: Array<[string, QualityScores | null]> = reads.map(r => [r.seq, r.qual]);
 
   // Ensure all targets have window_size from params
   for (const g of genesPayload) {

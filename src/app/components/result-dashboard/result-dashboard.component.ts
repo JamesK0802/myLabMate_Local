@@ -7,6 +7,7 @@ import { Chart } from 'chart.js/auto';
 
 import { MutationGroup } from '../../models/analysis.model';
 import { groupKey } from '../../models/curation.model';
+import { resolveAnnotationCutSite } from './annotation-cut-site';
 
 @Component({
   selector: 'app-result-dashboard',
@@ -23,6 +24,10 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
   isDraggingScroll = false;
   startX = 0;
   scrollLeft = 0;
+
+  get annotationCutSiteIndex(): number | null {
+    return resolveAnnotationCutSite(this.state.selectedTarget);
+  }
 
   startDragScroll(e: MouseEvent, element: HTMLElement) {
     const targetEl = e.target as HTMLElement;
@@ -179,7 +184,7 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
   private centerAnnotation() {
     const container = document.querySelector('.unified-anno-container');
     if (!container || !this.state.selectedTarget) return;
-    const cutIdx = this.state.selectedTarget.cut_site_index || 0;
+    const cutIdx = this.annotationCutSiteIndex ?? 0;
     const stickyLeftWidth = 150;
     const baseWidth = 13;
     const padding = 15;
