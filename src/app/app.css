@@ -965,6 +965,11 @@ input, select, textarea {
   box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.04);
 }
 
+.analysis-tab-item.locked {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .tab-name {
   max-width: 160px;
   overflow: hidden;
@@ -1002,6 +1007,13 @@ input, select, textarea {
   color: #ef4444;
 }
 
+.tab-close-btn:disabled,
+.btn-add-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
 .btn-add-tab {
   background: #ffffff;
   border: 1px solid #cbd5e1;
@@ -1020,7 +1032,7 @@ input, select, textarea {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-.btn-add-tab:hover {
+.btn-add-tab:hover:not(:disabled) {
   background: #3b82f6;
   color: #ffffff;
   border-color: #3b82f6;

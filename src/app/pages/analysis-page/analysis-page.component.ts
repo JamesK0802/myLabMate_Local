@@ -1,10 +1,11 @@
-import { Component, ChangeDetectorRef, OnInit } from '@angular/core';
+import { Component, ChangeDetectorRef, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormsModule } from '@angular/forms';
 import { AppStateService, AnalysisTab } from '../../services/app-state.service';
 import { ResultDashboardComponent } from '../../components/result-dashboard/result-dashboard.component';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
+import { Subscription } from 'rxjs';
 import { findGrnaCutSite, extractWindow, cutIndexInWindow } from '../../workers/core/classifier';
 import { SequenceMatcher } from '../../workers/core/sequence-matcher';
 import {
@@ -64,7 +65,7 @@ export interface PairwiseComparisonData {
   imports: [CommonModule, ReactiveFormsModule, FormsModule, ResultDashboardComponent],
   templateUrl: './analysis-page.component.html'
 })
-export class AnalysisPageComponent implements OnInit {
+export class AnalysisPageComponent implements OnInit, OnDestroy {
   isSaving = false;
   showAutofill = false;
   showSimilarWindowSettings = false;
@@ -110,8 +111,17 @@ export class AnalysisPageComponent implements OnInit {
     private cdr: ChangeDetectorRef
   ) { }
 
+  private resultsUpdateSub?: Subscription;
+
   ngOnInit() {
     this.state.activateSlot('analysis');
+    this.resultsUpdateSub = this.state.resultsUpdated$.subscribe(() => {
+      this.cdr.detectChanges();
+    });
+  }
+
+  ngOnDestroy() {
+    this.resultsUpdateSub?.unsubscribe();
   }
 
   get sequencingPlatform(): SequencingPlatform {

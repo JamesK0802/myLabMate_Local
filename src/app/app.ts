@@ -15,21 +15,21 @@ import { SequenceWorkspacePageComponent } from './pages/sequence-workspace-page/
       <!-- ── Top Navigation ── -->
       <nav class="top-nav">
         <div class="nav-left">
-          <div class="nav-brand" style="cursor: pointer;" (click)="activeTab = 'analysis'">
+          <div class="nav-brand" [class.locked]="state.isAnalysisRunning && activeTab !== 'analysis'" style="cursor: pointer;" (click)="switchTab('analysis')">
             <img src="casmango-logo.jpg" alt="CasMango" class="nav-brand-logo">
           </div>
 
           <div class="desktop-nav-links">
-            <button class="nav-tab btn-tab" [class.active]="activeTab === 'analysis'" (click)="activeTab = 'analysis'">
+            <button class="nav-tab btn-tab" [class.active]="activeTab === 'analysis'" (click)="switchTab('analysis')">
               CRISPR Analysis
             </button>
-            <button class="nav-tab btn-tab" [class.active]="activeTab === 'viewer'" (click)="activeTab = 'viewer'">
+            <button class="nav-tab btn-tab" [class.active]="activeTab === 'viewer'" [class.locked]="state.isAnalysisRunning" [disabled]="state.isAnalysisRunning" title="{{ state.isAnalysisRunning ? 'Finish or cancel the current analysis first' : '' }}" (click)="switchTab('viewer')">
               Result Viewer
             </button>
-            <button class="nav-tab btn-tab" [class.active]="activeTab === 'benchmark'" (click)="activeTab = 'benchmark'">
+            <button class="nav-tab btn-tab" [class.active]="activeTab === 'benchmark'" [class.locked]="state.isAnalysisRunning" [disabled]="state.isAnalysisRunning" title="{{ state.isAnalysisRunning ? 'Finish or cancel the current analysis first' : '' }}" (click)="switchTab('benchmark')">
               Benchmark
             </button>
-            <button class="nav-tab btn-tab" [class.active]="activeTab === 'workspace'" (click)="activeTab = 'workspace'">
+            <button class="nav-tab btn-tab" [class.active]="activeTab === 'workspace'" [class.locked]="state.isAnalysisRunning" [disabled]="state.isAnalysisRunning" title="{{ state.isAnalysisRunning ? 'Finish or cancel the current analysis first' : '' }}" (click)="switchTab('workspace')">
               Sequence Viewer
             </button>
           </div>
@@ -97,6 +97,12 @@ styles: [`
     color: var(--color-primary);
     background: var(--color-primary-light);
   }
+  .btn-tab.locked, .btn-tab.locked:hover {
+    color: var(--color-text-tertiary);
+    background: transparent;
+    cursor: not-allowed;
+    opacity: .5;
+  }
     .crispr-shell {
       display: flex;
       flex-direction: column;
@@ -139,6 +145,11 @@ export class App implements OnInit {
   activeTab: 'analysis' | 'viewer' | 'benchmark' | 'workspace' = 'analysis';
 
   constructor(public state: AppStateService) {}
+
+  switchTab(tab: 'analysis' | 'viewer' | 'benchmark' | 'workspace') {
+    if (this.state.isAnalysisRunning && tab !== this.activeTab) return;
+    this.state.switchMainTab(tab);
+  }
 
   ngOnInit() {
     this.state.activateSlot('analysis');

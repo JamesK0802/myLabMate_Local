@@ -5,6 +5,9 @@
       <div *ngFor="let tab of state.tabs"
            class="analysis-tab-item"
            [class.active]="tab.id === state.activeTabId"
+           [class.locked]="state.isAnalysisRunning && tab.id !== state.activeTabId"
+           [attr.aria-disabled]="state.isAnalysisRunning && tab.id !== state.activeTabId"
+           [attr.title]="state.isAnalysisRunning && tab.id !== state.activeTabId ? 'Finish or cancel the current analysis before switching tabs' : null"
            (click)="state.selectTab(tab.id)">
         <span class="tab-name" *ngIf="editingTabId !== tab.id" (dblclick)="startRenameTab(tab, $event)" title="Double click to rename">{{ tab.name }}</span>
         <input *ngIf="editingTabId === tab.id"
@@ -13,10 +16,10 @@
                (blur)="finishRenameTab(tab)"
                (keyup.enter)="finishRenameTab(tab)"
                (click)="$event.stopPropagation()" />
-        <button type="button" class="tab-close-btn" *ngIf="state.tabs.length > 1" (click)="closeTab($event, tab.id)" title="Close tab">&times;</button>
+        <button type="button" class="tab-close-btn" *ngIf="state.tabs.length > 1" (click)="closeTab($event, tab.id)" [disabled]="state.isAnalysisRunning" [title]="state.isAnalysisRunning ? 'Finish or cancel the current analysis first' : 'Close tab'">&times;</button>
       </div>
     </div>
-    <button type="button" class="btn-add-tab" (click)="state.addTab()" title="New Analysis Tab">+</button>
+    <button type="button" class="btn-add-tab" (click)="state.addTab()" [disabled]="state.isAnalysisRunning" [title]="state.isAnalysisRunning ? 'Finish or cancel the current analysis first' : 'New Analysis Tab'">+</button>
   </div>
 
   <app-result-dashboard *ngIf="state.genes.length > 0"></app-result-dashboard>
