@@ -144,6 +144,18 @@ import { SequenceWorkspaceService } from '../../services/sequence-workspace.serv
     .rename-btn:hover { color: #7c3aed; background: #ede9fe; }
     
     .empty-state { padding: 16px; text-align: center; color: #64748b; font-size: 0.78rem; line-height: 1.4; }
+    @media (max-width: 700px) {
+      .explorer-header { height: 46px; padding: 0 12px; }
+      .btn-import-primary { min-height: 34px; padding: 7px 14px; }
+      .btn-collapse { display: none; }
+      .item-list { padding: 4px 0 max(8px, env(safe-area-inset-bottom)); }
+      .item-row { min-height: 54px; padding: 8px 10px 8px 12px; }
+      .item-icon { margin-right: 10px; }
+      .item-name { font-size: .86rem; }
+      .item-actions { opacity: 1; gap: 2px; }
+      .icon-btn { width: 34px; height: 34px; margin-left: 0; }
+      .rename-btn { display: none; }
+    }
   `]
 })
 export class ProjectExplorerComponent {

@@ -38,7 +38,36 @@ import { SequenceWorkspacePageComponent } from './pages/sequence-workspace-page/
         <div class="nav-right">
           <span class="version-tag">v1.0.0</span>
         </div>
+
+        <span class="mobile-active-section">{{ activeTabLabel }}</span>
+        <button type="button" class="mobile-hamburger-btn" [class.open]="mobileMenuOpen"
+          (click)="mobileMenuOpen = !mobileMenuOpen" [attr.aria-expanded]="mobileMenuOpen"
+          aria-controls="mobile-navigation" aria-label="Toggle navigation menu">
+          <span class="bar bar-1"></span>
+          <span class="bar bar-2"></span>
+          <span class="bar bar-3"></span>
+        </button>
       </nav>
+
+      <button *ngIf="mobileMenuOpen" type="button" class="mobile-drawer-backdrop"
+        (click)="mobileMenuOpen = false" aria-label="Close navigation menu"></button>
+      <aside *ngIf="mobileMenuOpen" id="mobile-navigation" class="mobile-nav-drawer open">
+        <div class="drawer-header">
+          <img src="casmango-logo.jpg" alt="CasMango" class="drawer-logo">
+          <div class="drawer-header-actions">
+            <span class="version-tag">v1.0.0</span>
+            <button type="button" class="drawer-close" (click)="mobileMenuOpen = false" aria-label="Close navigation menu">×</button>
+          </div>
+        </div>
+        <div class="drawer-links" aria-label="CasMango tools">
+          <span class="drawer-section-title">Tools</span>
+          <button type="button" class="drawer-link" [class.active]="activeTab === 'analysis'" (click)="switchTab('analysis')">CRISPR Analysis</button>
+          <button type="button" class="drawer-link" [class.active]="activeTab === 'viewer'" [disabled]="state.isAnalysisRunning" (click)="switchTab('viewer')">Result Viewer</button>
+          <button type="button" class="drawer-link" [class.active]="activeTab === 'benchmark'" [disabled]="state.isAnalysisRunning" (click)="switchTab('benchmark')">Benchmark</button>
+          <button type="button" class="drawer-link" [class.active]="activeTab === 'workspace'" [disabled]="state.isAnalysisRunning" (click)="switchTab('workspace')">Sequence Viewer</button>
+        </div>
+        <div class="drawer-footer">All analysis stays on this device.</div>
+      </aside>
 
       <!-- ── Main Content ── -->
       <main class="app-content">
@@ -143,12 +172,23 @@ styles: [`
 })
 export class App implements OnInit {
   activeTab: 'analysis' | 'viewer' | 'benchmark' | 'workspace' = 'analysis';
+  mobileMenuOpen = false;
 
   constructor(public state: AppStateService) {}
 
   switchTab(tab: 'analysis' | 'viewer' | 'benchmark' | 'workspace') {
     if (this.state.isAnalysisRunning && tab !== this.activeTab) return;
     this.state.switchMainTab(tab);
+    this.mobileMenuOpen = false;
+  }
+
+  get activeTabLabel(): string {
+    return {
+      analysis: 'Analysis',
+      viewer: 'Results',
+      benchmark: 'Benchmark',
+      workspace: 'Sequences'
+    }[this.activeTab];
   }
 
   ngOnInit() {

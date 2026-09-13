@@ -1,4 +1,4 @@
-import { Component, Input, OnInit, OnChanges, SimpleChanges, ViewChild, ElementRef, AfterViewInit } from '@angular/core';
+import { Component, Input, OnInit, OnChanges, SimpleChanges, ViewChild, ElementRef, AfterViewInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { FastqDocument } from '../../models/sequence.model';
@@ -156,11 +156,13 @@ function buildMotifRegex(query: string): RegExp | null {
           <div class="msa-wrapper">
             <!-- Left Sticky Read IDs Panel -->
             <div class="msa-ids-column">
-              <div class="msa-id-header">READ ID</div>
+              <div class="msa-id-header"><span class="desktop-label">READ ID</span><span class="mobile-label">READ</span></div>
               <div class="msa-id-row reference-id-row">
+                <span class="mobile-reference-label">REF</span>
                 <span class="msa-id-tag ref-tag">REFERENCE ({{ alignedWindowSeq.length }} bp)</span>
               </div>
-              <div class="msa-id-row" *ngFor="let read of visibleAlignedReads">
+              <div class="msa-id-row" *ngFor="let read of visibleAlignedReads; let readIndex = index">
+                <button type="button" class="mobile-read-index" (click)="showReadInfo(read)">#{{ readIndex + 1 }}</button>
                 <span class="msa-id-tag" [title]="'@' + read.id">{{ '@' + read.id }}</span>
               </div>
             </div>
@@ -228,8 +230,9 @@ function buildMotifRegex(query: string): RegExp | null {
           <div class="raw-table-wrapper">
             <!-- Left Sticky Read IDs Column -->
             <div class="raw-ids-column">
-              <div class="raw-id-header">READ ID</div>
-              <div class="raw-id-row" *ngFor="let read of (isAlignedActive ? visibleUnalignedReads : visibleReads)">
+              <div class="raw-id-header"><span class="desktop-label">READ ID</span><span class="mobile-label">READ</span></div>
+              <div class="raw-id-row" *ngFor="let read of (isAlignedActive ? visibleUnalignedReads : visibleReads); let readIndex = index">
+                <button type="button" class="mobile-read-index" (click)="showReadInfo(read)">#{{ readIndex + 1 }}</button>
                 <span class="raw-id-tag" [title]="'@' + read.id">{{ '@' + read.id }}</span>
                 <span
                   class="alignment-failure-badge"
@@ -254,13 +257,21 @@ function buildMotifRegex(query: string): RegExp | null {
         </div>
         </div>
         
-        <div class="load-more" *ngIf="hasMore">
-          <button (click)="loadMore()">Showing {{ visibleReads.length | number }} of {{ filteredReads.length | number }} (Scroll down to auto-load)</button>
+        <div #loadSentinel class="load-sentinel" *ngIf="hasMore" aria-live="polite">
+          <span class="read-loading-spinner" *ngIf="isLoadingMore"></span>
+          <span>{{ isLoadingMore ? 'Loading more reads…' : 'Scroll for more reads' }}</span>
         </div>
 
         <div class="empty-state" *ngIf="visibleReads.length === 0">
           No reads found matching "{{ searchQuery }}"
         </div>
+      </div>
+
+      <div class="mobile-read-info" *ngIf="selectedReadInfo" role="dialog" aria-label="Read information">
+        <button type="button" class="read-info-close" (click)="selectedReadInfo = null" aria-label="Close read information">×</button>
+        <span class="read-info-label">READ INFORMATION</span>
+        <strong>{{ selectedReadInfo.id }}</strong>
+        <span>{{ selectedReadInfo.seq.length | number }} bp</span>
       </div>
     </div>
   `,
@@ -285,6 +296,7 @@ function buildMotifRegex(query: string): RegExp | null {
       flex: 1;
       display: flex;
       flex-direction: column;
+      min-width: 0;
     }
 
     /* Top Compact Workspace Bar */
@@ -769,23 +781,82 @@ function buildMotifRegex(query: string): RegExp | null {
       box-shadow: 0 0 3px rgba(234, 179, 8, 0.5);
     }
 
-    .load-more { text-align: center; margin-top: 12px; }
-    .load-more button {
-      padding: 6px 14px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600;
-    }
-    .load-more button:hover { background: #2563eb; }
+    .load-sentinel { min-height: 38px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #64748b; font-size: .76rem; font-weight: 700; }
+    .read-loading-spinner { width: 16px; height: 16px; border: 2px solid #cbd5e1; border-top-color: #16a34a; border-radius: 50%; animation: read-spin .7s linear infinite; }
+    @keyframes read-spin { to { transform: rotate(360deg); } }
     .empty-state { text-align: center; padding: 24px; color: #64748b; }
+    .mobile-read-info,
+    .mobile-label,
+    .mobile-read-index,
+    .mobile-reference-label { display: none; }
+
+    @media (max-width: 700px) {
+      .fastq-viewer { padding: 0; gap: 6px; }
+      .reads-panel { padding: 8px 0; border-left: 0; border-right: 0; border-radius: 0; }
+      .workspace-top-bar { align-items: stretch; gap: 8px; padding: 0 8px 8px; }
+      .top-bar-left { width: 100%; flex-wrap: wrap; gap: 6px; }
+      .workspace-title { font-size: .86rem; }
+      .unaligned-summary-tag,
+      .aligned-summary-tag,
+      .filter-count-tag { font-size: .7rem; padding: 2px 7px; }
+      .top-bar-right { width: 100%; min-width: 0; gap: 6px; }
+      .search-box { flex: 1; min-width: 0; gap: 4px; }
+      .search-box input { width: 0; min-width: 0; flex: 1; padding: 7px 8px; }
+      .search-box button { padding: 7px 9px; }
+      .btn-align-toggle { flex: 0 0 auto; padding: 7px 9px; font-size: .72rem; }
+      .align-config-panel { margin: 0 8px 8px; padding: 9px; }
+      .align-mode-tabs,
+      .form-row { flex-direction: column; }
+      .mode-tab-btn { width: 100%; }
+      .alignment-results { width: 100%; min-width: 0; }
+      .msa-section,
+      .unaligned-section { margin-left: 0; margin-right: 0; }
+      .msa-wrapper,
+      .raw-table-wrapper { width: 100%; min-width: 0; border-radius: 0; border-left: 0; border-right: 0; }
+      .msa-ids-column,
+      .raw-ids-column { width: 58px; }
+      .msa-id-header,
+      .raw-id-header,
+      .msa-id-row,
+      .raw-id-row { padding-left: 7px; padding-right: 7px; }
+      .desktop-label,
+      .msa-id-tag,
+      .raw-id-tag { display: none; }
+      .mobile-label,
+      .mobile-read-index,
+      .mobile-reference-label { display: inline; }
+      .mobile-read-index { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 28px; padding: 3px 5px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #2563eb; font: 800 .7rem/1 system-ui, sans-serif; }
+      .mobile-reference-label { color: #2563eb; font: 800 .68rem/1 system-ui, sans-serif; }
+      .raw-len-badge,
+      .alignment-failure-badge { display: none; }
+      .raw-seq-viewport,
+      .msa-seq-viewport { min-width: 0; }
+      .raw-seq-header,
+      .msa-seq-header { padding-left: 8px; font-size: .68rem; }
+      .raw-seq-row,
+      .msa-seq-row { padding-left: 8px; padding-right: 8px; }
+      .load-sentinel { padding: 0 8px; }
+      .mobile-read-info { position: fixed; left: 12px; right: 12px; bottom: max(14px, env(safe-area-inset-bottom)); z-index: 1200; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; padding: 15px 46px 15px 16px; border: 1px solid #93c5fd; border-radius: 12px; background: #fff; box-shadow: 0 14px 38px rgba(15,23,42,.24); }
+      .mobile-read-info strong { grid-column: 1 / -1; overflow-wrap: anywhere; color: #0f172a; font: 700 .78rem/1.35 ui-monospace, monospace; }
+      .mobile-read-info > span:last-child { color: #475569; font-size: .76rem; font-weight: 750; }
+      .read-info-label { color: #2563eb; font-size: .64rem; font-weight: 850; letter-spacing: .08em; }
+      .read-info-close { position: absolute; top: 8px; right: 9px; width: 30px; height: 30px; border: 0; border-radius: 50%; background: #f1f5f9; color: #64748b; font-size: 1.2rem; }
+    }
   `]
 })
-export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
+export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit, OnDestroy {
   @Input() document!: FastqDocument;
   @ViewChild('msaViewport') msaViewportRef!: ElementRef;
+  @ViewChild('loadSentinel') set loadSentinel(ref: ElementRef<HTMLElement> | undefined) {
+    this.loadSentinelRef = ref;
+    this.observeLoadSentinel();
+  }
 
   processedReads: ProcessedRead[] = [];
   filteredReads: ProcessedRead[] = [];
   visibleReads: ProcessedRead[] = [];
   searchQuery = '';
-  chunkSize = 100;
+  chunkSize = 10;
   hasMore = false;
   maxPreCutLen = 0;
   refLeadPadding = '';
@@ -801,11 +872,7 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
     const height = el.scrollHeight;
 
     if (height - position < threshold) {
-      this.isLoadingMore = true;
-      this.loadMore();
-      setTimeout(() => {
-        this.isLoadingMore = false;
-      }, 100);
+      this.requestMoreReads();
     }
   }
 
@@ -830,6 +897,9 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
   scrollLeft = 0;
 
   private currentDocId: string | null = null;
+  selectedReadInfo: ProcessedRead | null = null;
+  private loadSentinelRef?: ElementRef<HTMLElement>;
+  private loadObserver?: IntersectionObserver;
 
   constructor(private sequenceWorkspaceService: SequenceWorkspaceService) {}
 
@@ -865,6 +935,11 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
 
   ngAfterViewInit() {
     this.checkPendingAutoAlign();
+    this.observeLoadSentinel();
+  }
+
+  ngOnDestroy() {
+    this.loadObserver?.disconnect();
   }
 
   get alignedReadsList(): ProcessedRead[] {
@@ -1205,6 +1280,10 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
     this.applyFilterAndPagination();
   }
 
+  showReadInfo(read: ProcessedRead) {
+    this.selectedReadInfo = read;
+  }
+
   private applyFilterAndPagination() {
     const q = this.searchQuery ? this.searchQuery.trim().toLowerCase() : '';
     if (!q) {
@@ -1243,5 +1322,26 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit {
     const nextChunk = this.filteredReads.slice(currLen, currLen + this.chunkSize);
     this.visibleReads = [...this.visibleReads, ...nextChunk];
     this.hasMore = this.filteredReads.length > this.visibleReads.length;
+  }
+
+  private requestMoreReads() {
+    if (this.isLoadingMore || !this.hasMore) return;
+    this.isLoadingMore = true;
+    window.setTimeout(() => {
+      this.loadMore();
+      this.isLoadingMore = false;
+      this.observeLoadSentinel();
+    }, 80);
+  }
+
+  private observeLoadSentinel() {
+    this.loadObserver?.disconnect();
+    const sentinel = this.loadSentinelRef?.nativeElement;
+    if (!sentinel || !this.hasMore || typeof IntersectionObserver === 'undefined') return;
+    const root = sentinel.closest('.fastq-viewer');
+    this.loadObserver = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) this.requestMoreReads();
+    }, { root, rootMargin: '240px 0px' });
+    this.loadObserver.observe(sentinel);
   }
 }

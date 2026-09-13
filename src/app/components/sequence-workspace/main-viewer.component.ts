@@ -80,7 +80,7 @@ import { FastqViewerComponent } from './fastq-viewer.component';
   `,
   styles: [`
     :host { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
-    .viewer-container { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .viewer-container { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
     
     .compact-doc-header {
       height: 38px;
@@ -102,6 +102,7 @@ import { FastqViewerComponent } from './fastq-viewer.component';
       align-items: center;
       gap: 10px;
       overflow: hidden;
+      min-width: 0;
     }
     .doc-name {
       font-size: 0.92rem;
@@ -134,6 +135,22 @@ import { FastqViewerComponent } from './fastq-viewer.component';
       color: #64748b;
       font-weight: 500;
       white-space: nowrap;
+    }
+
+    @media (max-width: 700px) {
+      .compact-doc-header { height: auto; min-height: 42px; padding: 6px 8px; gap: 6px; }
+      .compact-doc-header.has-collapsed-padding { padding-left: 8px; }
+      .doc-title-group { width: 100%; gap: 6px; }
+      .doc-name { flex: 1; min-width: 44px; font-size: .82rem; }
+      .doc-badge { flex: 0 0 auto; font-size: .62rem; padding: 2px 5px; }
+      .doc-meta-text { flex: 0 0 auto; font-size: .68rem; }
+      .viewer-tabs { flex: 0 0 auto; }
+      .tab-btn { padding: 5px 7px; font-size: .7rem; }
+      .feature-pane { overflow: auto; }
+      .feature-table { min-width: 480px; }
+      .empty-state { padding: 24px; }
+      .empty-state h2 { font-size: 1.05rem; }
+      .empty-state p { font-size: .82rem; }
     }
 
     .viewer-tabs {
