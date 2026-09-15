@@ -9,7 +9,6 @@ import {
   scoreReadAgainstWindow,
 } from './classifier';
 import { GenePayload } from './multi-reference-assigner';
-import { SequenceMatcher } from './sequence-matcher';
 
 export interface IlluminaPreprocessOptions {
   windowSize: number;
@@ -17,7 +16,12 @@ export interface IlluminaPreprocessOptions {
   marginThreshold?: number;
   cutSiteDistanceWeight?: number;
   cutSiteExclusionFlank?: number;
+  minOverlapBases?: number;
+  minOverlapIdentity?: number;
 }
+
+export const DEFAULT_ILLUMINA_MIN_OVERLAP_BASES = 10;
+export const DEFAULT_ILLUMINA_MIN_OVERLAP_IDENTITY = 0.90;
 
 interface TargetContext {
   key: string;
@@ -75,10 +79,9 @@ export function combineIlluminaMateScores(r1Score: number | null, r2Score: numbe
 }
 
 /**
- * Pick the target window used only as the paired-consensus coordinate system.
- * Gene assignment still happens later in the shared multi-reference pipeline.
- * A low-margin gene or target choice deliberately returns null so the pair is
- * preserved with an X guard instead of being merged against an arbitrary window.
+ * Select a representative target from scored evidence. Pair normalization no
+ * longer calls this function; it remains for post-normalization Sequence Viewer
+ * alignment hints, while gene assignment stays in the shared analysis pipeline.
  */
 export function selectIlluminaConsensusEvidence(
   evidence: IlluminaWindowEvidence[],
@@ -204,88 +207,79 @@ function reverseComplementRead(read: FastqRead): FastqRead {
   };
 }
 
-function orientedRead(read: FastqRead, pass: MatePass): FastqRead {
-  return pass.result.is_rc ? reverseComplementRead(read) : read;
+export interface IlluminaPairNormalization {
+  read: FastqRead;
+  merged: boolean;
+  overlapBases: number;
+  overlapIdentity: number;
 }
 
-function mergeByTargetCoordinates(r1: FastqRead, p1: MatePass, r2: FastqRead, p2: MatePass): FastqRead {
-  const a = orientedRead(r1, p1);
-  const b = orientedRead(r2, p2);
-  const aObservedStart = a.seq.toUpperCase().indexOf(p1.result.observed_read.toUpperCase());
-  const bObservedStart = b.seq.toUpperCase().indexOf(p2.result.observed_read.toUpperCase());
+/**
+ * Normalize a pair without reference or target information. R2 must already be
+ * reverse-complemented. The longest suffix(R1)-prefix(R2rc) overlap satisfying
+ * both thresholds is collapsed; otherwise the mates remain separated by X.
+ */
+export function normalizeIlluminaPairByOverlap(
+  r1: FastqRead,
+  r2rc: FastqRead,
+  windowSize: number,
+  minOverlapBases: number = DEFAULT_ILLUMINA_MIN_OVERLAP_BASES,
+  minOverlapIdentity: number = DEFAULT_ILLUMINA_MIN_OVERLAP_IDENTITY,
+): IlluminaPairNormalization {
+  const aSeq = r1.seq.toUpperCase();
+  const bSeq = r2rc.seq.toUpperCase();
+  const maximumOverlap = Math.min(aSeq.length, bSeq.length);
+  const minimumOverlap = Math.max(1, Math.floor(minOverlapBases));
 
-  if (aObservedStart < 0 || bObservedStart < 0) {
-    throw new Error('Unable to align paired reads to their validated target window.');
-  }
-
-  // Both origins represent reference-window coordinate zero. Trim the earlier
-  // mate to that shared target-relative start, then align the remaining
-  // sequences so an indel in either mate does not shift all later bases.
-  const aOrigin = aObservedStart - p1.result.left_x;
-  const bOrigin = bObservedStart - p2.result.left_x;
-  const aStartCoordinate = -aOrigin;
-  const bStartCoordinate = -bOrigin;
-  const sharedStart = Math.max(aStartCoordinate, bStartCoordinate);
-  const aAlignStart = sharedStart - aStartCoordinate;
-  const bAlignStart = sharedStart - bStartCoordinate;
-  const sequence: string[] = [];
-  const quality: number[] = [];
-
-  if (aStartCoordinate < bStartCoordinate) {
-    sequence.push(...a.seq.slice(0, aAlignStart).toUpperCase());
-    quality.push(...a.qual.slice(0, aAlignStart));
-  } else if (bStartCoordinate < aStartCoordinate) {
-    sequence.push(...b.seq.slice(0, bAlignStart).toUpperCase());
-    quality.push(...b.qual.slice(0, bAlignStart));
-  }
-
-  const aSeq = a.seq.slice(aAlignStart).toUpperCase();
-  const bSeq = b.seq.slice(bAlignStart).toUpperCase();
-  const aQual = a.qual.slice(aAlignStart);
-  const bQual = b.qual.slice(bAlignStart);
-  const matcher = new SequenceMatcher(null, aSeq, bSeq);
-
-  const appendPreferred = (baseA: string, qa: number, baseB: string, qb: number) => {
-    if (baseA === baseB) {
-      sequence.push(baseA);
-      quality.push(Math.max(qa, qb));
-    } else if (qb > qa) {
-      sequence.push(baseB);
-      quality.push(qb);
-    } else {
-      sequence.push(baseA);
-      quality.push(qa);
+  for (let overlap = maximumOverlap; overlap >= minimumOverlap; overlap--) {
+    const aStart = aSeq.length - overlap;
+    let comparable = 0;
+    let matches = 0;
+    for (let offset = 0; offset < overlap; offset++) {
+      const a = aSeq[aStart + offset];
+      const b = bSeq[offset];
+      if (a === 'X' || b === 'X' || a === 'N' || b === 'N') continue;
+      comparable++;
+      if (a === b) matches++;
     }
-  };
+    const identity = comparable > 0 ? matches / comparable : 0;
+    if (comparable < minimumOverlap || identity < minOverlapIdentity) continue;
 
-  for (const [tag, i1, i2, j1, j2] of matcher.getOpcodes()) {
-    if (tag === 'equal') {
-      for (let offset = 0; offset < i2 - i1; offset++) {
-        appendPreferred(aSeq[i1 + offset], aQual[i1 + offset] ?? 0, bSeq[j1 + offset], bQual[j1 + offset] ?? 0);
-      }
-    } else if (tag === 'replace') {
-      const shared = Math.min(i2 - i1, j2 - j1);
-      for (let offset = 0; offset < shared; offset++) {
-        appendPreferred(aSeq[i1 + offset], aQual[i1 + offset] ?? 0, bSeq[j1 + offset], bQual[j1 + offset] ?? 0);
-      }
-      for (let ai = i1 + shared; ai < i2; ai++) {
+    const sequence = aSeq.slice(0, aStart).split('');
+    const quality = Array.from(r1.qual).slice(0, aStart);
+    for (let offset = 0; offset < overlap; offset++) {
+      const ai = aStart + offset;
+      const qa = r1.qual[ai] ?? 0;
+      const qb = r2rc.qual[offset] ?? 0;
+      if (aSeq[ai] === bSeq[offset] || qa >= qb) {
         sequence.push(aSeq[ai]);
-        quality.push(aQual[ai] ?? 0);
+        quality.push(Math.max(qa, qb));
+      } else {
+        sequence.push(bSeq[offset]);
+        quality.push(qb);
       }
-      for (let bi = j1 + shared; bi < j2; bi++) {
-        sequence.push(bSeq[bi]);
-        quality.push(bQual[bi] ?? 0);
-      }
-    } else if (tag === 'delete') {
-      sequence.push(...aSeq.slice(i1, i2));
-      quality.push(...aQual.slice(i1, i2));
-    } else if (tag === 'insert') {
-      sequence.push(...bSeq.slice(j1, j2));
-      quality.push(...bQual.slice(j1, j2));
     }
+    sequence.push(...bSeq.slice(overlap).split(''));
+    quality.push(...Array.from(r2rc.qual).slice(overlap));
+    return {
+      read: { id: r1.id || r2rc.id, seq: sequence.join(''), qual: quality },
+      merged: true,
+      overlapBases: overlap,
+      overlapIdentity: identity,
+    };
   }
 
-  return { id: r1.id || r2.id, seq: sequence.join(''), qual: quality };
+  const paddingLength = Math.max(1, windowSize);
+  return {
+    read: {
+      id: r1.id || r2rc.id,
+      seq: `${aSeq}${'X'.repeat(paddingLength)}${bSeq}`,
+      qual: [...Array.from(r1.qual), ...new Array(paddingLength).fill(0), ...Array.from(r2rc.qual)],
+    },
+    merged: false,
+    overlapBases: 0,
+    overlapIdentity: 0,
+  };
 }
 
 function validatePair(r1: FastqRead, r2: FastqRead, index: number): void {
@@ -296,7 +290,7 @@ function validatePair(r1: FastqRead, r2: FastqRead, index: number): void {
   }
 }
 
-/** Build the stage-1 representation before any target/window decision. */
+/** Build target-independent overlap consensus or X-guarded representations. */
 export function buildIlluminaPseudoReads(
   r1Reads: FastqRead[] | null,
   r2Reads: FastqRead[] | null,
@@ -309,17 +303,10 @@ export function buildIlluminaPseudoReads(
     throw new Error(`Paired FASTQ files contain different record counts (${r1Reads.length} R1 vs ${r2Reads.length} R2).`);
   }
 
-  const paddingLength = Math.max(1, windowSize);
-  const padding = 'X'.repeat(paddingLength);
-  const paddingQuality = new Array(paddingLength).fill(0);
   return r1Reads.map((r1, index) => {
     validatePair(r1, r2Reads[index], index);
     const r2rc = reverseComplementRead(r2Reads[index]);
-    return {
-      id: r1.id || r2Reads[index].id,
-      seq: `${r1.seq.toUpperCase()}${padding}${r2rc.seq.toUpperCase()}`,
-      qual: [...r1.qual, ...paddingQuality, ...r2rc.qual],
-    };
+    return normalizeIlluminaPairByOverlap(r1, r2rc, windowSize).read;
   });
 }
 
@@ -419,46 +406,29 @@ export function preprocessIlluminaReads(
 
   const contexts = targetContexts(genes, options.windowSize);
   const output: FastqRead[] = [];
-  const padding = 'X'.repeat(Math.max(1, options.windowSize));
-  const paddingQuality = new Array(padding.length).fill(0);
-
   for (let i = 0; i < r1Reads.length; i++) {
     const r1 = r1Reads[i];
     const r2rc = reverseComplementRead(r2Reads[i]);
     validatePair(r1, r2Reads[i], i);
 
-    const r1Evaluation = evaluateMate(r1, contexts, options);
-    const r2Evaluation = evaluateMate(r2rc, contexts, options);
-    const r1Passes = r1Evaluation.passes;
-    const r2Passes = r2Evaluation.passes;
-    const r1ByKey = new Map(r1Passes.map(pass => [pass.context.key, pass]));
-    const r2ByKey = new Map(r2Passes.map(pass => [pass.context.key, pass]));
-    const evidence: IlluminaWindowEvidence[] = contexts
-      .filter(context => r1ByKey.has(context.key) || r2ByKey.has(context.key))
-      .map(context => ({
-        key: context.key,
-        gene: context.gene,
-        targetId: context.targetId,
-        r1Score: r1ByKey.get(context.key)?.score ?? null,
-        r2Score: r2ByKey.get(context.key)?.score ?? null,
-      }));
-    const selected = selectIlluminaConsensusEvidence(evidence, options.marginThreshold ?? 0.05);
-    const selectedR1 = selected ? r1ByKey.get(selected.key) : undefined;
-    const selectedR2 = selected ? r2ByKey.get(selected.key) : undefined;
+    const normalized = normalizeIlluminaPairByOverlap(
+      r1,
+      r2rc,
+      options.windowSize,
+      options.minOverlapBases,
+      options.minOverlapIdentity,
+    );
+    const normalizedEvaluation = evaluateMate(normalized.read, contexts, options);
 
-    if (selectedR1 && selectedR2) {
-      output.push(mergeByTargetCoordinates(r1, selectedR1, r2rc, selectedR2));
-      stats.consensusMolecules++;
-    } else if (r1Passes.length > 0 || r2Passes.length > 0) {
-      output.push({
-        id: r1.id || r2Reads[i].id,
-        seq: `${r1.seq.toUpperCase()}${padding}${r2rc.seq.toUpperCase()}`,
-        qual: [...r1.qual, ...paddingQuality, ...r2rc.qual],
-      });
-      stats.paddedMolecules++;
+    if (normalizedEvaluation.passes.length > 0) {
+      output.push(normalized.read);
+      if (normalized.merged) stats.consensusMolecules++;
+      else stats.paddedMolecules++;
     } else {
+      const r1Evaluation = evaluateMate(r1, contexts, options);
+      const r2Evaluation = evaluateMate(r2rc, contexts, options);
       stats.filteredMolecules++;
-      const reason = primaryFailureReason([r1Evaluation.failureReason, r2Evaluation.failureReason]);
+      const reason = normalizedEvaluation.failureReason;
       diagnostics.filteredMolecules.push({
         recordNumber: i + 1,
         readId: r1.id || r2Reads[i].id || `read_${i + 1}`,

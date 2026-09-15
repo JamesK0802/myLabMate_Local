@@ -402,9 +402,9 @@ addEventListener('message', async (event: MessageEvent) => {
       const r1Reads = r1File ? await parseFastqFile(r1File) : manualRead(r1Sequence, 1);
       const r2Reads = r2File ? await parseFastqFile(r2File) : manualRead(r2Sequence, 2);
       if (!r1Reads && !r2Reads) throw new Error('Provide at least one mate file or sequence.');
-      postMessage({ type: 'progress', percent: 35, stage: 'Building stage-1 X-padded pseudo reads…' });
+      postMessage({ type: 'progress', percent: 35, stage: 'Building overlap-aware paired representations…' });
       const stage1 = buildIlluminaPseudoReads(r1Reads, r2Reads, params.windowSize);
-      postMessage({ type: 'progress', percent: 60, stage: 'Running window and anchor guided consensus…' });
+      postMessage({ type: 'progress', percent: 60, stage: 'Applying shared window and anchor evaluation…' });
       const stage2 = preprocessIlluminaReads(r1Reads, r2Reads, genesPayload, params);
       const stage1AutoAlign = suggestIlluminaAlignment(stage1, genesPayload, params);
       const stage2AutoAlign = suggestIlluminaAlignment(stage2.reads, genesPayload, params);

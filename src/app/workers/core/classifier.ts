@@ -9,11 +9,11 @@
  * 3. Anchor search for precise inner-region extraction (indel detection).
  * 4. X-padding for unobserved terminal positions.
  * 5. X-aware anchor comparison (skip X, exact on observed).
- * 6. X-aware k-mer scoring for gene classification.
+ * 6. X-aware alignment scoring for gene classification.
  *
  * Core principle:
  *   Observed bases are evidence.
- *   Terminal X bases are unknown and ignored.
+ *   X bases are unknown separators and ignored regardless of origin.
  *   Cut-site ±15bp must be present for analysis.
  */
 
@@ -320,6 +320,26 @@ function xawareAnchorCheck(readWindow: string, refWindow: string): boolean {
   return true;
 }
 
+/** X is an unobserved separator, never nucleotide evidence. */
+function observedSegments(
+  seq: string,
+  qual: QualityScores | null,
+): Array<{ seq: string; qual: QualityScores | null }> {
+  const segments: Array<{ seq: string; qual: QualityScores | null }> = [];
+  const seqUp = seq.toUpperCase();
+  const matcher = /[^X]+/g;
+  let match: RegExpExecArray | null;
+  while ((match = matcher.exec(seqUp)) !== null) {
+    const start = match.index;
+    const end = start + match[0].length;
+    segments.push({
+      seq: match[0],
+      qual: qual ? Array.from(qual).slice(start, end) : null,
+    });
+  }
+  return segments;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Usability Filter
 // ─────────────────────────────────────────────────────────────────────────────
@@ -348,43 +368,42 @@ function isReadUsableCached(
   const winLen = refWindow.length;
   if (cutIdxInWindow < 0) cutIdxInWindow = Math.floor(winLen / 2);
 
-  // Try forward
-  const fwRes = alignReadToWindow(seq, qualTuple, refWindow, cutIdxInWindow, sgrnaSeq);
-  // Try RC
-  const rcSeq = reverseComplement(seq);
-  const rcQual = qualTuple ? [...qualTuple].reverse() : null;
-  const rcRes = alignReadToWindow(rcSeq, rcQual, refWindow, cutIdxInWindow, sgrnaSeq);
-
   const candidates: Array<{ res: AlignResult; isRc: boolean }> = [];
   const failReasons = new Set<string>();
 
-  for (const [res, isRc] of [[fwRes, false], [rcRes, true]] as [AlignResult, boolean][]) {
-    if (res.fail !== null) {
-      failReasons.add(res.fail);
-      continue;
-    }
+  // Evaluate each contiguous observed segment independently. This makes an
+  // Illumina inter-mate X guard equivalent to terminal X padding: X never
+  // supplies coverage, anchor, quality, scoring, or mutation evidence.
+  for (const segment of observedSegments(seq, qualTuple)) {
+    const fwRes = alignReadToWindow(segment.seq, segment.qual, refWindow, cutIdxInWindow, sgrnaSeq);
+    const rcSeq = reverseComplement(segment.seq);
+    const rcQual = segment.qual ? Array.from(segment.qual).reverse() : null;
+    const rcRes = alignReadToWindow(rcSeq, rcQual, refWindow, cutIdxInWindow, sgrnaSeq);
 
-    // X-aware anchor check
-    if (!xawareAnchorCheck(res.read_window!, refWindow)) {
-      failReasons.add('no_anchor');
-      continue;
-    }
+    for (const [res, isRc] of [[fwRes, false], [rcRes, true]] as [AlignResult, boolean][]) {
+      if (res.fail !== null) {
+        failReasons.add(res.fail);
+        continue;
+      }
 
-    // Phred check on observed bases
-    if (res.qual_observed) {
-      const observedQuals = res.qual_observed;
-      if (observedQuals.length > 0) {
-        let sum = 0;
-        for (let i = 0; i < observedQuals.length; i++) sum += observedQuals[i];
-        const avgQ = sum / observedQuals.length;
-        if (avgQ < phredThreshold) {
-          failReasons.add('quality');
-          continue;
+      if (!xawareAnchorCheck(res.read_window!, refWindow)) {
+        failReasons.add('no_anchor');
+        continue;
+      }
+
+      if (res.qual_observed) {
+        const observedQuals = Array.from(res.qual_observed);
+        if (observedQuals.length > 0) {
+          const avgQ = observedQuals.reduce((sum, value) => sum + value, 0) / observedQuals.length;
+          if (avgQ < phredThreshold) {
+            failReasons.add('quality');
+            continue;
+          }
         }
       }
-    }
 
-    candidates.push({ res, isRc });
+      candidates.push({ res, isRc });
+    }
   }
 
   if (candidates.length === 0) {
@@ -396,10 +415,13 @@ function isReadUsableCached(
     return [false, reason, null];
   }
 
-  // Pick best candidate: fewer X (more observed data)
-  const best = candidates.reduce((a, b) =>
-    (a.res.left_x! + a.res.right_x!) <= (b.res.left_x! + b.res.right_x!) ? a : b
-  );
+  // Prefer the candidate with least missing sequence, then most observed bases.
+  const best = candidates.reduce((a, b) => {
+    const aMissing = a.res.left_x! + a.res.right_x!;
+    const bMissing = b.res.left_x! + b.res.right_x!;
+    if (aMissing !== bMissing) return aMissing < bMissing ? a : b;
+    return a.res.observed_read!.length >= b.res.observed_read!.length ? a : b;
+  });
 
   const result: ReadResult = {
     fail: null,
@@ -483,7 +505,7 @@ function computeAlignmentScoreWithDynamicExclusion(
   distanceWeight: number,
   staticExclusionFlank: number
 ): number {
-  const cleanStrand = strand.replace(/X/g, '');
+  const cleanStrand = strand;
   const cleanRef = refUp.replace(/X/g, '');
   if (!cleanStrand || !cleanRef) return 0.0;
 
@@ -571,14 +593,20 @@ export function scoreReadAgainstWindow(
   const cutSitePos = cutIndexInWindow >= 0 ? cutIndexInWindow : Math.floor(refUp.length / 2);
   const maxDist = Math.max(cutSitePos, refUp.length - cutSitePos, 1);
 
-  const fwScore = computeAlignmentScoreWithDynamicExclusion(readUp, refUp, cutSitePos, maxDist, distanceWeight, exclusionFlank);
+  const segments = readUp.split(/X+/).filter(Boolean);
+  if (!segments.length) return 0.0;
 
   const rcRefUp = reverseComplement(refUp);
   const rcCutSitePos = refUp.length - 1 - cutSitePos;
   const rcMaxDist = Math.max(rcCutSitePos, rcRefUp.length - rcCutSitePos, 1);
-  const rcScore = computeAlignmentScoreWithDynamicExclusion(reverseComplement(readUp), rcRefUp, rcCutSitePos, rcMaxDist, distanceWeight, exclusionFlank);
+  let bestScore = 0.0;
+  for (const segment of segments) {
+    const fwScore = computeAlignmentScoreWithDynamicExclusion(segment, refUp, cutSitePos, maxDist, distanceWeight, exclusionFlank);
+    const rcScore = computeAlignmentScoreWithDynamicExclusion(reverseComplement(segment), rcRefUp, rcCutSitePos, rcMaxDist, distanceWeight, exclusionFlank);
+    bestScore = Math.max(bestScore, fwScore, rcScore);
+  }
 
-  return Math.min(1.0, Math.max(fwScore, rcScore));
+  return Math.min(1.0, bestScore);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

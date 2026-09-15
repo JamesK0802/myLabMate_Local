@@ -3,9 +3,11 @@ import { FastqRead } from '../fastq-parser';
 import { reverseComplement, extractWindow, findGrnaCutSite } from '../classifier';
 import { GenePayload } from '../multi-reference-assigner';
 import {
+  DEFAULT_ILLUMINA_MIN_OVERLAP_BASES,
   buildIlluminaPseudoReads,
   combineIlluminaMateScores,
   fastqReadsToString,
+  normalizeIlluminaPairByOverlap,
   preprocessIlluminaReads,
   selectIlluminaConsensusEvidence,
   suggestIlluminaAlignment,
@@ -32,6 +34,17 @@ function preprocess(r1: FastqRead[] | null, r2: FastqRead[] | null) {
 }
 
 describe('Illumina paired-end preprocessing', () => {
+  it('uses a 10 bp minimum overlap by default', () => {
+    expect(DEFAULT_ILLUMINA_MIN_OVERLAP_BASES).toBe(10);
+    const normalized = normalizeIlluminaPairByOverlap(
+      read('TTTTACGTACGTAA', 35, 'minimum/1'),
+      read('ACGTACGTAACCCC', 35, 'minimum/2'),
+      6,
+    );
+    expect(normalized.merged).toBe(true);
+    expect(normalized.overlapBases).toBe(10);
+  });
+
   it('builds the stage-1 R1 + X guard + R2 reverse-complement FASTQ representation', () => {
     const r1 = read('AACCGG', 32, 'pair/1');
     const r2 = read('AAGTCC', 37, 'pair/2');
@@ -114,6 +127,29 @@ describe('Illumina paired-end preprocessing', () => {
     expect(result.stats.consensusMolecules).toBe(1);
   });
 
+  it('forms the pair consensus from mate overlap without selecting a target window', () => {
+    const r1 = read('AAAACCCCGGGGTTTT', 30, 'overlap/1');
+    const r2rc = read('GGGGTTTTACACACAC', 38, 'overlap/2');
+    const normalized = normalizeIlluminaPairByOverlap(r1, r2rc, windowSize, 8, 0.9);
+    expect(normalized.merged).toBe(true);
+    expect(normalized.overlapBases).toBe(8);
+    expect(normalized.read.seq).toBe('AAAACCCCGGGGTTTTACACACAC');
+    expect(Array.from(normalized.read.qual).slice(8, 16)).toEqual(new Array(8).fill(38));
+  });
+
+  it('uses an X guard when mate overlap is shorter than the minimum', () => {
+    const normalized = normalizeIlluminaPairByOverlap(
+      read('AAAACCCCGGGG', 35, 'guard/1'),
+      read('TTTTAAAACCCC', 35, 'guard/2'),
+      6,
+      8,
+      0.9,
+    );
+    expect(normalized.merged).toBe(false);
+    expect(normalized.read.seq).toBe('AAAACCCCGGGGXXXXXXTTTTAAAACCCC');
+    expect(Array.from(normalized.read.qual).slice(12, 18)).toEqual(new Array(6).fill(0));
+  });
+
   it('resolves a disagreement in favor of the higher-Phred base', () => {
     const index = Math.floor(targetWindow.length / 2);
     const alternative = targetWindow[index] === 'A' ? 'C' : 'A';
@@ -123,12 +159,12 @@ describe('Illumina paired-end preprocessing', () => {
     expect(result.reads[0].qual[index]).toBe(36);
   });
 
-  it('aligns an indel before resolving the remainder of the overlap', () => {
+  it('keeps mates X-separated when a relative mate indel prevents a confident overlap', () => {
     const index = Math.floor(targetWindow.length / 2);
     const inserted = `${targetWindow.slice(0, index)}A${targetWindow.slice(index)}`;
     const result = preprocess([read(inserted, 36)], [read(reverseComplement(targetWindow), 25, 'molecule/2')]);
-    expect(result.reads[0].seq).toBe(inserted);
-    expect(result.reads[0].seq.slice(index + 1)).toBe(targetWindow.slice(index));
+    expect(result.reads[0].seq).toContain('X'.repeat(windowSize));
+    expect(result.stats.paddedMolecules).toBe(1);
   });
 
   it('filters a pair when neither mate passes', () => {
