@@ -8,8 +8,6 @@
 import { Injectable } from '@angular/core';
 import { Observable, ReplaySubject, Subject } from 'rxjs';
 import { IlluminaFilePair, SequencingPlatform } from '../models/illumina.model';
-import type { AutoAlignPayload } from './sequence-workspace.service';
-import type { IlluminaPreprocessDiagnostics } from '../workers/core/illumina-preprocessor';
 
 export interface LocalProgressEvent {
   type: 'progress';
@@ -41,12 +39,8 @@ export interface LocalBenchmarkResultEvent {
 export interface LocalIlluminaMergeResultEvent {
   type: 'illumina-merge-result';
   payload: {
-    stage1Fastq: string;
-    stage2Fastq: string;
-    stage1AutoAlign: AutoAlignPayload | null;
-    stage2AutoAlign: AutoAlignPayload | null;
+    fastq: string;
     stats: any;
-    diagnostics: IlluminaPreprocessDiagnostics;
   };
 }
 
@@ -290,8 +284,7 @@ export class LocalAnalysisService {
 
   startIlluminaMergeBench(payload: {
     r1File?: File | null; r2File?: File | null; r1Sequence?: string; r2Sequence?: string;
-    genesPayload: any[];
-    params: { windowSize: number; phredThreshold: number; marginThreshold: number; cutSiteDistanceWeight?: number; cutSiteExclusionFlank?: number };
+    params: { windowSize: number };
   }): Observable<LocalAnalysisEvent> {
     // Manual sequence inputs can finish before the component subscribes to the
     // returned observable. Keep the latest event so that a synchronous worker

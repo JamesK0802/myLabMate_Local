@@ -6,7 +6,7 @@
 
   <div class="bench-mode-tabs">
     <button type="button" [class.active]="benchmarkMode === 'classification'" (click)="setMode('classification')">Classification</button>
-    <button type="button" [class.active]="benchmarkMode === 'merge'" (click)="setMode('merge')">Illumina Merge</button>
+    <button type="button" [class.active]="benchmarkMode === 'merge'" (click)="setMode('merge')">Illumina Normalization</button>
   </div>
 
   <ng-container *ngIf="benchmarkMode === 'classification'">
@@ -14,7 +14,7 @@
       <div class="bench-section-title">
         <div>
           <h3>Analysis Parameters</h3>
-          <p>Uses every supplied read and the same gene-level window allocation as Analysis.</p>
+          <p>Uses the same analysis path as the main tool, including overlap-aware Illumina normalization before labelled classification.</p>
         </div>
         <div class="platform-segmented" role="group" aria-label="Benchmark sequencing platform">
           <button type="button" [class.active]="state.benchPlatform === 'nanopore'" (click)="state.benchPlatform = 'nanopore'">Nanopore</button>
@@ -101,186 +101,78 @@
     </section>
   </ng-container>
 
+
   <ng-container *ngIf="benchmarkMode === 'merge'">
     <section class="bench-params-card">
-      <div class="bench-section-title"><div><h3>Illumina Merge Bench</h3><p>Stage 1 exports R1 + window-sized X guard + R2 reverse-complement. Stage 2 exports the current window/anchor-guided normalized reads.</p></div></div>
+      <div class="bench-section-title">
+        <div>
+          <h3>Illumina Normalization Bench</h3>
+          <p>Uses the same reference-independent paired-end normalization as the main analysis: qualifying overlaps form a consensus; other pairs retain both mates with a window-sized X guard.</p>
+        </div>
+      </div>
       <div class="bench-params-row">
-        <div class="bench-param-group"><label>Window Size (bp)</label><input type="number" [(ngModel)]="mergeWindow" (ngModelChange)="mergeShowWindowCheck && recalculateMergeWindowCheck()" min="10" max="500" /></div>
-        <div class="bench-param-group"><label>Phred Threshold</label><input type="number" [(ngModel)]="mergePhred" min="0" /></div>
-        <div class="bench-param-group"><label>Assignment Margin (%)</label><input type="number" [(ngModel)]="mergeMargin" min="0" max="100" /></div>
-      </div>
-      <div class="bench-advanced-toggle-bar">
-        <button type="button" class="bench-advanced-toggle" (click)="mergeAdvancedOpen = !mergeAdvancedOpen">Advanced {{ mergeAdvancedOpen ? '▼' : '▶' }}</button>
-      </div>
-      <div class="bench-advanced-panel" *ngIf="mergeAdvancedOpen">
-        <div class="bench-advanced-grid">
-          <div class="bench-param-group"><label>Distance Weight</label><input type="number" [(ngModel)]="mergeDistanceWeight" min="0" max="10" step="0.5" /></div>
-          <div class="bench-param-group"><label>Cut-site Exclusion (±bp)</label><input type="number" [(ngModel)]="mergeExclusionFlank" min="0" max="10" /></div>
+        <div class="bench-param-group">
+          <label>Window Size / X Guard (bp)</label>
+          <input type="number" [(ngModel)]="mergeWindow" min="1" max="500" />
+        </div>
+        <div class="bench-param-group">
+          <label>Overlap rule</label>
+          <div class="bench-static-value">≥10 bp and ≥90% identity</div>
         </div>
       </div>
     </section>
 
     <section class="bench-dataset-card">
-      <div class="bench-dataset-header"><div><h3>Mate Input</h3><p>Drop R1 and R2 together, or choose either mate separately.</p></div></div>
+      <div class="bench-dataset-header">
+        <div><h3>Mate Input</h3><p>Drop R1 and R2 together, or choose either mate separately.</p></div>
+      </div>
       <div class="merge-mate-dropzone" [class.dragging]="mergeMateDragging"
         (dragover)="onMergeMateDragOver($event)" (dragleave)="onMergeMateDragLeave($event)" (drop)="onMergeMateDrop($event)">
         <input #mergeMateInput type="file" multiple accept=".fastq,.fq,.fastq.gz,.fq.gz" (change)="onMergeMateInput($event)" hidden />
         <button type="button" class="merge-mate-browse" (click)="mergeMateInput.click()">Drop two FASTQ files here or choose R1 + R2</button>
         <div class="merge-mate-grid">
-        <div class="merge-mate-card"><strong>R1</strong><label class="bench-file-label" [class.has-file]="mergeR1File" for="merge_r1">{{ mergeR1File?.name || 'Choose FASTQ' }}</label><input id="merge_r1" type="file" accept=".fastq,.fq,.fastq.gz,.fq.gz" (change)="onMergeFileSelected($event, 'r1')" hidden /><button type="button" class="bench-link-button" *ngIf="mergeR1File" (click)="mergeR1File = null">Clear file</button></div>
-        <div class="merge-mate-card"><strong>R2</strong><label class="bench-file-label" [class.has-file]="mergeR2File" for="merge_r2">{{ mergeR2File?.name || 'Choose FASTQ' }}</label><input id="merge_r2" type="file" accept=".fastq,.fq,.fastq.gz,.fq.gz" (change)="onMergeFileSelected($event, 'r2')" hidden /><button type="button" class="bench-link-button" *ngIf="mergeR2File" (click)="mergeR2File = null">Clear file</button></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="bench-dataset-card analysis-page merge-reference-config">
-      <div class="targets-section">
-        <div class="section-header">
-          <h2>Reference Configuration</h2>
-          <div class="header-actions">
-            <button type="button" class="btn-autofill" (click)="mergeShowAutofill = !mergeShowAutofill">Auto Fill</button>
-            <button type="button" class="btn-window-check" [class.active]="mergeShowWindowCheck" (click)="toggleMergeWindowCheck()">Window Check</button>
-            <button type="button" class="btn-add" (click)="addMergeGene()">Add Gene</button>
+          <div class="merge-mate-card">
+            <strong>R1</strong>
+            <label class="bench-file-label" [class.has-file]="mergeR1File" for="merge_r1">{{ mergeR1File?.name || 'Choose FASTQ' }}</label>
+            <input id="merge_r1" type="file" accept=".fastq,.fq,.fastq.gz,.fq.gz" (change)="onMergeFileSelected($event, 'r1')" hidden />
+            <button type="button" class="bench-link-button" *ngIf="mergeR1File" (click)="mergeR1File = null">Clear file</button>
           </div>
-        </div>
-
-        <div class="autofill-actions-panel" *ngIf="mergeShowAutofill">
-          <p class="autofill-hint">Use the same reference template as Analysis to configure genes and targets in bulk.</p>
-          <div class="autofill-buttons">
-            <button type="button" class="btn-template-download" (click)="downloadMergeTemplate()">Download Template</button>
-            <button type="button" class="btn-template-upload" (click)="mergeTemplateInput.click()">Upload Sequence (Excel)</button>
-            <input type="file" #mergeTemplateInput (change)="onMergeTemplateUpload($event)" hidden accept=".xlsx,.xls" />
-          </div>
-        </div>
-
-        <div class="window-check-panel" *ngIf="mergeShowWindowCheck">
-          <div class="window-check-header">
-            <div class="window-check-title">
-              <h3>Window Check & Pairwise Similarity Matrix</h3>
-              <p class="window-check-hint">These are the same candidate windows used for Illumina mate detection and consensus selection.</p>
-            </div>
-            <button type="button" class="btn-close-window-check" (click)="mergeShowWindowCheck = false">&times;</button>
-          </div>
-          <div class="window-controls-row">
-            <label class="control-label">Window Size (bp):</label>
-            <div class="slider-wrapper">
-              <input type="range" min="30" max="180" step="1" [(ngModel)]="mergeWindow" (ngModelChange)="recalculateMergeWindowCheck()" class="window-range-slider" />
-              <span class="range-bound min-bound">30</span><span class="range-bound max-bound">180</span>
-            </div>
-            <div class="number-input-wrapper">
-              <input type="number" min="1" max="1000" [(ngModel)]="mergeWindow" (ngModelChange)="recalculateMergeWindowCheck()" class="form-control window-number-input" />
-              <span class="unit-label">bp</span>
-            </div>
-          </div>
-          <div class="no-windows-alert" *ngIf="mergeWindows.length === 0">Enter at least one reference sequence and gRNA target to inspect its window.</div>
-          <div *ngIf="mergeWindows.length > 0">
-            <div class="windows-list-section">
-              <h4>Extracted Target Windows (Size: {{ mergeWindow }} bp)</h4>
-              <div class="windows-grid">
-                <div class="window-card" *ngFor="let item of mergeWindows">
-                  <div class="window-card-header"><span class="window-target-name">{{ item.geneName }} - {{ item.targetName }}</span><span class="window-length-badge">{{ item.sequence.length }} bp</span></div>
-                  <div class="window-meta" *ngIf="item.cutSite >= 0">Cut Site: {{ item.cutSite }} · Strand: {{ item.strand }} · PAM: <code>{{ item.pam }}</code></div>
-                  <div class="window-meta warning" *ngIf="item.cutSite < 0">gRNA not matched in reference (fallback center window shown; preprocessing will reject this target)</div>
-                  <div class="ref-map-bar-wrapper">
-                    <div class="ref-map-bar" [title]="'Reference: ' + item.referenceLength + ' bp · Window: ' + item.windowStart + '–' + item.windowEnd">
-                      <div class="ref-map-win" [style.left.%]="item.windowStart / item.referenceLength * 100" [style.width.%]="(item.windowEnd - item.windowStart) / item.referenceLength * 100"></div>
-                      <div class="ref-map-target" *ngIf="item.grnaStart >= 0" [style.left.%]="item.grnaStart / item.referenceLength * 100" [style.width.%]="item.grnaLength / item.referenceLength * 100"></div>
-                    </div>
-                  </div>
-                  <div class="window-seq monospaced">{{ item.sequence }}</div>
-                </div>
-              </div>
-              <div class="global-ref-map-legend-bottom"><span class="legend-item legend-ref"><span class="legend-box box-ref"></span>Reference</span><span class="legend-item legend-win"><span class="legend-box box-win"></span>Extracted Window</span><span class="legend-item legend-target"><span class="legend-box box-target"></span>Target (gRNA)</span></div>
-            </div>
-            <div class="similarity-matrix-section">
-              <div class="matrix-header-row"><h4>Pairwise Window Similarity Matrix (%)</h4><span class="matrix-hint">Every configured target competes during merge-window selection.</span></div>
-              <div class="matrix-table-wrapper">
-                <table class="similarity-table">
-                  <thead><tr><th class="corner-cell">Target</th><th *ngFor="let item of mergeWindows" class="col-header">{{ item.targetName }}</th></tr></thead>
-                  <tbody><tr *ngFor="let row of mergeWindows; let ri = index"><th class="row-header">{{ row.targetName }} ({{ row.geneName }})</th><td *ngFor="let col of mergeWindows; let ci = index" [class.diagonal]="ri === ci" [style.background-color]="mergeHeatmapColor(mergeSimilarityMatrix[ri][ci], ri === ci)"><span class="similarity-pct">{{ mergeSimilarityMatrix[ri][ci] | number:'1.1-1' }}%</span></td></tr></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="gene-block-card" *ngFor="let gene of mergeGenes; let gi = index">
-          <div class="gene-block-header">
-            <div class="gene-block-title"><span>Gene {{ gi + 1 }}</span></div>
-            <button type="button" class="btn-remove-target" (click)="removeMergeGene(gi)" *ngIf="mergeGenes.length > 1">Remove Gene</button>
-          </div>
-          <div class="gene-block-body">
-            <div class="form-row merge-gene-input-row">
-              <div class="form-group merge-gene-name"><label>Gene Name:</label><input type="text" [(ngModel)]="gene.geneName" placeholder="e.g. GeneA" /></div>
-              <div class="form-group full"><label>Reference Sequence:</label><textarea [(ngModel)]="gene.referenceSequence" rows="3" class="monospaced" (ngModelChange)="mergeShowWindowCheck && recalculateMergeWindowCheck()"></textarea></div>
-            </div>
-            <div class="gene-targets-section">
-              <div class="gene-targets-header"><span class="gene-targets-label">Targets within this gene</span><button type="button" class="btn-add-small" (click)="addMergeTarget(gi)">Add Target</button></div>
-              <div class="gene-target-row" *ngFor="let target of gene.targets; let ti = index">
-                <span class="gene-target-num">T{{ ti + 1 }}</span>
-                <div class="form-group merge-target-name"><label>Target Name:</label><input type="text" [(ngModel)]="target.targetName" /></div>
-                <div class="form-group full"><label>gRNA Sequence:</label><input type="text" [(ngModel)]="target.grnaSequence" (ngModelChange)="mergeShowWindowCheck && recalculateMergeWindowCheck()" /></div>
-                <button type="button" class="btn-remove" (click)="removeMergeTarget(gi, ti)" *ngIf="gene.targets.length > 1">&times;</button>
-              </div>
-            </div>
+          <div class="merge-mate-card">
+            <strong>R2</strong>
+            <label class="bench-file-label" [class.has-file]="mergeR2File" for="merge_r2">{{ mergeR2File?.name || 'Choose FASTQ' }}</label>
+            <input id="merge_r2" type="file" accept=".fastq,.fq,.fastq.gz,.fq.gz" (change)="onMergeFileSelected($event, 'r2')" hidden />
+            <button type="button" class="bench-link-button" *ngIf="mergeR2File" (click)="mergeR2File = null">Clear file</button>
           </div>
         </div>
       </div>
     </section>
 
-    <div class="bench-actions"><button type="button" class="btn-bench btn-bench-train" (click)="runMergeBench()" [disabled]="mergeIsLoading">Build Stage 1 & Stage 2 FASTQ</button></div>
-    <div class="progress-section" *ngIf="mergeIsLoading"><div class="progress-header"><span>{{ mergeStage }}</span><strong>{{ mergeProgress }}%</strong></div><div class="progress-bar-bg"><div class="progress-bar-fill" [style.width.%]="mergeProgress"></div></div></div>
+    <div class="bench-actions">
+      <button type="button" class="btn-bench btn-bench-train" (click)="runMergeBench()" [disabled]="mergeIsLoading">Normalize Illumina Reads</button>
+    </div>
+    <div class="progress-section" *ngIf="mergeIsLoading">
+      <div class="progress-header"><span>{{ mergeStage }}</span><strong>{{ mergeProgress }}%</strong></div>
+      <div class="progress-bar-bg"><div class="progress-bar-fill" [style.width.%]="mergeProgress"></div></div>
+    </div>
     <div *ngIf="mergeError" class="error-box">{{ mergeError }}</div>
 
-    <section class="merge-output-grid" *ngIf="mergeStage1File || mergeStage2File">
-      <article class="merge-output-card"><div><span class="merge-stage-label">STAGE 1</span><h3>X-padded pseudo reads</h3><p>R1 + {{ mergeWindow }} X bases + R2 reverse-complement</p></div><div class="merge-output-actions"><button type="button" (click)="downloadMergeFile(1)">Download FASTQ</button><button type="button" (click)="exportMergeFile(1)">Open in Sequence Viewer</button></div></article>
-      <article class="merge-output-card"><div><span class="merge-stage-label">STAGE 2</span><h3>Window-guided normalized reads</h3><p *ngIf="mergeStats">{{ mergeStats.normalizedMolecules | number }} output · {{ mergeStats.consensusMolecules | number }} consensus · {{ mergeStats.paddedMolecules | number }} X-padded · {{ mergeStats.filteredMolecules | number }} filtered</p></div><div class="merge-output-actions"><button type="button" (click)="downloadMergeFile(2)">Download FASTQ</button><button type="button" (click)="exportMergeFile(2)" [disabled]="!mergeStage2File?.size">Open in Sequence Viewer</button></div></article>
-    </section>
-
-    <section class="merge-filter-diagnostics" *ngIf="mergeStats && mergeDiagnostics">
-      <div class="merge-diagnostic-header">
+    <section class="merge-output-grid" *ngIf="mergeOutputFile">
+      <article class="merge-output-card">
         <div>
-          <span class="merge-stage-label">STAGE 1 → STAGE 2</span>
-          <h3>Filtered molecule diagnostics</h3>
-          <p>
-            <strong>{{ mergeStats.filteredMolecules | number }}</strong> of
-            <strong>{{ mergeStats.inputMolecules | number }}</strong> molecules were removed because neither mate passed any configured window and anchor check.
+          <span class="merge-stage-label">NORMALIZED OUTPUT</span>
+          <h3>Illumina normalized reads</h3>
+          <p *ngIf="mergeStats">
+            {{ mergeStats.normalizedMolecules | number }} output ·
+            {{ mergeStats.consensusMolecules | number }} consensus ·
+            {{ mergeStats.paddedMolecules | number }} X-padded ·
+            {{ mergeStats.singleMateMolecules | number }} single-mate
           </p>
         </div>
-        <span class="merge-filter-rate" *ngIf="mergeStats.inputMolecules">
-          {{ (mergeStats.filteredMolecules / mergeStats.inputMolecules * 100) | number:'1.1-1' }}% filtered
-        </span>
-      </div>
-
-      <div class="merge-reason-grid" *ngIf="mergeStats.filteredMolecules > 0">
-        <div class="merge-reason-item" *ngFor="let reason of mergeFailureReasons" [title]="mergeFailureDescription(reason)">
-          <span>{{ mergeFailureLabel(reason) }}</span>
-          <strong>{{ mergeFailureCount(reason) | number }}</strong>
+        <div class="merge-output-actions">
+          <button type="button" (click)="downloadMergeFile()">Download FASTQ</button>
+          <button type="button" (click)="exportMergeFile()">Open in Sequence Viewer</button>
         </div>
-      </div>
-
-      <div class="merge-no-filtered" *ngIf="mergeStats.filteredMolecules === 0">Every Stage 1 molecule was retained in Stage 2.</div>
-
-      <details class="merge-filter-details" *ngIf="mergeStats.filteredMolecules > 0">
-        <summary>View filtered read details</summary>
-        <div class="bench-table-scroll">
-          <table class="bench-table">
-            <thead><tr><th>Record</th><th>Read ID</th><th>R1 result</th><th>R2 result</th><th>Pair decision</th></tr></thead>
-            <tbody>
-              <tr *ngFor="let row of mergeDiagnostics.filteredMolecules | slice:0:mergeDiagnosticLimit">
-                <td>{{ row.recordNumber | number }}</td>
-                <td><code>{{ row.readId }}</code></td>
-                <td><span class="merge-reason-badge" [title]="mergeFailureDescription(row.r1Reason)">{{ mergeFailureLabel(row.r1Reason) }}</span></td>
-                <td><span class="merge-reason-badge" [title]="mergeFailureDescription(row.r2Reason)">{{ mergeFailureLabel(row.r2Reason) }}</span></td>
-                <td>{{ mergeFailureLabel(row.reason) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <button type="button" class="merge-show-more" *ngIf="mergeDiagnosticLimit < mergeDiagnostics.filteredMolecules.length" (click)="showMoreMergeDiagnostics()">
-          Show next 100 ({{ mergeDiagnosticLimit | number }} / {{ mergeDiagnostics.filteredMolecules.length | number }})
-        </button>
-      </details>
+      </article>
     </section>
   </ng-container>
 </div>

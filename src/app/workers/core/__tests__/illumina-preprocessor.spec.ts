@@ -181,7 +181,7 @@ describe('Illumina paired-end preprocessing', () => {
     expect(result.diagnostics.reasonCounts.no_alignment).toBe(1);
   });
 
-  it('reports low quality as the Stage 1 to Stage 2 filtering reason', () => {
+  it('reports low quality when a normalized molecule fails shared usability', () => {
     const result = preprocess([read(targetWindow, 5)], [read(reverseComplement(targetWindow), 5, 'molecule/2')]);
     expect(result.stats.filteredMolecules).toBe(1);
     expect(result.diagnostics.filteredMolecules[0]).toMatchObject({

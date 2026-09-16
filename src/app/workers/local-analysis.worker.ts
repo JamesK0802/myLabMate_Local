@@ -24,7 +24,7 @@ import { findGrnaCutSite, extractWindow, cutIndexInWindow, isReadUsable } from '
 import { GenePayload } from './core/multi-reference-assigner';
 import { runBenchmark } from './core/benchmark-pipeline';
 import { IlluminaFilePair } from '../models/illumina.model';
-import { buildIlluminaPseudoReads, fastqReadsToString, preprocessIlluminaReads, suggestIlluminaAlignment } from './core/illumina-preprocessor';
+import { buildIlluminaPseudoReads, fastqReadsToString, preprocessIlluminaReads } from './core/illumina-preprocessor';
 
 let cancelled = false;
 
@@ -388,10 +388,9 @@ addEventListener('message', async (event: MessageEvent) => {
 
   if (type === 'illumina-merge-bench') {
     cancelled = false;
-    const { r1File, r2File, r1Sequence, r2Sequence, genesPayload, params } = payload as {
+    const { r1File, r2File, r1Sequence, r2Sequence, params } = payload as {
       r1File?: File | null; r2File?: File | null; r1Sequence?: string; r2Sequence?: string;
-      genesPayload: GenePayload[];
-      params: { windowSize: number; phredThreshold: number; marginThreshold: number; cutSiteDistanceWeight?: number; cutSiteExclusionFlank?: number };
+      params: { windowSize: number };
     };
     try {
       postMessage({ type: 'progress', percent: 10, stage: 'Reading Illumina mates…' });
@@ -402,21 +401,28 @@ addEventListener('message', async (event: MessageEvent) => {
       const r1Reads = r1File ? await parseFastqFile(r1File) : manualRead(r1Sequence, 1);
       const r2Reads = r2File ? await parseFastqFile(r2File) : manualRead(r2Sequence, 2);
       if (!r1Reads && !r2Reads) throw new Error('Provide at least one mate file or sequence.');
-      postMessage({ type: 'progress', percent: 35, stage: 'Building overlap-aware paired representations…' });
-      const stage1 = buildIlluminaPseudoReads(r1Reads, r2Reads, params.windowSize);
-      postMessage({ type: 'progress', percent: 60, stage: 'Applying shared window and anchor evaluation…' });
-      const stage2 = preprocessIlluminaReads(r1Reads, r2Reads, genesPayload, params);
-      const stage1AutoAlign = suggestIlluminaAlignment(stage1, genesPayload, params);
-      const stage2AutoAlign = suggestIlluminaAlignment(stage2.reads, genesPayload, params);
+      postMessage({ type: 'progress', percent: 45, stage: 'Normalizing Illumina reads with overlap-aware pairing…' });
+      const normalized = buildIlluminaPseudoReads(r1Reads, r2Reads, params.windowSize);
+      const pairedInput = Boolean(r1Reads && r2Reads);
+      const paddingLength = Math.max(1, params.windowSize);
+      const paddedMolecules = pairedInput
+        ? normalized.filter((read, index) =>
+            read.seq.length === r1Reads![index].seq.length + paddingLength + r2Reads![index].seq.length
+          ).length
+        : 0;
+      const stats = {
+        inputMolecules: normalized.length,
+        normalizedMolecules: normalized.length,
+        consensusMolecules: pairedInput ? normalized.length - paddedMolecules : 0,
+        paddedMolecules,
+        singleMateMolecules: pairedInput ? 0 : normalized.length,
+      };
+      postMessage({ type: 'progress', percent: 90, stage: 'Writing normalized FASTQ…' });
       postMessage({
         type: 'illumina-merge-result',
         payload: {
-          stage1Fastq: fastqReadsToString(stage1),
-          stage2Fastq: fastqReadsToString(stage2.reads),
-          stage1AutoAlign,
-          stage2AutoAlign,
-          stats: stage2.stats,
-          diagnostics: stage2.diagnostics,
+          fastq: fastqReadsToString(normalized),
+          stats,
         },
       });
     } catch (err: any) {
