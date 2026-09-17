@@ -3,7 +3,7 @@ import { assignReadsToReferences } from '../multi-reference-assigner';
 
 describe('Multi-Reference Assigner', () => {
   it('should demux and assign reads to correct genes based on scoring', () => {
-    // Reference sequences with different content so their k-mer scores will be distinct
+    // Reference sequences with different content so their alignment scores will be distinct
     const refA = 'ATCG'.repeat(25); // 100 bp of ATCG
     const refB = 'GGCC'.repeat(25); // 100 bp of GGCC
 

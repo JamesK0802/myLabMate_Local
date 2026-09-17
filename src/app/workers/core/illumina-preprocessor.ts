@@ -182,7 +182,6 @@ function evaluateMate(
         score: scoreReadAgainstWindow(
           result.read_window,
           context.refWindow,
-          10,
           context.cutIndex,
           options.cutSiteDistanceWeight ?? 0.0,
           options.cutSiteExclusionFlank ?? 0

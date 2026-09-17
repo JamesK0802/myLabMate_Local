@@ -503,7 +503,7 @@ function computeAlignmentScoreWithDynamicExclusion(
   cutSitePos: number,
   maxDist: number,
   distanceWeight: number,
-  staticExclusionFlank: number
+  exclusionFlank: number
 ): number {
   const cleanStrand = strand;
   const cleanRef = refUp.replace(/X/g, '');
@@ -513,22 +513,21 @@ function computeAlignmentScoreWithDynamicExclusion(
   const opcodes = sm.getOpcodes();
   const excludedRefIndices = new Set<number>();
 
-  // 1. Static exclusion flank
-  if (staticExclusionFlank > 0 && cutSitePos >= 0) {
-    const sStart = Math.max(0, cutSitePos - staticExclusionFlank);
-    const sEnd = Math.min(cleanRef.length - 1, cutSitePos + staticExclusionFlank);
+  // 1. User-configured cut-site exclusion flank (disabled when set to 0)
+  if (exclusionFlank > 0 && cutSitePos >= 0) {
+    const sStart = Math.max(0, cutSitePos - exclusionFlank);
+    const sEnd = Math.min(cleanRef.length - 1, cutSitePos + exclusionFlank);
     for (let r = sStart; r <= sEnd; r++) {
       excludedRefIndices.add(r);
     }
   }
 
-  // 2. Dynamic cut-site mutation span exclusion:
-  // If an indel or substitution originates near cut site (within ±3 bp), exclude the entire mutation span!
-  if (cutSitePos >= 0) {
-    const cutTolerance = 3;
+  // 2. Expand the configured exclusion to the full span of an intersecting
+  // indel or substitution. No mutation span is excluded at the default 0 bp.
+  if (exclusionFlank > 0 && cutSitePos >= 0) {
     for (const [tag, , , j1, j2] of opcodes) {
       if (tag !== 'equal') {
-        const nearCutSite = (j1 <= cutSitePos + cutTolerance && j2 >= cutSitePos - cutTolerance);
+        const nearCutSite = (j1 <= cutSitePos + exclusionFlank && j2 >= cutSitePos - exclusionFlank);
         if (nearCutSite) {
           for (let r = j1; r < j2; r++) {
             excludedRefIndices.add(r);
@@ -567,7 +566,7 @@ function computeAlignmentScoreWithDynamicExclusion(
       }
     } else if (tag === 'insert') {
       const refIdx = j1;
-      if (!excludedRefIndices.has(refIdx) && !(j1 <= cutSitePos + 3 && j1 >= cutSitePos - 3)) {
+      if (!excludedRefIndices.has(refIdx)) {
         const d = Math.abs(refIdx - cutSitePos);
         const w = calcSeagullWeight(d, maxDist, distanceWeight);
         totalMaxWeight += w * (i2 - i1);
@@ -581,7 +580,6 @@ function computeAlignmentScoreWithDynamicExclusion(
 export function scoreReadAgainstWindow(
   read: string,
   refWindow: string,
-  k: number = 10,
   cutIndexInWindow: number = -1,
   distanceWeight: number = 0.0,
   exclusionFlank: number = 0
@@ -657,7 +655,7 @@ export function applyClassification(
   }
 
   const scores: Array<[number, string, string]> = eligibleClasses.map(item => [
-    scoreReadAgainstWindow(item.targetSeq, item.classInfo.ref_window, 10, item.classInfo.cut_index_in_window ?? -1, cutSiteDistanceWeight, cutSiteExclusionFlank),
+    scoreReadAgainstWindow(item.targetSeq, item.classInfo.ref_window, item.classInfo.cut_index_in_window ?? -1, cutSiteDistanceWeight, cutSiteExclusionFlank),
     item.classInfo.gene,
     item.classInfo.target,
   ]);
@@ -763,7 +761,7 @@ export function applyGeneClassification(
         anyUsable = true;
         usableCount++;
         const targetSeq = res?.read_window || readSeq;
-        const score = scoreReadAgainstWindow(targetSeq, t.ref_window, 10, t.cut_index_in_window ?? -1, cutSiteDistanceWeight, cutSiteExclusionFlank);
+        const score = scoreReadAgainstWindow(targetSeq, t.ref_window, t.cut_index_in_window ?? -1, cutSiteDistanceWeight, cutSiteExclusionFlank);
         if (score > bestScore) {
           bestScore = score;
           bestTarget = t.target;
