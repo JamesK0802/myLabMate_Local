@@ -17,6 +17,21 @@
   transition: background-color .15s ease, border-color .15s ease, color .15s ease;
 }
 
+:host .section-header .header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  width: auto;
+  gap: 8px;
+}
+
+:host .section-header .header-actions > button {
+  min-height: 38px;
+  margin: 0;
+  padding: 8px 14px;
+}
+
 :host .btn-reference-scope:hover,
 :host .btn-reference-scope.active { background: #dcfce7; border-color: #22c55e; }
 :host .btn-reference-scope span { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 999px; background: #7c3aed; color: #fff; font-size: .66rem; }
