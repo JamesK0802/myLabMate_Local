@@ -223,20 +223,43 @@ export class CurationService {
    */
   private rebuildMergedGenes(fileResults: any[], config: CurationConfig): GeneResult[] {
     const geneMap = new Map<string, GeneResult>();
+    const normalized = (value: unknown) => String(value ?? '').replace(/\s+/g, '').toUpperCase();
+    const aliases = (first: string, second: string) => [...new Set(
+      [...String(first || '').split('/'), ...String(second || '').split('/')].map(value => value.trim()).filter(Boolean)
+    )].join('/');
+    const geneKey = (gene: any) => {
+      const sequence = normalized(gene.reference_sequence);
+      const kind = gene.is_rescued_derived ? 'rescued' : gene.is_ambiguous_derived ? 'ambiguous' : 'normal';
+      return `${kind}:${sequence ? `sequence:${sequence}` : `legacy-name:${gene.gene}`}`;
+    };
+    const targetKey = (target: any) => {
+      const sequence = normalized(target.sgrna_seq || target.display_sgrna_seq);
+      return sequence ? `sequence:${sequence}` : `legacy-name:${target.target_id}`;
+    };
 
     for (const fileResult of fileResults) {
       const mrd: MultiReferenceResponse | undefined = fileResult?.multi_reference_result;
       if (!mrd) continue;
 
       for (const geneRes of (mrd.genes ?? [])) {
-        if (geneMap.has(geneRes.gene)) {
-          const ex = geneMap.get(geneRes.gene)!;
+        const identity = geneKey(geneRes);
+        if (geneMap.has(identity)) {
+          const ex = geneMap.get(identity)!;
+          ex.gene = aliases(ex.gene, geneRes.gene);
           ex.assigned_read_count += geneRes.assigned_read_count;
 
           if (ex.analysis_result?.targets && geneRes.analysis_result?.targets) {
-            ex.analysis_result.targets.forEach((extT: any, tidx: number) => {
-              const newT = geneRes.analysis_result.targets[tidx];
-              if (!newT) return;
+            const existingTargets = new Map<string, any>(ex.analysis_result.targets.map((target: any) => [targetKey(target), target]));
+            geneRes.analysis_result.targets.forEach((newT: any) => {
+              const targetIdentity = targetKey(newT);
+              const extT = existingTargets.get(targetIdentity);
+              if (!extT) {
+                const copy = JSON.parse(JSON.stringify(newT));
+                ex.analysis_result.targets.push(copy);
+                existingTargets.set(targetIdentity, copy);
+                return;
+              }
+              extT.target_id = aliases(extT.target_id, newT.target_id);
 
               const s1 = extT.summary, s2 = newT.summary;
               const b1 = extT.breakdown || { out_of_frame: 0, in_frame: 0, no_indel: 0, substitution: 0, failed: 0 };
@@ -310,7 +333,7 @@ export class CurationService {
             });
           }
         } else {
-          geneMap.set(geneRes.gene, JSON.parse(JSON.stringify(geneRes)));
+          geneMap.set(identity, JSON.parse(JSON.stringify(geneRes)));
         }
       }
     }

@@ -56,6 +56,8 @@ export interface AnalysisTab {
   formValue: any;
   selectedFiles: File[];
   illuminaPairs: IlluminaFilePair[];
+  referenceConfigs?: Record<string, any[]>;
+  activeReferenceKey?: string;
   slot: ResultSlot;
 }
 
@@ -64,6 +66,10 @@ export class AppStateService {
   analysisForm!: FormGroup;
   selectedFiles: File[] = [];
   illuminaPairs: IlluminaFilePair[] = [];
+  referenceConfigs: Record<string, any[]> = {};
+  activeReferenceKey = 'default';
+  activeReferenceInherited = false;
+  private suppressReferenceSync = false;
   isDragging = false;
 
   // ── Multi-Tab Analysis State ──
@@ -193,12 +199,15 @@ export class AppStateService {
 
   // ── Tab Management ──
   private initDefaultTab() {
+    this.referenceConfigs = { default: this.cloneGenes(this.geneBlocks.getRawValue()) };
     const tab1: AnalysisTab = {
       id: 'tab_' + Date.now() + '_1',
       name: 'Analysis 1',
       formValue: this.analysisForm ? this.analysisForm.getRawValue() : null,
       selectedFiles: [],
       illuminaPairs: [],
+      referenceConfigs: this.cloneReferenceConfigs(this.referenceConfigs),
+      activeReferenceKey: 'default',
       slot: emptySlot()
     };
     this.tabs = [tab1];
@@ -209,11 +218,14 @@ export class AppStateService {
   saveCurrentTabState() {
     const tab = this.currentTab;
     if (tab) {
+      this.saveActiveReferenceConfig();
       if (this.analysisForm) {
-        tab.formValue = this.analysisForm.getRawValue();
+        tab.formValue = { ...this.analysisForm.getRawValue(), genes: this.cloneGenes(this.referenceConfigs['default'] || []) };
       }
       tab.selectedFiles = [...this.selectedFiles];
       tab.illuminaPairs = this.illuminaPairs.map(pair => ({ ...pair }));
+      tab.referenceConfigs = this.cloneReferenceConfigs(this.referenceConfigs);
+      tab.activeReferenceKey = this.activeReferenceKey;
       tab.slot = this.analysisSlot;
     }
   }
@@ -223,7 +235,9 @@ export class AppStateService {
     this.saveCurrentTabState();
     const newTabNumber = this.tabs.length + 1;
     const tabName = name || `Analysis ${newTabNumber}`;
-    const currentFormVal = this.analysisForm ? this.analysisForm.getRawValue() : null;
+    const currentFormVal = this.analysisForm
+      ? { ...this.analysisForm.getRawValue(), genes: this.cloneGenes(this.referenceConfigs['default'] || []) }
+      : null;
     const currentFiles = [...this.selectedFiles];
     const currentIlluminaPairs = this.illuminaPairs.map(pair => ({ ...pair }));
 
@@ -233,6 +247,8 @@ export class AppStateService {
       formValue: currentFormVal,
       selectedFiles: currentFiles,
       illuminaPairs: currentIlluminaPairs,
+      referenceConfigs: this.cloneReferenceConfigs(this.referenceConfigs),
+      activeReferenceKey: this.activeReferenceKey,
       slot: emptySlot()
     };
 
@@ -252,10 +268,14 @@ export class AppStateService {
     this.analysisSlot = targetTab.slot;
     this.selectedFiles = [...targetTab.selectedFiles];
     this.illuminaPairs = (targetTab.illuminaPairs || []).map(pair => ({ ...pair }));
+    this.referenceConfigs = this.cloneReferenceConfigs(targetTab.referenceConfigs || { default: targetTab.formValue?.genes || [] });
+    if (!this.referenceConfigs['default']) this.referenceConfigs['default'] = [];
+    this.activeReferenceKey = targetTab.activeReferenceKey || 'default';
 
     if (targetTab.formValue && this.analysisForm) {
       this.restoreFormValue(targetTab.formValue);
     }
+    this.restoreActiveReferenceConfig();
 
     this.resultsUpdated$.next();
   }
@@ -314,33 +334,7 @@ export class AppStateService {
       rescueAmbiguous: val.rescueAmbiguous ?? false
     }, { emitEvent: false });
 
-    if (Array.isArray(val.genes)) {
-      while (this.geneBlocks.length > 0) {
-        this.geneBlocks.removeAt(0);
-      }
-      val.genes.forEach((g: any) => {
-        const gGroup = this.createGeneGroup();
-        gGroup.patchValue({ gene_name: g.gene_name, gene_reference: g.gene_reference }, { emitEvent: false });
-
-        const tArray = gGroup.get('geneTargets') as FormArray;
-        while (tArray.length > 0) tArray.removeAt(0);
-
-        if (Array.isArray(g.geneTargets)) {
-          g.geneTargets.forEach((t: any) => {
-            const tGroup = this.createGeneTargetGroup();
-            tGroup.patchValue({ target_id: t.target_id, gRNA: t.gRNA }, { emitEvent: false });
-            tArray.push(tGroup);
-          });
-        } else {
-          tArray.push(this.createGeneTargetGroup());
-        }
-        this.geneBlocks.push(gGroup);
-      });
-
-      if (this.geneBlocks.length === 0) {
-        this.addGene();
-      }
-    }
+    if (Array.isArray(val.genes)) this.replaceGenes(val.genes);
   }
 
   // ── Form ──
@@ -372,6 +366,11 @@ export class AppStateService {
     ['customWindowEnabled', 'customWindowLeft', 'customWindowRight'].forEach(control =>
       this.analysisForm.get(control)?.valueChanges.subscribe(syncCustomWindowSize)
     );
+    this.geneBlocks.valueChanges.subscribe(genes => {
+      if (this.suppressReferenceSync) return;
+      this.referenceConfigs[this.activeReferenceKey] = this.cloneGenes(genes || []);
+      this.activeReferenceInherited = false;
+    });
   }
   private createGeneGroup(): FormGroup {
     return this.fb.group({ gene_name: [''], gene_reference: ['', Validators.required], geneTargets: this.fb.array([this.createGeneTargetGroup()]) });
@@ -385,6 +384,73 @@ export class AppStateService {
   getGeneTargets(gi: number): FormArray { return this.geneBlocks.at(gi).get('geneTargets') as FormArray; }
   addGeneTarget(gi: number) { this.getGeneTargets(gi).push(this.createGeneTargetGroup()); }
   removeGeneTarget(gi: number, ti: number) { const a = this.getGeneTargets(gi); if (a.length > 1) a.removeAt(ti); }
+
+  selectReferenceConfig(key: string) {
+    if (!key || key === this.activeReferenceKey) return;
+    this.saveActiveReferenceConfig();
+    this.activeReferenceKey = key;
+    this.restoreActiveReferenceConfig();
+  }
+
+  hasCustomReferenceConfig(key: string): boolean {
+    return key !== 'default' && Object.prototype.hasOwnProperty.call(this.referenceConfigs, key);
+  }
+
+  referenceGenes(key: string): any[] {
+    return this.cloneGenes(this.referenceConfigs[key] || this.referenceConfigs['default'] || []);
+  }
+
+  setReferenceConfig(key: string, genes: any[]) {
+    this.referenceConfigs[key] = this.cloneGenes(genes);
+    if (this.activeReferenceKey === key) this.restoreActiveReferenceConfig();
+  }
+
+  useDefaultReferenceConfig(key: string) {
+    if (key === 'default') return;
+    delete this.referenceConfigs[key];
+    if (this.activeReferenceKey === key) this.restoreActiveReferenceConfig();
+  }
+
+  saveActiveReferenceConfig() {
+    if (!this.analysisForm || this.activeReferenceInherited) return;
+    this.referenceConfigs[this.activeReferenceKey] = this.cloneGenes(this.geneBlocks.getRawValue());
+  }
+
+  private restoreActiveReferenceConfig() {
+    const hasCustom = this.hasCustomReferenceConfig(this.activeReferenceKey);
+    const genes = hasCustom ? this.referenceConfigs[this.activeReferenceKey] : this.referenceConfigs['default'];
+    this.activeReferenceInherited = this.activeReferenceKey !== 'default' && !hasCustom;
+    this.replaceGenes(genes || []);
+  }
+
+  private replaceGenes(genes: any[]) {
+    this.suppressReferenceSync = true;
+    try {
+      while (this.geneBlocks.length > 0) this.geneBlocks.removeAt(0, { emitEvent: false });
+      for (const gene of genes) {
+        const group = this.createGeneGroup();
+        group.patchValue({ gene_name: gene.gene_name, gene_reference: gene.gene_reference }, { emitEvent: false });
+        const targets = group.get('geneTargets') as FormArray;
+        while (targets.length > 0) targets.removeAt(0, { emitEvent: false });
+        for (const target of (Array.isArray(gene.geneTargets) ? gene.geneTargets : [])) {
+          const targetGroup = this.createGeneTargetGroup();
+          targetGroup.patchValue({ target_id: target.target_id, gRNA: target.gRNA }, { emitEvent: false });
+          targets.push(targetGroup, { emitEvent: false });
+        }
+        if (targets.length === 0) targets.push(this.createGeneTargetGroup(), { emitEvent: false });
+        this.geneBlocks.push(group, { emitEvent: false });
+      }
+      if (this.geneBlocks.length === 0) this.geneBlocks.push(this.createGeneGroup(), { emitEvent: false });
+      this.geneBlocks.updateValueAndValidity({ emitEvent: false });
+    } finally {
+      this.suppressReferenceSync = false;
+    }
+  }
+
+  private cloneGenes(genes: any[]): any[] { return JSON.parse(JSON.stringify(genes || [])); }
+  private cloneReferenceConfigs(configs: Record<string, any[]>): Record<string, any[]> {
+    return Object.fromEntries(Object.entries(configs || {}).map(([key, genes]) => [key, this.cloneGenes(genes)]));
+  }
 
   setGenesBulk(data: { geneName: string, geneSeq: string, targetName: string, targetSeq: string }[]) {
     this.ngZone.run(() => {
@@ -418,6 +484,8 @@ export class AppStateService {
       if (this.geneBlocks.length === 0) {
         this.addGene();
       }
+      this.referenceConfigs[this.activeReferenceKey] = this.cloneGenes(this.geneBlocks.getRawValue());
+      this.activeReferenceInherited = false;
     });
   }
 
@@ -454,7 +522,7 @@ export class AppStateService {
   }
 
   // ── Local Mode Analysis ──
-  runLocalAnalysis(files: File[], genesPayload: any[], params: any, illuminaPairs: IlluminaFilePair[] = []) {
+  runLocalAnalysis(files: File[], genesPayload: any[], params: any, illuminaPairs: IlluminaFilePair[] = [], genesByInput: Record<string, any[]> = {}) {
     if (this.isAnalysisRunning) {
       this.error = 'Wait for the current analysis to finish or cancel it first.';
       return;
@@ -489,7 +557,7 @@ export class AppStateService {
     };
 
     this.localAnalysisSub = this.localAnalysisService.startAnalysis(
-      files, genesPayload, analysisParams, illuminaPairs
+      files, genesPayload, analysisParams, illuminaPairs, genesByInput
     ).subscribe({
       next: (event: LocalAnalysisEvent) => {
         this.ngZone.run(() => {
@@ -560,6 +628,21 @@ export class AppStateService {
     const allResults: any[] = res?.results ?? [];
     this.isMultiReference = true; this.result = null; this.multiFileCount = allResults.length;
     const geneMap = new Map<string, GeneResult>();
+    const normalizedSequence = (value: unknown) => String(value ?? '').replace(/\s+/g, '').toUpperCase();
+    const mergeAliases = (first: string, second: string) => {
+      const aliases = [...String(first || '').split('/'), ...String(second || '').split('/')]
+        .map(value => value.trim()).filter(Boolean);
+      return [...new Set(aliases)].join('/');
+    };
+    const geneKey = (gene: any) => {
+      const sequence = normalizedSequence(gene.reference_sequence);
+      const kind = gene.is_rescued_derived ? 'rescued' : gene.is_ambiguous_derived ? 'ambiguous' : 'normal';
+      return `${kind}:${sequence ? `sequence:${sequence}` : `legacy-name:${gene.gene}`}`;
+    };
+    const targetKey = (target: any) => {
+      const sequence = normalizedSequence(target.sgrna_seq || target.display_sgrna_seq);
+      return sequence ? `sequence:${sequence}` : `legacy-name:${target.target_id}`;
+    };
     let totalAmb = 0, totalRaw = 0, totalPhred = 0, totalAnchor = 0;
     for (const fileResult of allResults) {
       const mrd: MultiReferenceResponse | undefined = fileResult?.multi_reference_result;
@@ -569,12 +652,23 @@ export class AppStateService {
       totalPhred += mrd.debug?.phred_passed_count ?? 0;
       totalAnchor += mrd.debug?.usable_for_assignment_count ?? mrd.debug?.anchor_matched_count ?? 0;
       for (const geneRes of (mrd.genes ?? [])) {
-        if (geneMap.has(geneRes.gene)) {
-          const ex = geneMap.get(geneRes.gene)!;
+        const identity = geneKey(geneRes);
+        if (geneMap.has(identity)) {
+          const ex = geneMap.get(identity)!;
+          ex.gene = mergeAliases(ex.gene, geneRes.gene);
           ex.assigned_read_count += geneRes.assigned_read_count;
           if (ex.analysis_result?.targets && geneRes.analysis_result?.targets) {
-            ex.analysis_result.targets.forEach((extT: any, tidx: number) => {
-              const newT = geneRes.analysis_result.targets[tidx]; if (!newT) return;
+            const existingTargets = new Map<string, any>(ex.analysis_result.targets.map((target: any) => [targetKey(target), target]));
+            geneRes.analysis_result.targets.forEach((newT: any) => {
+              const targetIdentity = targetKey(newT);
+              const extT = existingTargets.get(targetIdentity);
+              if (!extT) {
+                const copy = JSON.parse(JSON.stringify(newT));
+                ex.analysis_result.targets.push(copy);
+                existingTargets.set(targetIdentity, copy);
+                return;
+              }
+              extT.target_id = mergeAliases(extT.target_id, newT.target_id);
               const s1 = extT.summary, s2 = newT.summary;
               const b1 = extT.breakdown || { out_of_frame: 0, in_frame: 0, no_indel: 0, substitution: 0, failed: 0 };
               const b2 = newT.breakdown || { out_of_frame: 0, in_frame: 0, no_indel: 0, substitution: 0, failed: 0 };
@@ -603,7 +697,7 @@ export class AppStateService {
               }
             });
           }
-        } else { geneMap.set(geneRes.gene, JSON.parse(JSON.stringify(geneRes))); }
+        } else { geneMap.set(identity, JSON.parse(JSON.stringify(geneRes))); }
       }
     }
     this.mergedGenes = Array.from(geneMap.values());

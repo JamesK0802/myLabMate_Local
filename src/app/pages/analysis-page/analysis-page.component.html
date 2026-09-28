@@ -212,6 +212,9 @@
             <button type="button" class="btn-autofill" (click)="showAutofill = !showAutofill">
               Auto Fill
             </button>
+            <button type="button" class="btn-reference-scope" [class.active]="showPerFileReferences" (click)="togglePerFileReferences()">
+              Per File <span *ngIf="customReferenceCount">{{customReferenceCount}}</span>
+            </button>
             <button type="button" class="btn-window-check" [class.active]="showWindowCheck" (click)="toggleWindowCheck()">
               Window Check
             </button>
@@ -220,15 +223,40 @@
         </div>
 
         <div class="autofill-actions-panel" *ngIf="showAutofill">
-          <p class="autofill-hint">Fill out the template and upload to bulk-configure genes and targets.</p>
+          <p class="autofill-hint">Use Default for every file, or name a worksheet after a file to create an automatic override.</p>
           <div class="autofill-buttons">
             <button type="button" class="btn-template-download" (click)="downloadTemplate()">
               Download Template
             </button>
+            <button type="button" class="btn-template-download" (click)="downloadCurrentSetup()">
+              Download Current Config
+            </button>
             <button type="button" class="btn-template-upload" (click)="templateFileInput.click()">
               Upload Sequence (Excel)
             </button>
+            <button type="button" class="btn-template-current"
+              [disabled]="state.activeReferenceKey === 'default'"
+              [title]="state.activeReferenceKey === 'default' ? 'Select a file tab first' : 'Apply an Excel sheet only to the selected file'"
+              (click)="currentTemplateFileInput.click()">
+              Apply to Current File
+            </button>
             <input type="file" #templateFileInput (change)="onTemplateUpload($event)" hidden accept=".xlsx,.xls" />
+            <input type="file" #currentTemplateFileInput (change)="onCurrentFileTemplateUpload($event)" hidden accept=".xlsx,.xls" />
+          </div>
+        </div>
+
+        <div class="reference-scope-panel" *ngIf="showPerFileReferences">
+          <div class="reference-scope-tabs" role="tablist" aria-label="Reference configuration by file">
+            <button type="button" role="tab" class="reference-scope-tab default-tab"
+              [class.active]="state.activeReferenceKey === 'default'" [attr.aria-selected]="state.activeReferenceKey === 'default'"
+              (click)="selectReferenceSource('default')">Default</button>
+            <button type="button" role="tab" class="reference-scope-tab" *ngFor="let source of referenceSources"
+              [class.active]="state.activeReferenceKey === source.key" [class.custom]="state.hasCustomReferenceConfig(source.key)"
+              [attr.aria-selected]="state.activeReferenceKey === source.key" [title]="source.label"
+              (click)="selectReferenceSource(source.key)">{{source.label}}</button>
+          </div>
+          <div class="reference-scope-status" *ngIf="state.activeReferenceKey !== 'default' && activeReferenceIsCustom">
+            <button type="button" (click)="useDefaultForActiveSource()">Use Default</button>
           </div>
         </div>
 

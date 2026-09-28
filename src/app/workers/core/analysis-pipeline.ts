@@ -104,6 +104,7 @@ export interface MultiTargetSummary {
 
 export interface GeneResult {
   gene: string;
+  reference_sequence?: string;
   assigned_read_count: number;
   ambiguous_excluded: boolean;
   is_ambiguous_derived?: boolean;
@@ -527,7 +528,8 @@ export function runMultiReferenceAnalysis(
     const rawAnalysis = runAnalysisOnReads(geneReadsData, targets, phredThreshold, indelThreshold);
 
     const geneEntry: GeneResult = {
-      gene: geneName,
+      gene: genePayload.display_gene || geneName,
+      reference_sequence: genePayload.sequence,
       assigned_read_count: assignedCount,
       ambiguous_excluded: true,
       analysis_result: {
@@ -540,7 +542,7 @@ export function runMultiReferenceAnalysis(
     output.genes.push(geneEntry);
 
     output.debug.genes.push({
-      gene: geneName,
+      gene: genePayload.display_gene || geneName,
       reference_length: genePayload.sequence.length,
       assigned_reads_analyzed: assignedCount,
       number_of_targets_analyzed: targets.length,
@@ -645,7 +647,8 @@ export function runMultiReferenceAnalysis(
           const rawRescued = runAnalysisOnReads(rescuedReads, gTargets, phredThreshold, indelThreshold);
 
           const rescuedEntry: GeneResult = {
-            gene: `${gName}-rescued`,
+            gene: `${genePayload.display_gene || gName}-rescued`,
+            reference_sequence: genePayload.sequence,
             assigned_read_count: rescuedReads.length,
             ambiguous_excluded: false,
             is_rescued_derived: true,
@@ -680,7 +683,8 @@ export function runMultiReferenceAnalysis(
         const rawAmb = runAnalysisOnReads(ambReadsToAnalyze, gTargets, phredThreshold, indelThreshold);
 
         const ambEntry: GeneResult = {
-          gene: `${gName}-ambiguous`,
+          gene: `${genePayload.display_gene || gName}-ambiguous`,
+          reference_sequence: genePayload.sequence,
           assigned_read_count: ambReadsToAnalyze.length,
           ambiguous_excluded: false,
           is_ambiguous_derived: true,
@@ -776,7 +780,8 @@ export function buildFinalPayload(
         sequencing_platform: params.sequencingPlatform ?? 'nanopore',
       },
       references: genesPayload.map(g => ({
-        gene: g.gene,
+        gene: g.display_gene || g.gene,
+        reference_sequence: g.sequence,
         target_ids: g.targets.map(t => t.target_id),
       })),
       substitution_policy: SUBSTITUTION_POLICY,

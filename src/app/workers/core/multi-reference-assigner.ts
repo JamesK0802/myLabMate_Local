@@ -23,6 +23,7 @@ import type { QualityScores } from './fastq-parser';
 
 export interface GenePayload {
   gene: string;
+  display_gene?: string;
   sequence: string;
   targets: Array<{
     target_id: string;

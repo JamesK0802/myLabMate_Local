@@ -94,6 +94,7 @@ export interface AnalysisResponse {
 // ── Phase 3: Multi-Reference types ───────────────────────────────────────────
 export interface GeneResult {
   gene: string;
+  reference_sequence?: string;
   assigned_read_count: number;
   ambiguous_excluded: boolean;
   is_ambiguous_derived?: boolean;

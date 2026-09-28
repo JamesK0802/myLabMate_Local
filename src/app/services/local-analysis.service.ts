@@ -62,7 +62,8 @@ export class LocalAnalysisService {
     files: File[],
     genesPayload: any[],
     params: { phredThreshold: number; indelThreshold: number; marginThreshold: number; windowSize: number; cutSiteDistanceWeight?: number; cutSiteExclusionFlank?: number; sequencingPlatform?: SequencingPlatform },
-    illuminaPairs: IlluminaFilePair[] = []
+    illuminaPairs: IlluminaFilePair[] = [],
+    genesByInput: Record<string, any[]> = {}
   ): Observable<LocalAnalysisEvent> {
     const subject = new Subject<LocalAnalysisEvent>();
     this.terminate();
@@ -109,7 +110,7 @@ export class LocalAnalysisService {
 
     this.worker.postMessage({
       type: 'analyze',
-      payload: { files, genesPayload, params, illuminaPairs },
+      payload: { files, genesPayload, params, illuminaPairs, genesByInput },
     });
 
     return subject.asObservable();
