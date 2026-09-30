@@ -9,6 +9,12 @@ import { Subscription } from 'rxjs';
 import { findGrnaCutSite, extractWindow, cutIndexInWindow } from '../../workers/core/classifier';
 import { SequenceMatcher } from '../../workers/core/sequence-matcher';
 import {
+  findHomoeologGuideSite,
+  homoeologSimilarity,
+  projectHomoeologPosition,
+  HomoeologGuideMatch,
+} from '../../workers/core/homoeolog';
+import {
   IlluminaMateSlot,
   IlluminaFilePair,
   SequencingPlatform,
@@ -38,6 +44,7 @@ export interface ExtractedWindowItem {
   winWidthPercent?: number;
   targetLeftPercent?: number;
   targetWidthPercent?: number;
+  guideMatch?: HomoeologGuideMatch;
 }
 
 export interface AlignmentCharToken {
@@ -57,6 +64,31 @@ export interface PairwiseComparisonData {
   matchCount: number;
   mismatchCount: number;
   totalLen: number;
+}
+
+export interface HomoeologOverviewMarker {
+  targetId: string;
+  rowIndex: number;
+  leftPercent?: number;
+  cutSite?: number;
+  exact: boolean;
+  mismatches: number;
+  identity: number;
+  error?: string;
+}
+
+export interface HomoeologOverviewLane {
+  geneName: string;
+  similarity: number;
+  aligned: boolean;
+  markers: HomoeologOverviewMarker[];
+}
+
+export interface HomoeologOverview {
+  groupId: string;
+  anchorName: string;
+  targetIds: string[];
+  lanes: HomoeologOverviewLane[];
 }
 
 interface ReferenceSource { key: string; label: string; workerKey: string; aliases: string[]; }
@@ -102,6 +134,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
   isCalculatingWindowCheck = false;
   extractedWindows: ExtractedWindowItem[] = [];
   similarityMatrix: number[][] = [];
+  homoeologOverviews: HomoeologOverview[] = [];
 
   selectedPairRowIndex: number | null = null;
   selectedPairColIndex: number | null = null;
@@ -131,6 +164,15 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
 
   get sequencingPlatform(): SequencingPlatform {
     return this.state.analysisForm.get('sequencingPlatform')?.value === 'illumina' ? 'illumina' : 'nanopore';
+  }
+
+  get homoeologMode(): boolean {
+    return Boolean(this.state.analysisForm.get('homoeologMode')?.value);
+  }
+
+  toggleHomoeologMode(): void {
+    this.state.analysisForm.get('homoeologMode')?.setValue(!this.homoeologMode);
+    if (this.showWindowCheck) this.recalculateWindowCheck();
   }
 
   get illuminaUnitCount(): number {
@@ -344,21 +386,24 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
             const grna = (t.gRNA || '').trim().toUpperCase();
             if (!grna) return;
 
-            const cutInfo = findGrnaCutSite(refSeq, grna);
-            let cutSite = cutInfo.cut_site;
-            if (cutSite < 0 || cutSite >= refSeq.length) {
+            const guideMatch = this.homoeologMode ? findHomoeologGuideSite(refSeq, grna) : undefined;
+            const exactCutInfo = guideMatch ? null : findGrnaCutSite(refSeq, grna);
+            const grnaStart = guideMatch ? guideMatch.grnaStart : exactCutInfo!.grna_start;
+            const strand = guideMatch ? guideMatch.strand : exactCutInfo!.strand;
+            const pam = guideMatch ? guideMatch.pam : exactCutInfo!.pam;
+            let cutSite = guideMatch ? guideMatch.cutSite : exactCutInfo!.cut_site;
+            if (grnaStart < 0 || cutSite < 0 || cutSite >= refSeq.length) {
               cutSite = Math.floor(refSeq.length / 2);
             }
 
             const winSeq = extractWindow(refSeq, cutSite, displayWindowSize,
               customWindowEnabled ? customWindowLeft : undefined,
               customWindowEnabled ? customWindowRight : undefined);
-            const cutWinIdx = cutInfo.grna_start !== -1 ? cutIndexInWindow(refSeq, cutSite, displayWindowSize,
+            const cutWinIdx = grnaStart !== -1 ? cutIndexInWindow(refSeq, cutSite, displayWindowSize,
               customWindowEnabled ? customWindowLeft : undefined,
               customWindowEnabled ? customWindowRight : undefined) : -1;
 
             const refLength = refSeq.length;
-            const grnaStart = cutInfo.grna_start;
             const grnaLength = grna.length;
             const grnaEnd = grnaStart >= 0 ? grnaStart + grnaLength : -1;
 
@@ -380,10 +425,10 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
               geneName,
               targetId,
               sequence: winSeq,
-              cutSiteIndex: cutInfo.grna_start !== -1 ? cutSite : -1,
+              cutSiteIndex: grnaStart !== -1 ? cutSite : -1,
               cutSiteInWindow: cutWinIdx,
-              pam: cutInfo.pam,
-              strand: cutInfo.strand,
+              pam,
+              strand,
               refLength,
               grnaStart: grnaStart >= 0 ? grnaStart : undefined,
               grnaLength,
@@ -393,7 +438,8 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
               winLeftPercent,
               winWidthPercent,
               targetLeftPercent: grnaStart >= 0 ? targetLeftPercent : undefined,
-              targetWidthPercent: grnaStart >= 0 ? targetWidthPercent : undefined
+              targetWidthPercent: grnaStart >= 0 ? targetWidthPercent : undefined,
+              guideMatch
             });
           });
         });
@@ -411,6 +457,9 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
           }
         }
         this.similarityMatrix = matrix;
+        this.homoeologOverviews = this.homoeologMode
+          ? this.buildHomoeologOverviews(genesFormVal, extracted)
+          : [];
 
         if (this.selectedPairRowIndex !== null && this.selectedPairColIndex !== null) {
           this.updatePairComparison();
@@ -441,6 +490,54 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     const m1 = new SequenceMatcher(null, seq1, seq2).ratio();
     const m2 = new SequenceMatcher(null, seq2, seq1).ratio();
     return Math.round(((m1 + m2) / 2.0) * 1000) / 10;
+  }
+
+  private buildHomoeologOverviews(genes: any[], windows: ExtractedWindowItem[]): HomoeologOverview[] {
+    const grouped = new Map<string, any[]>();
+    for (const gene of genes) {
+      const sequence = String(gene.gene_reference || '').replace(/\s+/g, '').toUpperCase();
+      if (!sequence) continue;
+      const groupId = String(gene.homoeolog_group || 'H1').trim() || 'H1';
+      const list = grouped.get(groupId) || [];
+      list.push({ ...gene, sequence, geneName: String(gene.gene_name || `Ref${list.length + 1}`).trim() });
+      grouped.set(groupId, list);
+    }
+
+    return [...grouped.entries()].map(([groupId, refs]) => {
+      const anchor = [...refs].sort((a, b) => b.sequence.length - a.sequence.length)[0];
+      const targetIds = [...new Set(refs.flatMap(ref => (ref.geneTargets || []).map((t: any, i: number) => String(t.target_id || `T${i + 1}`).trim())))];
+      const lanes: HomoeologOverviewLane[] = refs.map(ref => {
+        const similarity = homoeologSimilarity(ref.sequence, anchor.sequence);
+        const aligned = ref === anchor || similarity >= 45;
+        const markers = targetIds.map((targetId, rowIndex) => {
+          const item = windows.find(window => window.geneName === ref.geneName && window.targetId === targetId);
+          if (!item || item.cutSiteIndex < 0 || !aligned) {
+            return {
+              targetId, rowIndex, exact: false, mismatches: item?.guideMatch?.mismatches ?? 0,
+              identity: item?.guideMatch?.identity ?? 0,
+              error: !aligned ? `Reference alignment ${similarity.toFixed(1)}%` : (item?.guideMatch?.error || 'Guide not matched')
+            };
+          }
+          const projected = projectHomoeologPosition(ref.sequence, anchor.sequence, item.cutSiteIndex);
+          return {
+            targetId,
+            rowIndex,
+            leftPercent: projected === null ? undefined : Math.max(0, Math.min(100, (projected / Math.max(1, anchor.sequence.length)) * 100)),
+            cutSite: item.cutSiteIndex,
+            exact: item.guideMatch?.exact ?? true,
+            mismatches: item.guideMatch?.mismatches ?? 0,
+            identity: item.guideMatch?.identity ?? 100,
+            error: projected === null ? 'Alignment position unavailable' : undefined
+          };
+        });
+        return { geneName: ref.geneName, similarity, aligned, markers };
+      });
+      return { groupId, anchorName: anchor.geneName, targetIds, lanes };
+    });
+  }
+
+  targetColor(index: number): string {
+    return ['#7c3aed', '#0284c7', '#ea580c', '#16a34a', '#db2777', '#ca8a04', '#4f46e5'][index % 7];
   }
 
   itemLabel(w: ExtractedWindowItem): string {
@@ -688,6 +785,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
       customWindowEnabled,
       customWindowLeft: customWindowEnabled ? customWindowLeft : undefined,
       customWindowRight: customWindowEnabled ? customWindowRight : undefined,
+      homoeologMode: this.homoeologMode,
       analyzeAmbiguous: rawValue.analyzeAmbiguous || false,
       rescueAmbiguous: rawValue.rescueAmbiguous || false,
       dataType: platform === 'illumina' ? 'paired-end' : 'single-end',
@@ -727,33 +825,41 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
 
   private buildSequenceBasedPayload(genes: any[], windowSize: number, customWindowEnabled: boolean, customWindowLeft: number, customWindowRight: number): any[] {
     const normalized = (value: unknown) => String(value ?? '').replace(/\s+/g, '').toUpperCase();
-    const referenceGroups = new Map<string, { names: string[]; sequence: string; targets: Map<string, string[]> }>();
+    const referenceGroups = new Map<string, { names: string[]; sequence: string; homoeologGroup?: string; targets: Map<string, { names: string[]; originalGuide: string }> }>();
     genes.forEach((gene: any, geneIndex: number) => {
       const sequence = normalized(gene.gene_reference);
       if (!sequence) return;
-      let group = referenceGroups.get(sequence);
-      if (!group) { group = { names: [], sequence, targets: new Map() }; referenceGroups.set(sequence, group); }
+      const homoeologGroup = this.homoeologMode ? (String(gene.homoeolog_group || 'H1').trim() || 'H1') : undefined;
+      const referenceKey = sequence;
+      let group = referenceGroups.get(referenceKey);
+      if (!group) { group = { names: [], sequence, homoeologGroup, targets: new Map() }; referenceGroups.set(referenceKey, group); }
       const geneName = gene.gene_name?.trim() || `G${geneIndex + 1}`;
       if (!group.names.includes(geneName)) group.names.push(geneName);
       (gene.geneTargets || []).forEach((target: any, targetIndex: number) => {
         const targetSequence = normalized(target.gRNA);
         if (!targetSequence) return;
         const targetName = target.target_id?.trim() || `T${targetIndex + 1}`;
-        const aliases = group!.targets.get(targetSequence) || [];
-        if (!aliases.includes(targetName)) aliases.push(targetName);
-        group!.targets.set(targetSequence, aliases);
+        const key = targetSequence;
+        const entry = group!.targets.get(key) || { names: [], originalGuide: targetSequence };
+        if (!entry.names.includes(targetName)) entry.names.push(targetName);
+        group!.targets.set(key, entry);
       });
     });
     return [...referenceGroups.values()].map((group, geneIndex) => ({
       gene: `reference-${geneIndex + 1}`,
       display_gene: group.names.join('/') || `G${geneIndex + 1}`,
+      homoeolog_group: group.homoeologGroup,
       sequence: group.sequence,
-      targets: [...group.targets.entries()].map(([sgrnaSeq, names]) => ({
-        target_id: names.join('/'), sgrna_seq: sgrnaSeq, reference_seq: group.sequence,
-        window_size: windowSize,
-        window_left: customWindowEnabled ? customWindowLeft : undefined,
-        window_right: customWindowEnabled ? customWindowRight : undefined
-      }))
+      targets: [...group.targets.values()].map(entry => {
+        return {
+          target_id: entry.names.join('/'),
+          sgrna_seq: entry.originalGuide,
+          reference_seq: group.sequence,
+          window_size: windowSize,
+          window_left: customWindowEnabled ? customWindowLeft : undefined,
+          window_right: customWindowEnabled ? customWindowRight : undefined
+        };
+      })
     }));
   }
 

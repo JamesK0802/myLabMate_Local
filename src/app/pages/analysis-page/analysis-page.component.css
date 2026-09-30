@@ -47,12 +47,50 @@
 :host .btn-template-current:hover:not(:disabled) { background: #6d28d9; }
 :host .btn-template-current:disabled { border-color: #cbd5e1; background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
 
+:host .btn-homoeolog-mode {
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid #c4b5fd;
+  border-radius: 8px;
+  background: #faf5ff;
+  color: #6d28d9;
+  font: 700 .85rem/1 inherit;
+  cursor: pointer;
+}
+:host .btn-homoeolog-mode.active { background: #7c3aed; border-color: #7c3aed; color: #fff; box-shadow: 0 2px 7px #7c3aed2f; }
+:host .homoeolog-group-chip { display: inline-flex; align-items: center; margin-left: 4px; }
+:host .homoeolog-group-chip input { width: 48px; padding: 3px 6px; border: 1px solid #a78bfa; border-radius: 999px; background: #fff; color: #6d28d9; font: 800 .7rem/1 inherit; text-align: center; }
+:host .homoeolog-overviews { display: grid; gap: 12px; margin-bottom: 20px; }
+:host .homoeolog-overview-card { overflow: hidden; border: 1px solid #ddd6fe; border-radius: 11px; background: #fff; box-shadow: 0 3px 12px #6d28d90d; }
+:host .homoeolog-overview-head { display: flex; align-items: center; gap: 8px; padding: 10px 13px; background: #f5f3ff; border-bottom: 1px solid #ede9fe; }
+:host .homoeolog-overview-head strong { margin-right: auto; color: #5b21b6; font-size: .88rem; }
+:host .homoeolog-overview-head span { padding: 2px 7px; border-radius: 999px; background: #fff; color: #6b7280; font-size: .66rem; font-weight: 750; }
+:host .homoeolog-legend { display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 13px 4px; color: #475569; font-size: .68rem; font-weight: 700; }
+:host .homoeolog-legend span { display: inline-flex; align-items: center; gap: 4px; }
+:host .homoeolog-legend i { width: 8px; height: 8px; border-radius: 50%; }
+:host .homoeolog-lane { display: grid; grid-template-columns: 142px minmax(0, 1fr); align-items: stretch; border-top: 1px solid #f1f5f9; }
+:host .homoeolog-lane-label { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 8px 10px 8px 13px; background: #fcfcff; }
+:host .homoeolog-lane-label strong { overflow: hidden; color: #334155; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+:host .homoeolog-lane-label small { margin-left: auto; color: #16a34a; font-size: .62rem; font-weight: 800; }
+:host .homoeolog-lane-label small.bad { color: #dc2626; }
+:host .homoeolog-track { position: relative; margin: 0 18px; }
+:host .homoeolog-track-line { position: absolute; inset: 16px 0 auto; height: 4px; border-radius: 4px; background: linear-gradient(90deg, #ddd6fe, #c4b5fd); }
+:host .homoeolog-marker { --marker-color: #7c3aed; position: absolute; transform: translateX(-4px); display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+:host .homoeolog-marker span { width: 8px; height: 15px; border-radius: 3px; background: var(--marker-color); box-shadow: 0 0 0 2px #fff; }
+:host .homoeolog-marker.near span { background: #fff; border: 2px solid var(--marker-color); }
+:host .homoeolog-marker b { color: #475569; font-size: .6rem; }
+:host .homoeolog-marker-error { position: absolute; right: 0; color: #dc2626; font-size: .62rem; font-weight: 800; }
+:host .near-match-badge { display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 999px; background: #fff7ed; color: #c2410c; font-size: .66rem; font-weight: 800; }
+
 @media (max-width: 700px) {
   :host .section-header .header-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   :host .btn-reference-scope { min-height: 34px; padding: 7px 5px; font-size: .72rem; }
+  :host .btn-homoeolog-mode { min-height: 34px; padding: 7px 8px; font-size: .72rem; }
   :host .autofill-buttons { display: grid; grid-template-columns: 1fr 1fr; }
   :host .autofill-buttons .btn-template-upload,
   :host .autofill-buttons .btn-template-current { min-width: 0; padding: 9px 7px; font-size: .7rem; }
   :host .reference-scope-panel { margin-bottom: 10px; padding: 7px; }
   :host .reference-scope-tab { max-width: 160px; padding: 6px 9px; font-size: .68rem; }
+  :host .homoeolog-lane { grid-template-columns: 88px minmax(0, 1fr); }
+  :host .homoeolog-track { margin: 0 8px; }
 }

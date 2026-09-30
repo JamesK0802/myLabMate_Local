@@ -102,6 +102,13 @@
     <p>All items are excluded. Restore some files, genes, targets, or groups to see results.</p>
   </div>
 
+  <div class="result-view-switch" *ngIf="hasHomoeologResults">
+    <button type="button" [class.active]="resultView === 'standard'" (click)="switchResultView('standard')">Standard</button>
+    <button type="button" [class.active]="resultView === 'homoeolog'" (click)="switchResultView('homoeolog')">Homoeolog</button>
+  </div>
+
+  <div class="standard-result-view" [hidden]="resultView === 'homoeolog'">
+
   <!-- ── Result Scope Tabs (Merged vs Per-File) ── -->
   <div class="result-scope-wrapper" *ngIf="state.isMultiReference && state.multiFileCount > 1">
     <div class="scope-tabs">
@@ -583,6 +590,78 @@
           </div>
         </div>
       </ng-container>
+    </div>
+  </div>
+  </div>
+
+  <div class="homoeolog-result-view" *ngIf="resultView === 'homoeolog' && hasHomoeologResults">
+    <div class="homo-filter-row">
+      <div class="homo-chip-set" *ngIf="homoeologGroupIds.length > 1">
+        <button type="button" *ngFor="let group of homoeologGroupIds"
+          [class.active]="activeHomoeologGroup === group" (click)="selectHomoeologGroup(group)">{{ group }}</button>
+      </div>
+      <div class="homo-chip-set targets">
+        <button type="button" *ngFor="let target of homoeologTargetIds"
+          [class.active]="activeHomoeologTarget === target" (click)="selectHomoeologTarget(target)">{{ target }}</button>
+      </div>
+    </div>
+
+    <div class="homo-metrics">
+      <div><span>Refs</span><strong>{{ homoeologGenes.length }}</strong></div>
+      <div><span>Aligned</span><strong>{{ homoeologAssignedReads | number }}</strong></div>
+      <div><span>Mean edit</span><strong>{{ homoeologMeanEditing | number:'1.1-1' }}%</strong></div>
+      <div><span>Spread</span><strong>{{ homoeologEditingSpread | number:'1.1-1' }}%</strong></div>
+    </div>
+
+    <div class="homo-chart-grid">
+      <div class="homo-chart-card"><canvas id="homoeologEditingChart"></canvas></div>
+      <div class="homo-chart-card"><canvas id="homoeologCoverageChart"></canvas></div>
+    </div>
+
+    <div class="homo-ref-grid">
+      <ng-container *ngFor="let gene of homoeologGenes">
+        <div class="homo-ref-card" *ngIf="homoeologTarget(gene, activeHomoeologTarget) as target">
+          <div class="homo-ref-head">
+            <strong>{{ gene.gene }}</strong>
+            <span>{{ target.summary?.aligned_reads | number }} reads</span>
+          </div>
+          <div class="homo-ref-edit">
+            <strong>{{ (target.summary?.editing_efficiency ?? target.summary?.indel_editing_efficiency ?? 0) | number:'1.1-1' }}%</strong>
+            <span>edit</span>
+          </div>
+          <div class="homo-mini-profile" title="Unmodified · Substitution · In-frame · Out-of-frame">
+            <i class="unmod" [style.width.%]="(target.summary?.no_indel_pct ?? 0) - (target.summary?.substitution_pct ?? 0)"></i>
+            <i class="sub" [style.width.%]="target.summary?.substitution_pct ?? 0"></i>
+            <i class="inframe" [style.width.%]="target.summary?.in_frame_pct ?? 0"></i>
+            <i class="outframe" [style.width.%]="target.summary?.out_of_frame_pct ?? 0"></i>
+          </div>
+          <div class="homo-ref-values">
+            <span><i class="unmod"></i>Unmod <b>{{ ((target.summary?.no_indel_pct ?? 0) - (target.summary?.substitution_pct ?? 0)) | number:'1.1-1' }}%</b></span>
+            <span><i class="sub"></i>Sub <b>{{ target.summary?.substitution_pct ?? 0 | number:'1.1-1' }}%</b></span>
+            <span><i class="inframe"></i>IF <b>{{ target.summary?.in_frame_pct ?? 0 | number:'1.1-1' }}%</b></span>
+            <span><i class="outframe"></i>OOF <b>{{ target.summary?.out_of_frame_pct ?? 0 | number:'1.1-1' }}%</b></span>
+          </div>
+        </div>
+      </ng-container>
+    </div>
+
+    <div class="homo-compare-card">
+      <table>
+        <thead><tr><th>Reference</th><th>Total</th><th>Aligned</th><th>Edit</th><th>OOF</th><th>IF</th><th>Sub</th></tr></thead>
+        <tbody>
+          <ng-container *ngFor="let gene of homoeologGenes">
+            <tr *ngIf="homoeologTarget(gene, activeHomoeologTarget) as target">
+              <td><strong>{{ gene.gene }}</strong></td>
+              <td>{{ target.summary?.total_reads ?? 0 | number }}</td>
+              <td>{{ target.summary?.aligned_reads ?? 0 | number }}</td>
+              <td>{{ (target.summary?.editing_efficiency ?? target.summary?.indel_editing_efficiency ?? 0) | number:'1.1-1' }}%</td>
+              <td>{{ target.summary?.out_of_frame_pct ?? 0 | number:'1.1-1' }}%</td>
+              <td>{{ target.summary?.in_frame_pct ?? 0 | number:'1.1-1' }}%</td>
+              <td>{{ target.summary?.substitution_pct ?? 0 | number:'1.1-1' }}%</td>
+            </tr>
+          </ng-container>
+        </tbody>
+      </table>
     </div>
   </div>
 </div>

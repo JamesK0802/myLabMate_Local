@@ -320,6 +320,7 @@ export class AppStateService {
     if (!val || !this.analysisForm) return;
     this.analysisForm.patchValue({
       sequencingPlatform: val.sequencingPlatform ?? 'nanopore',
+      homoeologMode: val.homoeologMode ?? false,
       interestRegion: val.interestRegion ?? 90,
       phredThreshold: val.phredThreshold ?? 20,
       rescueThreshold: val.rescueThreshold ?? 20,
@@ -341,6 +342,7 @@ export class AppStateService {
   private initForm() {
     this.analysisForm = this.fb.group({
       sequencingPlatform: ['nanopore'],
+      homoeologMode: [false],
       interestRegion: [90, [Validators.required, Validators.min(10), Validators.max(500)]],
       phredThreshold: [20, [Validators.required, Validators.min(1), Validators.max(1000)]],
       rescueThreshold: [20, [Validators.required, Validators.min(1), Validators.max(1000)]],
@@ -373,7 +375,12 @@ export class AppStateService {
     });
   }
   private createGeneGroup(): FormGroup {
-    return this.fb.group({ gene_name: [''], gene_reference: ['', Validators.required], geneTargets: this.fb.array([this.createGeneTargetGroup()]) });
+    return this.fb.group({
+      gene_name: [''],
+      homoeolog_group: ['H1'],
+      gene_reference: ['', Validators.required],
+      geneTargets: this.fb.array([this.createGeneTargetGroup()])
+    });
   }
   private createGeneTargetGroup(): FormGroup {
     return this.fb.group({ target_id: [''], gRNA: ['', Validators.required] });
@@ -429,7 +436,11 @@ export class AppStateService {
       while (this.geneBlocks.length > 0) this.geneBlocks.removeAt(0, { emitEvent: false });
       for (const gene of genes) {
         const group = this.createGeneGroup();
-        group.patchValue({ gene_name: gene.gene_name, gene_reference: gene.gene_reference }, { emitEvent: false });
+        group.patchValue({
+          gene_name: gene.gene_name,
+          homoeolog_group: gene.homoeolog_group || 'H1',
+          gene_reference: gene.gene_reference
+        }, { emitEvent: false });
         const targets = group.get('geneTargets') as FormArray;
         while (targets.length > 0) targets.removeAt(0, { emitEvent: false });
         for (const target of (Array.isArray(gene.geneTargets) ? gene.geneTargets : [])) {

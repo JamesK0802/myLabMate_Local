@@ -209,6 +209,9 @@
         <div class="section-header">
           <h2>Reference Configuration</h2>
           <div class="header-actions">
+            <button type="button" class="btn-homoeolog-mode" [class.active]="homoeologMode" (click)="toggleHomoeologMode()">
+              Homoeolog
+            </button>
             <button type="button" class="btn-autofill" (click)="showAutofill = !showAutofill">
               Auto Fill
             </button>
@@ -300,6 +303,44 @@
             </div>
 
             <div *ngIf="extractedWindows.length > 0">
+              <div class="homoeolog-overviews" *ngIf="homoeologMode && homoeologOverviews.length">
+                <div class="homoeolog-overview-card" *ngFor="let overview of homoeologOverviews">
+                  <div class="homoeolog-overview-head">
+                    <strong>{{ overview.groupId }}</strong>
+                    <span>{{ overview.lanes.length }} refs</span>
+                    <span>{{ overview.targetIds.length }} targets</span>
+                  </div>
+                  <div class="homoeolog-legend">
+                    <span *ngFor="let target of overview.targetIds; let targetIndex = index">
+                      <i [style.background-color]="targetColor(targetIndex)"></i>{{ target }}
+                    </span>
+                  </div>
+                  <div class="homoeolog-lane" *ngFor="let lane of overview.lanes">
+                    <div class="homoeolog-lane-label" [title]="lane.geneName">
+                      <strong>{{ lane.geneName }}</strong>
+                      <small [class.bad]="!lane.aligned">{{ lane.similarity | number:'1.0-1' }}%</small>
+                    </div>
+                    <div class="homoeolog-track" [style.min-height.px]="28 + overview.targetIds.length * 18">
+                      <div class="homoeolog-track-line"></div>
+                      <ng-container *ngFor="let marker of lane.markers; let markerIndex = index">
+                        <div *ngIf="marker.leftPercent !== undefined" class="homoeolog-marker"
+                          [class.near]="!marker.exact"
+                          [style.left.%]="marker.leftPercent"
+                          [style.top.px]="7 + marker.rowIndex * 18"
+                          [style.--marker-color]="targetColor(markerIndex)"
+                          [title]="marker.targetId + ' · cut ' + marker.cutSite + (marker.exact ? ' · exact' : ' · ' + marker.mismatches + ' mismatch')">
+                          <span></span><b>{{ marker.targetId }}</b>
+                        </div>
+                        <div *ngIf="marker.leftPercent === undefined" class="homoeolog-marker-error"
+                          [style.top.px]="7 + marker.rowIndex * 18" [title]="marker.error">
+                          {{ marker.targetId }} !
+                        </div>
+                      </ng-container>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- Extracted Windows Cards List -->
               <div class="windows-list-section">
                 <h4>Extracted Target Windows (Size: {{ windowCheckSize }} bp)</h4>
@@ -311,6 +352,9 @@
                     </div>
                     <div class="window-meta" *ngIf="item.cutSiteIndex !== -1">
                       Cut Site Index: {{ item.cutSiteIndex }} | Strand: {{ item.strand }} | PAM: <code>{{ item.pam }}</code>
+                      <span class="near-match-badge" *ngIf="item.guideMatch && !item.guideMatch.exact">
+                        {{ item.guideMatch.mismatches }} mismatch
+                      </span>
                     </div>
                     <div class="window-meta warning" *ngIf="item.cutSiteIndex === -1">
                       gRNA not matched in reference (fallback center window)
@@ -463,6 +507,9 @@
             <div class="gene-block-header">
               <div class="gene-block-title">
                 <span>Gene {{ gi + 1 }}</span>
+                <label class="homoeolog-group-chip" *ngIf="homoeologMode">
+                  <input type="text" formControlName="homoeolog_group" aria-label="Homoeolog set" />
+                </label>
               </div>
               <button type="button" class="btn-remove-target" (click)="state.removeGene(gi)"
                 *ngIf="state.geneBlocks.length > 1">Remove Gene</button>

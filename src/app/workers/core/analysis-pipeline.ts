@@ -104,6 +104,7 @@ export interface MultiTargetSummary {
 
 export interface GeneResult {
   gene: string;
+  homoeolog_group?: string;
   reference_sequence?: string;
   assigned_read_count: number;
   ambiguous_excluded: boolean;
@@ -529,6 +530,7 @@ export function runMultiReferenceAnalysis(
 
     const geneEntry: GeneResult = {
       gene: genePayload.display_gene || geneName,
+      homoeolog_group: genePayload.homoeolog_group,
       reference_sequence: genePayload.sequence,
       assigned_read_count: assignedCount,
       ambiguous_excluded: true,
@@ -648,6 +650,7 @@ export function runMultiReferenceAnalysis(
 
           const rescuedEntry: GeneResult = {
             gene: `${genePayload.display_gene || gName}-rescued`,
+            homoeolog_group: genePayload.homoeolog_group,
             reference_sequence: genePayload.sequence,
             assigned_read_count: rescuedReads.length,
             ambiguous_excluded: false,
@@ -684,6 +687,7 @@ export function runMultiReferenceAnalysis(
 
         const ambEntry: GeneResult = {
           gene: `${genePayload.display_gene || gName}-ambiguous`,
+          homoeolog_group: genePayload.homoeolog_group,
           reference_sequence: genePayload.sequence,
           assigned_read_count: ambReadsToAnalyze.length,
           ambiguous_excluded: false,

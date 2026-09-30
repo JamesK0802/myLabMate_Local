@@ -6,7 +6,6 @@ import { AppStateService } from '../../services/app-state.service';
 import { Chart } from 'chart.js/auto';
 
 import { MutationGroup } from '../../models/analysis.model';
-import { groupKey } from '../../models/curation.model';
 import { resolveAnnotationCutSite } from './annotation-cut-site';
 
 @Component({
@@ -20,6 +19,9 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
   mobileActionsOpen = false;
   mobileGeneInfoOpen = false;
   mobileChartsOpen = false;
+  resultView: 'standard' | 'homoeolog' = 'standard';
+  selectedHomoeologGroup = '';
+  selectedHomoeologTarget = '';
 
   isDraggingScroll = false;
   startX = 0;
@@ -91,6 +93,85 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
     this.refreshDashboard();
   }
 
+  get hasHomoeologResults(): boolean {
+    return Boolean(this.state.lastRunParams?.homoeologMode) && this.state.normalGenes.length > 0;
+  }
+
+  get homoeologGroupIds(): string[] {
+    return [...new Set(this.state.normalGenes.map(gene => gene.homoeolog_group || 'H1'))];
+  }
+
+  get activeHomoeologGroup(): string {
+    const groups = this.homoeologGroupIds;
+    if (!groups.includes(this.selectedHomoeologGroup)) this.selectedHomoeologGroup = groups[0] || 'H1';
+    return this.selectedHomoeologGroup;
+  }
+
+  get homoeologGenes() {
+    const group = this.activeHomoeologGroup;
+    return this.state.normalGenes.filter(gene => (gene.homoeolog_group || 'H1') === group);
+  }
+
+  get homoeologTargetIds(): string[] {
+    return [...new Set(this.homoeologGenes.flatMap(gene => (gene.analysis_result?.targets || []).map(target => target.target_id)))];
+  }
+
+  get activeHomoeologTarget(): string {
+    return this.homoeologTargetIds.includes(this.selectedHomoeologTarget)
+      ? this.selectedHomoeologTarget
+      : (this.homoeologTargetIds[0] || '');
+  }
+
+  get homoeologRows() {
+    const targetFilter = this.activeHomoeologTarget;
+    return this.homoeologGenes.flatMap(gene => (gene.analysis_result?.targets || [])
+      .filter(target => target.target_id === targetFilter)
+      .map(target => ({ gene, target })));
+  }
+
+  get homoeologMeanEditing(): number {
+    const values = this.homoeologRows.map(row => Number(row.target.summary?.editing_efficiency ?? row.target.summary?.indel_editing_efficiency ?? 0));
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+  }
+
+  get homoeologEditingSpread(): number {
+    const values = this.homoeologRows.map(row => Number(row.target.summary?.editing_efficiency ?? row.target.summary?.indel_editing_efficiency ?? 0));
+    return values.length ? Math.max(...values) - Math.min(...values) : 0;
+  }
+
+  get homoeologAssignedReads(): number {
+    return this.homoeologRows.reduce((sum, row) => sum + Number(row.target.summary?.aligned_reads || 0), 0);
+  }
+
+  switchResultView(view: 'standard' | 'homoeolog'): void {
+    if (view === 'homoeolog' && !this.hasHomoeologResults) return;
+    this.resultView = view;
+    this.state.destroyCharts();
+    this.cdr.detectChanges();
+    setTimeout(() => view === 'homoeolog' ? this.updateHomoeologCharts() : this.refreshDashboard(), 32);
+  }
+
+  selectHomoeologGroup(group: string): void {
+    this.selectedHomoeologGroup = group;
+    this.selectedHomoeologTarget = '';
+    this.refreshHomoeologView();
+  }
+
+  selectHomoeologTarget(target: string): void {
+    this.selectedHomoeologTarget = target;
+    this.refreshHomoeologView();
+  }
+
+  private refreshHomoeologView(): void {
+    this.state.destroyCharts();
+    this.cdr.detectChanges();
+    setTimeout(() => this.updateHomoeologCharts(), 32);
+  }
+
+  homoeologTarget(gene: any, targetId: string): any | null {
+    return (gene.analysis_result?.targets || []).find((target: any) => target.target_id === targetId) || null;
+  }
+
   onMobileScopeChange(event: Event) {
     const value = Number((event.target as HTMLSelectElement).value);
     this.selectScope(value);
@@ -149,6 +230,11 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
 
   refreshDashboard() {
     this.ngZone.run(() => {
+      if (this.resultView === 'homoeolog' && this.hasHomoeologResults) {
+        this.cdr.detectChanges();
+        setTimeout(() => this.updateHomoeologCharts(), 32);
+        return;
+      }
       const gene = this.state.currentGene;
       if (!gene?.analysis_result?.targets?.length) return;
       const targets = gene.analysis_result.targets;
@@ -250,6 +336,63 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
           }]
         },
         options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: `Indel Editing (${selectedData.target_id})` } } }
+      }));
+    }
+  }
+
+  private updateHomoeologCharts(): void {
+    if (this.resultView !== 'homoeolog') return;
+    this.state.destroyCharts();
+    const targetId = this.activeHomoeologTarget;
+    if (!targetId) return;
+    const genes = this.homoeologGenes.filter(gene => this.homoeologTarget(gene, targetId));
+    const geneLabels = genes.map(gene => gene.gene);
+
+    const editingCanvas = document.getElementById('homoeologEditingChart') as HTMLCanvasElement | null;
+    if (editingCanvas) {
+      this.state.addChart(new Chart(editingCanvas, {
+        type: 'bar',
+        data: {
+          labels: geneLabels,
+          datasets: [{
+            label: 'Indel edit %',
+            data: genes.map(gene => {
+              const target = this.homoeologTarget(gene, targetId);
+              return Number(target?.summary?.editing_efficiency ?? target?.summary?.indel_editing_efficiency ?? 0);
+            }),
+            backgroundColor: '#7c3aed',
+            borderRadius: 5,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: 'Editing (%)' } } },
+          plugins: { legend: { display: false }, title: { display: true, text: `${targetId} · editing` } }
+        }
+      }));
+    }
+
+    const coverageCanvas = document.getElementById('homoeologCoverageChart') as HTMLCanvasElement | null;
+    if (coverageCanvas) {
+      this.state.addChart(new Chart(coverageCanvas, {
+        type: 'bar',
+        data: {
+          labels: geneLabels,
+          datasets: [
+            { label: 'Unmodified', data: genes.map(gene => {
+              const summary = this.homoeologTarget(gene, targetId)?.summary;
+              return Math.max(0, Number(summary?.no_indel_pct ?? 0) - Number(summary?.substitution_pct ?? 0));
+            }), backgroundColor: '#2ecc71' },
+            { label: 'Substitution', data: genes.map(gene => Number(this.homoeologTarget(gene, targetId)?.summary?.substitution_pct ?? 0)), backgroundColor: '#3498db' },
+            { label: 'In-frame', data: genes.map(gene => Number(this.homoeologTarget(gene, targetId)?.summary?.in_frame_pct ?? 0)), backgroundColor: '#e67e22' },
+            { label: 'Out-of-frame', data: genes.map(gene => Number(this.homoeologTarget(gene, targetId)?.summary?.out_of_frame_pct ?? 0)), backgroundColor: '#e74c3c' }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, max: 100, title: { display: true, text: 'Reads (%)' } } },
+          plugins: { legend: { position: 'bottom' }, title: { display: true, text: `${targetId} · profile` } }
+        }
       }));
     }
   }

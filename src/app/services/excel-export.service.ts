@@ -8,6 +8,7 @@ export interface ExportParams {
   windowSize: number; phredThreshold: number; indelThreshold: number;
   assignmentMargin: number; rescueThreshold: number; cutSiteDistanceWeight?: number; cutSiteExclusionFlank?: number;
   customWindowEnabled?: boolean; customWindowLeft?: number; customWindowRight?: number;
+  homoeologMode?: boolean;
   analyzeAmbiguous: boolean; rescueAmbiguous: boolean;
   dataType: string; fileCount: number;
 }
