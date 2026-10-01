@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef, OnDestroy, OnInit } from '@angular/core';
+import { Component, ChangeDetectorRef, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormsModule } from '@angular/forms';
 import { AppStateService, AnalysisTab } from '../../services/app-state.service';
@@ -231,40 +231,30 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     indices.forEach(index => this.state.geneBlocks.at(index).get('homoeolog_group')?.setValue(name));
   }
 
-  startReferenceDrag(event: DragEvent, index: number): void {
-    this.materializeHomoeologGroups();
-    this.draggedReferenceIndex = index;
-    event.dataTransfer?.setData('text/plain', String(index));
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-  }
-
   startReferencePointerDrag(event: PointerEvent, index: number): void {
-    if (event.pointerType !== 'touch') return;
     this.materializeHomoeologGroups();
     this.draggedReferenceIndex = index;
-    const handle = event.currentTarget as HTMLElement;
-    try { if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId); } catch { /* no capture */ }
+    event.preventDefault();
   }
 
-  allowReferenceDrop(event: DragEvent, groupName: string): void {
+  @HostListener('document:pointermove', ['$event'])
+  moveReferencePointerDrag(event: PointerEvent): void {
+    if (this.draggedReferenceIndex === null) return;
+    this.dragOverHomoeolog = this.homoeologGroupAtPoint(event.clientX, event.clientY);
     event.preventDefault();
-    this.dragOverHomoeolog = groupName;
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
   }
 
-  dropReference(event: DragEvent, groupName: string): void {
-    event.preventDefault();
-    const rawIndex = this.draggedReferenceIndex ?? Number(event.dataTransfer?.getData('text/plain'));
-    if (Number.isInteger(rawIndex) && rawIndex >= 0 && rawIndex < this.state.geneBlocks.length) {
-      this.state.geneBlocks.at(rawIndex).get('homoeolog_group')?.setValue(groupName);
-    }
+  @HostListener('document:pointerup', ['$event'])
+  dropReferencePointer(event: PointerEvent): void {
+    if (this.draggedReferenceIndex === null) return;
+    const groupName = this.homoeologGroupAtPoint(event.clientX, event.clientY);
+    if (groupName) this.state.geneBlocks.at(this.draggedReferenceIndex).get('homoeolog_group')?.setValue(groupName);
     this.endReferenceDrag();
   }
 
-  dropReferencePointer(event: PointerEvent, groupName: string): void {
-    if (event.pointerType !== 'touch' || this.draggedReferenceIndex === null) return;
-    this.state.geneBlocks.at(this.draggedReferenceIndex).get('homoeolog_group')?.setValue(groupName);
-    this.endReferenceDrag();
+  private homoeologGroupAtPoint(x: number, y: number): string {
+    const card = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-homoeolog-group]');
+    return card?.dataset['homoeologGroup'] || '';
   }
 
   endReferenceDrag(): void {
@@ -635,7 +625,8 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
               error: !aligned ? `Reference alignment ${similarity.toFixed(1)}%` : (item?.guideMatch?.error || 'Guide not matched')
             };
           }
-          const projected = projectHomoeologPosition(ref.sequence, anchor.sequence, item.cutSiteIndex);
+          const guideMidpoint = (item.grnaStart ?? item.cutSiteIndex) + (item.grnaLength || 0) / 2;
+          const projected = projectHomoeologPosition(ref.sequence, anchor.sequence, guideMidpoint);
           return {
             targetId,
             rowIndex,

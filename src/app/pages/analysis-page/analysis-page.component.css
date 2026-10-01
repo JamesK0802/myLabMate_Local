@@ -47,27 +47,19 @@
 :host .btn-template-current:hover:not(:disabled) { background: #6d28d9; }
 :host .btn-template-current:disabled { border-color: #cbd5e1; background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
 
-:host .reference-mode-segmented { display: inline-flex; flex: 0 0 auto; padding: 3px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
-:host .reference-mode-segmented button { min-width: 70px; padding: 5px 9px; border: 0; border-radius: calc(var(--radius-md) - 3px); background: transparent; color: var(--color-text-secondary); font: 700 var(--text-xs)/1 inherit; cursor: pointer; }
-:host .reference-mode-segmented button.active { background: #7c3aed; color: #fff; box-shadow: var(--shadow-sm); }
-:host .btn-add-homoeolog { min-height: 38px; padding: 8px 14px; border: 1px solid #a78bfa; border-radius: 8px; background: #faf5ff; color: #6d28d9; font: 700 .82rem/1 inherit; cursor: pointer; }
-:host .homoeolog-input-card { overflow: hidden; margin-bottom: 14px; border: 1px solid #c4b5fd; border-radius: 13px; background: #fcfbff; box-shadow: 0 4px 16px #6d28d910; transition: border-color .15s ease, box-shadow .15s ease, background .15s ease; }
-:host .homoeolog-input-card.drag-over { border-color: #7c3aed; background: #faf5ff; box-shadow: 0 0 0 3px #7c3aed1f; }
-:host .homoeolog-input-head { display: flex; align-items: center; gap: 8px; padding: 11px 13px; border-bottom: 1px solid #ddd6fe; background: #f5f3ff; }
-:host .homoeolog-kind { color: #7c3aed; font-size: .65rem; font-weight: 850; text-transform: uppercase; }
-:host .homoeolog-name-input { box-sizing: border-box; min-width: 120px; max-width: 260px; flex: 1; padding: 6px 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #5b21b6; font: 800 .84rem/1 inherit; }
+:host .homoeolog-input-card { overflow: hidden; margin-bottom: 14px; border: 1px solid #d9e3e8; border-radius: 10px; background: #fff; transition: border-color .15s ease, box-shadow .15s ease, background .15s ease; }
+:host .homoeolog-input-card.drag-over { border-color: #2ecc71; background: #f8fffb; box-shadow: 0 0 0 3px #2ecc711a; }
+:host .homoeolog-input-head { display: flex; align-items: center; gap: 10px; padding: 10px 13px; border-bottom: 1px solid #e6ecef; background: #f8fafb; }
+:host .homoeolog-name-input { box-sizing: border-box; min-width: 120px; max-width: 300px; flex: 1; margin-right: auto; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #2c3e50; font: 700 .88rem/1 inherit; }
 :host .homoeolog-name-input:hover,
-:host .homoeolog-name-input:focus { border-color: #c4b5fd; background: #fff; outline: 0; }
-:host .homoeolog-input-head > span:not(.homoeolog-kind) { padding: 3px 7px; border-radius: 999px; background: #fff; color: #7c3aed; font-size: .64rem; font-weight: 800; }
-:host .homoeolog-input-head button,
-:host .homoeolog-add-target { border: 1px solid #c4b5fd; border-radius: 7px; background: #fff; color: #6d28d9; font: 750 .68rem/1 inherit; cursor: pointer; }
-:host .homoeolog-input-head button { padding: 6px 8px; }
-:host .homoeolog-ref-row { padding: 11px 13px 12px; border-bottom: 1px solid #ede9fe; }
+:host .homoeolog-name-input:focus { border-color: #a9dfbf; background: #fff; outline: 0; }
+:host .homoeolog-input-head .btn-add-small { flex: 0 0 auto; }
+:host .homoeolog-ref-row { padding: 11px 13px 12px; border-bottom: 1px solid #edf1f3; }
 :host .homoeolog-ref-row:last-child { border-bottom: 0; }
 :host .homoeolog-ref-main { display: grid; grid-template-columns: 18px 42px minmax(110px, 190px) minmax(220px, 1fr) 26px; align-items: center; gap: 7px; }
-:host .homoeolog-drag-handle { color: #a78bfa; font-size: 1rem; line-height: 1; cursor: grab; user-select: none; touch-action: none; }
+:host .homoeolog-drag-handle { color: #95a5a6; font-size: 1rem; line-height: 1; cursor: grab; user-select: none; touch-action: none; }
 :host .homoeolog-drag-handle:active { cursor: grabbing; }
-:host .homoeolog-ref-label { color: #7c3aed; font-size: .68rem; font-weight: 850; }
+:host .homoeolog-ref-label { color: #60727b; font-size: .68rem; font-weight: 800; }
 :host .homoeolog-ref-main input,
 :host .homoeolog-target-row input,
 :host .homoeolog-ref-sequence { box-sizing: border-box; width: 100%; border: 1px solid #dbe2ea; border-radius: 7px; background: #fff; color: #334155; font-family: inherit; font-size: .75rem; }
@@ -81,35 +73,29 @@
 :host .homoeolog-target-row { display: grid; grid-template-columns: 32px minmax(100px, 170px) minmax(180px, 1fr) 26px; align-items: center; gap: 7px; }
 :host .homoeolog-target-row > span { color: #94a3b8; font-size: .63rem; font-weight: 850; text-align: center; }
 :host .homoeolog-target-row input { min-width: 0; padding: 7px 9px; }
-:host .homoeolog-add-target { justify-self: start; margin-left: 39px; padding: 6px 8px; }
-:host .homoeolog-overviews { display: grid; gap: 12px; margin-bottom: 20px; }
-:host .homoeolog-overview-card { overflow: hidden; border: 1px solid #ddd6fe; border-radius: 11px; background: #fff; box-shadow: 0 3px 12px #6d28d90d; }
-:host .homoeolog-overview-head { display: flex; align-items: center; gap: 8px; padding: 10px 13px; background: #f5f3ff; border-bottom: 1px solid #ede9fe; }
-:host .homoeolog-overview-head strong { margin-right: auto; color: #5b21b6; font-size: .88rem; }
-:host .homoeolog-overview-head span { padding: 2px 7px; border-radius: 999px; background: #fff; color: #6b7280; font-size: .66rem; font-weight: 750; }
-:host .homoeolog-legend { display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 13px 4px; color: #475569; font-size: .68rem; font-weight: 700; }
-:host .homoeolog-legend span { display: inline-flex; align-items: center; gap: 4px; }
-:host .homoeolog-legend i { width: 8px; height: 8px; border-radius: 50%; }
-:host .homoeolog-lane { display: grid; grid-template-columns: 142px minmax(0, 1fr); align-items: stretch; border-top: 1px solid #f1f5f9; }
-:host .homoeolog-lane-label { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 8px 10px 8px 13px; background: #fcfcff; }
+:host .homoeolog-add-target { justify-self: end; margin-right: 33px; }
+:host .homoeolog-overviews { display: grid; gap: 10px; margin-bottom: 18px; }
+:host .homoeolog-overview-card { overflow: hidden; border: 1px solid #dfe6e9; border-radius: 9px; background: #fff; }
+:host .homoeolog-overview-head { display: flex; align-items: center; padding: 9px 12px; background: #f8fafb; border-bottom: 1px solid #e8edef; }
+:host .homoeolog-overview-head strong { color: #2c3e50; font-size: .82rem; }
+:host .homoeolog-lane { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: stretch; min-height: 38px; border-top: 1px solid #f1f4f5; }
+:host .homoeolog-lane:first-of-type { border-top: 0; }
+:host .homoeolog-lane-label { display: flex; align-items: center; min-width: 0; padding: 7px 10px 7px 12px; background: #fbfcfc; }
 :host .homoeolog-lane-label strong { overflow: hidden; color: #334155; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
-:host .homoeolog-lane-label small { margin-left: auto; color: #16a34a; font-size: .62rem; font-weight: 800; }
-:host .homoeolog-lane-label small.bad { color: #dc2626; }
-:host .homoeolog-track { position: relative; margin: 0 18px; }
-:host .homoeolog-track-line { position: absolute; inset: 16px 0 auto; height: 4px; border-radius: 4px; background: linear-gradient(90deg, #ddd6fe, #c4b5fd); }
+:host .homoeolog-track { position: relative; min-height: 38px; margin: 0 16px; }
+:host .homoeolog-track-line { position: absolute; inset: 18px 0 auto; height: 2px; border-radius: 2px; background: #d9e3e8; }
 :host .homoeolog-marker { --marker-color: #7c3aed; position: absolute; transform: translateX(-4px); display: flex; align-items: center; gap: 3px; white-space: nowrap; }
-:host .homoeolog-marker span { width: 8px; height: 15px; border-radius: 3px; background: var(--marker-color); box-shadow: 0 0 0 2px #fff; }
+:host .homoeolog-marker span { width: 7px; height: 20px; border-radius: 3px; background: var(--marker-color); box-shadow: 0 0 0 2px #fff; }
 :host .homoeolog-marker.near span { background: #fff; border: 2px solid var(--marker-color); }
-:host .homoeolog-marker b { color: #475569; font-size: .6rem; }
+:host .homoeolog-marker b { color: #52636b; font-size: .6rem; font-weight: 700; }
 :host .homoeolog-marker-error { position: absolute; right: 0; color: #dc2626; font-size: .62rem; font-weight: 800; }
 :host .near-match-badge { display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 999px; background: #fff7ed; color: #c2410c; font-size: .66rem; font-weight: 800; }
 
 @media (max-width: 700px) {
   :host .section-header .header-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :host .sequencing-platform-field { flex-wrap: wrap; }
+  :host .sequencing-platform-field .platform-segmented button { min-width: 66px; }
   :host .btn-reference-scope { min-height: 34px; padding: 7px 5px; font-size: .72rem; }
-  :host .btn-add-homoeolog { min-height: 34px; padding: 7px 8px; font-size: .72rem; }
-  :host .reference-mode-segmented { grid-column: 1 / -1; justify-self: end; }
-  :host .reference-mode-segmented button { min-width: 68px; }
   :host .autofill-buttons { display: grid; grid-template-columns: 1fr 1fr; }
   :host .autofill-buttons .btn-template-upload,
   :host .autofill-buttons .btn-template-current { min-width: 0; padding: 9px 7px; font-size: .7rem; }
@@ -121,5 +107,5 @@
   :host .homoeolog-ref-row { padding: 10px; }
   :host .homoeolog-ref-main { grid-template-columns: 14px 34px minmax(0, .65fr) minmax(0, 1.35fr) 24px; gap: 5px; }
   :host .homoeolog-target-row { grid-template-columns: 28px minmax(0, .7fr) minmax(0, 1.3fr) 24px; gap: 5px; }
-  :host .homoeolog-add-target { margin-left: 33px; }
+  :host .homoeolog-add-target { margin-right: 29px; }
 }
