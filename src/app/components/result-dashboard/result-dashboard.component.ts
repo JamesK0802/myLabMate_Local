@@ -98,18 +98,18 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
   }
 
   get homoeologGroupIds(): string[] {
-    return [...new Set(this.state.normalGenes.map(gene => gene.homoeolog_group || 'H1'))];
+    return [...new Set(this.state.normalGenes.map(gene => gene.homoeolog_group || 'Homoeolog'))];
   }
 
   get activeHomoeologGroup(): string {
     const groups = this.homoeologGroupIds;
-    if (!groups.includes(this.selectedHomoeologGroup)) this.selectedHomoeologGroup = groups[0] || 'H1';
+    if (!groups.includes(this.selectedHomoeologGroup)) this.selectedHomoeologGroup = groups[0] || 'Homoeolog';
     return this.selectedHomoeologGroup;
   }
 
   get homoeologGenes() {
     const group = this.activeHomoeologGroup;
-    return this.state.normalGenes.filter(gene => (gene.homoeolog_group || 'H1') === group);
+    return this.state.normalGenes.filter(gene => (gene.homoeolog_group || 'Homoeolog') === group);
   }
 
   get homoeologTargetIds(): string[] {

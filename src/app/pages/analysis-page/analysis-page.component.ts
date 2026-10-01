@@ -5,7 +5,7 @@ import { AppStateService, AnalysisTab } from '../../services/app-state.service';
 import { ResultDashboardComponent } from '../../components/result-dashboard/result-dashboard.component';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
-import { Subscription } from 'rxjs';
+import { Subscription, debounceTime } from 'rxjs';
 import { findGrnaCutSite, extractWindow, cutIndexInWindow } from '../../workers/core/classifier';
 import { SequenceMatcher } from '../../workers/core/sequence-matcher';
 import {
@@ -150,16 +150,23 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
   ) { }
 
   private resultsUpdateSub?: Subscription;
+  private windowCheckFormSub?: Subscription;
+  private windowCheckTimer?: ReturnType<typeof setTimeout>;
 
   ngOnInit() {
     this.state.activateSlot('analysis');
     this.resultsUpdateSub = this.state.resultsUpdated$.subscribe(() => {
       this.cdr.detectChanges();
     });
+    this.windowCheckFormSub = this.state.geneBlocks.valueChanges.pipe(debounceTime(120)).subscribe(() => {
+      if (this.showWindowCheck) this.recalculateWindowCheck();
+    });
   }
 
   ngOnDestroy() {
     this.resultsUpdateSub?.unsubscribe();
+    this.windowCheckFormSub?.unsubscribe();
+    if (this.windowCheckTimer) clearTimeout(this.windowCheckTimer);
   }
 
   get sequencingPlatform(): SequencingPlatform {
@@ -364,10 +371,12 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
   }
 
   recalculateWindowCheck() {
+    if (this.windowCheckTimer) clearTimeout(this.windowCheckTimer);
     this.isCalculatingWindowCheck = true;
     this.cdr.detectChanges();
 
-    setTimeout(() => {
+    this.windowCheckTimer = setTimeout(() => {
+      this.windowCheckTimer = undefined;
       try {
         const genesFormVal = this.state.analysisForm.get('genes')?.value || [];
         const customWindowEnabled = Boolean(this.state.analysisForm.get('customWindowEnabled')?.value);
@@ -470,7 +479,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
         this.isCalculatingWindowCheck = false;
         this.cdr.detectChanges();
       }
-    }, 50);
+    }, 20);
   }
 
   calculateSymmetricSimilarity(seq1: string, seq2: string): number {
@@ -497,7 +506,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     for (const gene of genes) {
       const sequence = String(gene.gene_reference || '').replace(/\s+/g, '').toUpperCase();
       if (!sequence) continue;
-      const groupId = String(gene.homoeolog_group || 'H1').trim() || 'H1';
+      const groupId = 'Homoeolog';
       const list = grouped.get(groupId) || [];
       list.push({ ...gene, sequence, geneName: String(gene.gene_name || `Ref${list.length + 1}`).trim() });
       grouped.set(groupId, list);
@@ -829,7 +838,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     genes.forEach((gene: any, geneIndex: number) => {
       const sequence = normalized(gene.gene_reference);
       if (!sequence) return;
-      const homoeologGroup = this.homoeologMode ? (String(gene.homoeolog_group || 'H1').trim() || 'H1') : undefined;
+      const homoeologGroup = this.homoeologMode ? 'Homoeolog' : undefined;
       const referenceKey = sequence;
       let group = referenceGroups.get(referenceKey);
       if (!group) { group = { names: [], sequence, homoeologGroup, targets: new Map() }; referenceGroups.set(referenceKey, group); }

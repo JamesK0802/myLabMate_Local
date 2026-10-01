@@ -377,7 +377,7 @@ export class AppStateService {
   private createGeneGroup(): FormGroup {
     return this.fb.group({
       gene_name: [''],
-      homoeolog_group: ['H1'],
+      homoeolog_group: ['Homoeolog'],
       gene_reference: ['', Validators.required],
       geneTargets: this.fb.array([this.createGeneTargetGroup()])
     });
@@ -438,7 +438,7 @@ export class AppStateService {
         const group = this.createGeneGroup();
         group.patchValue({
           gene_name: gene.gene_name,
-          homoeolog_group: gene.homoeolog_group || 'H1',
+          homoeolog_group: gene.homoeolog_group || 'Homoeolog',
           gene_reference: gene.gene_reference
         }, { emitEvent: false });
         const targets = group.get('geneTargets') as FormArray;
