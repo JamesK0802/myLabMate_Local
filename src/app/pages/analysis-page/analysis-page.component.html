@@ -209,9 +209,6 @@
         <div class="section-header">
           <h2>Reference Configuration</h2>
           <div class="header-actions">
-            <button type="button" class="btn-homoeolog-mode" [class.active]="homoeologMode" (click)="toggleHomoeologMode()">
-              Homoeolog
-            </button>
             <button type="button" class="btn-autofill" (click)="showAutofill = !showAutofill">
               Auto Fill
             </button>
@@ -222,6 +219,11 @@
               Window Check
             </button>
             <button type="button" class="btn-add" *ngIf="!homoeologMode" (click)="state.addGene()">Add Gene</button>
+            <button type="button" class="btn-add-homoeolog" *ngIf="homoeologMode" (click)="addHomoeolog()">Add Homoeolog</button>
+            <div class="reference-mode-segmented" role="group" aria-label="Reference mode">
+              <button type="button" [class.active]="!homoeologMode" (click)="setHomoeologMode(false)">Standard</button>
+              <button type="button" [class.active]="homoeologMode" (click)="setHomoeologMode(true)">Homoeolog</button>
+            </div>
           </div>
         </div>
 
@@ -548,30 +550,43 @@
             </div>
           </ng-container>
 
-          <div class="homoeolog-input-card" *ngIf="homoeologMode">
-            <div class="homoeolog-input-head">
-              <strong>Homoeolog references</strong>
-              <span>{{ state.geneBlocks.length }} refs</span>
-              <button type="button" (click)="state.addGene()">+ Reference</button>
-            </div>
-            <div class="homoeolog-ref-row" *ngFor="let gene of state.geneBlocks.controls; let gi = index" [formGroupName]="gi">
-              <div class="homoeolog-ref-head">
-                <span>Ref {{ gi + 1 }}</span>
-                <input type="text" formControlName="gene_name" [placeholder]="'Reference ' + (gi + 1)" aria-label="Reference name" />
-                <button type="button" (click)="state.removeGene(gi)" *ngIf="state.geneBlocks.length > 1" aria-label="Remove reference">&times;</button>
+          <ng-container *ngIf="homoeologMode">
+            <div class="homoeolog-input-card" *ngFor="let group of homoeologInputGroups"
+              [class.drag-over]="dragOverHomoeolog === group.name"
+              (dragover)="allowReferenceDrop($event, group.name)"
+              (dragleave)="dragOverHomoeolog = ''"
+              (drop)="dropReference($event, group.name)"
+              (pointerup)="dropReferencePointer($event, group.name)">
+              <div class="homoeolog-input-head">
+                <span class="homoeolog-kind">Homoeolog</span>
+                <input class="homoeolog-name-input" [value]="group.name"
+                  (change)="renameHomoeologGroup(group.indices, $any($event.target).value)"
+                  aria-label="Homoeolog name" />
+                <span>{{ group.indices.length }} refs</span>
+                <button type="button" (click)="addReferenceToHomoeolog(group.name)">+ Reference</button>
               </div>
-              <textarea formControlName="gene_reference" rows="2" class="monospaced homoeolog-ref-sequence" placeholder="Reference sequence" aria-label="Reference sequence"></textarea>
-              <div class="homoeolog-targets" formArrayName="geneTargets">
-                <div class="homoeolog-target-row" *ngFor="let gt of state.getGeneTargets(gi).controls; let ti = index" [formGroupName]="ti">
-                  <span>T{{ ti + 1 }}</span>
-                  <input type="text" formControlName="target_id" placeholder="Target" aria-label="Target name" />
-                  <input type="text" formControlName="gRNA" placeholder="gRNA sequence" aria-label="gRNA sequence" class="monospaced" />
-                  <button type="button" (click)="state.removeGeneTarget(gi, ti)" *ngIf="state.getGeneTargets(gi).length > 1" aria-label="Remove target">&times;</button>
+              <div class="homoeolog-ref-row" *ngFor="let gi of group.indices; let ri = index" [formGroupName]="gi">
+                <div class="homoeolog-ref-main">
+                  <span class="homoeolog-drag-handle" draggable="true"
+                    (dragstart)="startReferenceDrag($event, gi)" (dragend)="endReferenceDrag()"
+                    (pointerdown)="startReferencePointerDrag($event, gi)" (pointercancel)="endReferenceDrag()" title="Move reference">⠿</span>
+                  <span class="homoeolog-ref-label">Ref {{ ri + 1 }}</span>
+                  <input type="text" formControlName="gene_name" [placeholder]="'Reference ' + (ri + 1)" aria-label="Reference name" />
+                  <textarea formControlName="gene_reference" rows="1" class="monospaced homoeolog-ref-sequence" placeholder="Reference sequence" aria-label="Reference sequence"></textarea>
+                  <button type="button" class="homoeolog-remove-ref" (click)="state.removeGene(gi)" *ngIf="state.geneBlocks.length > 1" aria-label="Remove reference">&times;</button>
                 </div>
-                <button type="button" class="homoeolog-add-target" (click)="state.addGeneTarget(gi)">+ Target</button>
+                <div class="homoeolog-targets" formArrayName="geneTargets">
+                  <div class="homoeolog-target-row" *ngFor="let gt of state.getGeneTargets(gi).controls; let ti = index" [formGroupName]="ti">
+                    <span>T{{ ti + 1 }}</span>
+                    <input type="text" formControlName="target_id" placeholder="Target" aria-label="Target name" />
+                    <input type="text" formControlName="gRNA" placeholder="gRNA sequence" aria-label="gRNA sequence" class="monospaced" />
+                    <button type="button" (click)="state.removeGeneTarget(gi, ti)" *ngIf="state.getGeneTargets(gi).length > 1" aria-label="Remove target">&times;</button>
+                  </div>
+                  <button type="button" class="homoeolog-add-target" (click)="state.addGeneTarget(gi)">+ Target</button>
+                </div>
               </div>
             </div>
-          </div>
+          </ng-container>
         </div>
       </div>
 

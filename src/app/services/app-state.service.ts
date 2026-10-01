@@ -374,10 +374,10 @@ export class AppStateService {
       this.activeReferenceInherited = false;
     });
   }
-  private createGeneGroup(): FormGroup {
+  private createGeneGroup(homoeologGroup = ''): FormGroup {
     return this.fb.group({
       gene_name: [''],
-      homoeolog_group: ['Homoeolog'],
+      homoeolog_group: [homoeologGroup],
       gene_reference: ['', Validators.required],
       geneTargets: this.fb.array([this.createGeneTargetGroup()])
     });
@@ -386,7 +386,7 @@ export class AppStateService {
     return this.fb.group({ target_id: [''], gRNA: ['', Validators.required] });
   }
   get geneBlocks() { return this.analysisForm.get('genes') as FormArray; }
-  addGene() { this.geneBlocks.push(this.createGeneGroup()); }
+  addGene(homoeologGroup = '') { this.geneBlocks.push(this.createGeneGroup(homoeologGroup)); }
   removeGene(i: number) { if (this.geneBlocks.length > 1) this.geneBlocks.removeAt(i); }
   getGeneTargets(gi: number): FormArray { return this.geneBlocks.at(gi).get('geneTargets') as FormArray; }
   addGeneTarget(gi: number) { this.getGeneTargets(gi).push(this.createGeneTargetGroup()); }
@@ -438,7 +438,7 @@ export class AppStateService {
         const group = this.createGeneGroup();
         group.patchValue({
           gene_name: gene.gene_name,
-          homoeolog_group: gene.homoeolog_group || 'Homoeolog',
+          homoeolog_group: gene.homoeolog_group || '',
           gene_reference: gene.gene_reference
         }, { emitEvent: false });
         const targets = group.get('geneTargets') as FormArray;

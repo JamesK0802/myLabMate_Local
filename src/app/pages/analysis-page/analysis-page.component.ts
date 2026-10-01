@@ -91,8 +91,13 @@ export interface HomoeologOverview {
   lanes: HomoeologOverviewLane[];
 }
 
+export interface HomoeologInputGroup {
+  name: string;
+  indices: number[];
+}
+
 interface ReferenceSource { key: string; label: string; workerKey: string; aliases: string[]; }
-interface ReferenceExcelRow { geneName: string; geneSeq: string; targetName: string; targetSeq: string; }
+interface ReferenceExcelRow { homoeologName: string; geneName: string; geneSeq: string; targetName: string; targetSeq: string; }
 
 @Component({
   selector: 'app-analysis-page',
@@ -152,9 +157,12 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
   private resultsUpdateSub?: Subscription;
   private windowCheckFormSub?: Subscription;
   private windowCheckTimer?: ReturnType<typeof setTimeout>;
+  draggedReferenceIndex: number | null = null;
+  dragOverHomoeolog = '';
 
   ngOnInit() {
     this.state.activateSlot('analysis');
+    if (this.homoeologMode) this.materializeHomoeologGroups(true);
     this.resultsUpdateSub = this.state.resultsUpdated$.subscribe(() => {
       this.cdr.detectChanges();
     });
@@ -178,8 +186,108 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
   }
 
   toggleHomoeologMode(): void {
-    this.state.analysisForm.get('homoeologMode')?.setValue(!this.homoeologMode);
+    this.setHomoeologMode(!this.homoeologMode);
+  }
+
+  setHomoeologMode(enabled: boolean): void {
+    if (this.homoeologMode === enabled) return;
+    this.state.analysisForm.get('homoeologMode')?.setValue(enabled);
+    if (enabled) this.materializeHomoeologGroups(true);
     if (this.showWindowCheck) this.recalculateWindowCheck();
+  }
+
+  get homoeologInputGroups(): HomoeologInputGroup[] {
+    const groups = new Map<string, number[]>();
+    this.state.geneBlocks.controls.forEach((control, index) => {
+      const entered = String(control.get('homoeolog_group')?.value || '').trim();
+      const name = entered || `Homoeolog ${index + 1}`;
+      const indices = groups.get(name) || [];
+      indices.push(index);
+      groups.set(name, indices);
+    });
+    return [...groups.entries()].map(([name, indices]) => ({ name, indices }));
+  }
+
+  addHomoeolog(): void {
+    this.materializeHomoeologGroups();
+    this.state.addGene(this.uniqueHomoeologName());
+  }
+
+  addReferenceToHomoeolog(groupName: string): void {
+    this.materializeHomoeologGroups();
+    this.state.addGene(groupName);
+  }
+
+  renameHomoeologGroup(indices: number[], value: string): void {
+    this.materializeHomoeologGroups();
+    const fallback = indices.length ? `Homoeolog ${indices[0] + 1}` : this.uniqueHomoeologName();
+    const requested = value.trim() || fallback;
+    const occupied = new Set(this.homoeologInputGroups
+      .filter(group => !group.indices.some(index => indices.includes(index)))
+      .map(group => group.name.toLowerCase()));
+    let name = requested;
+    let suffix = 2;
+    while (occupied.has(name.toLowerCase())) name = `${requested} ${suffix++}`;
+    indices.forEach(index => this.state.geneBlocks.at(index).get('homoeolog_group')?.setValue(name));
+  }
+
+  startReferenceDrag(event: DragEvent, index: number): void {
+    this.materializeHomoeologGroups();
+    this.draggedReferenceIndex = index;
+    event.dataTransfer?.setData('text/plain', String(index));
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  startReferencePointerDrag(event: PointerEvent, index: number): void {
+    if (event.pointerType !== 'touch') return;
+    this.materializeHomoeologGroups();
+    this.draggedReferenceIndex = index;
+    const handle = event.currentTarget as HTMLElement;
+    try { if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId); } catch { /* no capture */ }
+  }
+
+  allowReferenceDrop(event: DragEvent, groupName: string): void {
+    event.preventDefault();
+    this.dragOverHomoeolog = groupName;
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  }
+
+  dropReference(event: DragEvent, groupName: string): void {
+    event.preventDefault();
+    const rawIndex = this.draggedReferenceIndex ?? Number(event.dataTransfer?.getData('text/plain'));
+    if (Number.isInteger(rawIndex) && rawIndex >= 0 && rawIndex < this.state.geneBlocks.length) {
+      this.state.geneBlocks.at(rawIndex).get('homoeolog_group')?.setValue(groupName);
+    }
+    this.endReferenceDrag();
+  }
+
+  dropReferencePointer(event: PointerEvent, groupName: string): void {
+    if (event.pointerType !== 'touch' || this.draggedReferenceIndex === null) return;
+    this.state.geneBlocks.at(this.draggedReferenceIndex).get('homoeolog_group')?.setValue(groupName);
+    this.endReferenceDrag();
+  }
+
+  endReferenceDrag(): void {
+    this.draggedReferenceIndex = null;
+    this.dragOverHomoeolog = '';
+  }
+
+  private uniqueHomoeologName(): string {
+    const names = new Set(this.homoeologInputGroups.map(group => group.name.toLowerCase()));
+    let index = 1;
+    while (names.has(`homoeolog ${index}`)) index++;
+    return `Homoeolog ${index}`;
+  }
+
+  private materializeHomoeologGroups(splitLegacy = false): void {
+    const controls = this.state.geneBlocks.controls;
+    const values = controls.map(control => String(control.get('homoeolog_group')?.value || '').trim());
+    const legacySingleGroup = splitLegacy && controls.length > 1 && values.every(value => !value || value === 'Homoeolog');
+    controls.forEach((control, index) => {
+      if (legacySingleGroup || !values[index]) {
+        control.get('homoeolog_group')?.setValue(`Homoeolog ${index + 1}`);
+      }
+    });
   }
 
   get illuminaUnitCount(): number {
@@ -506,7 +614,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     for (const gene of genes) {
       const sequence = String(gene.gene_reference || '').replace(/\s+/g, '').toUpperCase();
       if (!sequence) continue;
-      const groupId = 'Homoeolog';
+      const groupId = String(gene.homoeolog_group || '').trim() || `Homoeolog ${genes.indexOf(gene) + 1}`;
       const list = grouped.get(groupId) || [];
       list.push({ ...gene, sequence, geneName: String(gene.gene_name || `Ref${list.length + 1}`).trim() });
       grouped.set(groupId, list);
@@ -581,6 +689,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     const addSheet = (name: string, genes: any[] = []) => {
       const worksheet = workbook.addWorksheet(this.safeWorksheetName(name, usedNames));
       worksheet.columns = [
+      { header: 'Homoeolog', key: 'homoeologName', width: 22 },
       { header: 'Gene Name', key: 'geneName', width: 20 },
       { header: 'Gene Sequence', key: 'geneSeq', width: 50 },
       { header: 'Target Name', key: 'targetName', width: 20 },
@@ -838,7 +947,9 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     genes.forEach((gene: any, geneIndex: number) => {
       const sequence = normalized(gene.gene_reference);
       if (!sequence) return;
-      const homoeologGroup = this.homoeologMode ? 'Homoeolog' : undefined;
+      const homoeologGroup = this.homoeologMode
+        ? (String(gene.homoeolog_group || '').trim() || `Homoeolog ${geneIndex + 1}`)
+        : undefined;
       const referenceKey = sequence;
       let group = referenceGroups.get(referenceKey);
       if (!group) { group = { names: [], sequence, homoeologGroup, targets: new Map() }; referenceGroups.set(referenceKey, group); }
@@ -880,26 +991,56 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
   }
   private worksheetRows(worksheet: ExcelJS.Worksheet): ReferenceExcelRow[] {
     const rows: ReferenceExcelRow[] = [];
+    const normalizedHeader = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const headerMap = new Map<string, number>();
+    worksheet.getRow(1).eachCell((cell, column) => headerMap.set(normalizedHeader(cell.text), column));
+    const hasHomoeologColumn = headerMap.has('homoeolog') || headerMap.has('homoeologname');
+    const column = (names: string[], fallback: number) => {
+      for (const name of names) {
+        const found = headerMap.get(name);
+        if (found) return found;
+      }
+      return hasHomoeologColumn ? fallback + 1 : fallback;
+    };
+    const homoeologColumn = headerMap.get('homoeolog') || headerMap.get('homoeologname') || 0;
+    const geneNameColumn = column(['genename', 'reference', 'referencename'], 1);
+    const geneSeqColumn = column(['genesequence', 'referencesequence'], 2);
+    const targetNameColumn = column(['targetname'], 3);
+    const targetSeqColumn = column(['grnasequence', 'targetsequence'], 4);
     worksheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
-      const item = { geneName: row.getCell(1).text.trim(), geneSeq: row.getCell(2).text.replace(/\s+/g, '').toUpperCase(), targetName: row.getCell(3).text.trim(), targetSeq: row.getCell(4).text.replace(/\s+/g, '').toUpperCase() };
+      const item = {
+        homoeologName: homoeologColumn ? row.getCell(homoeologColumn).text.trim() : '',
+        geneName: row.getCell(geneNameColumn).text.trim(),
+        geneSeq: row.getCell(geneSeqColumn).text.replace(/\s+/g, '').toUpperCase(),
+        targetName: row.getCell(targetNameColumn).text.trim(),
+        targetSeq: row.getCell(targetSeqColumn).text.replace(/\s+/g, '').toUpperCase()
+      };
       if (item.geneName && item.geneSeq && item.targetSeq) rows.push(item);
     });
     return rows;
   }
   private rowsToGenes(rows: ReferenceExcelRow[]): any[] {
-    const genes = new Map<string, { names: string[]; gene_reference: string; targets: Map<string, string[]> }>();
+    const genes = new Map<string, { names: string[]; homoeolog_group: string; gene_reference: string; targets: Map<string, string[]> }>();
     for (const row of rows) {
       let gene = genes.get(row.geneSeq);
-      if (!gene) { gene = { names: [], gene_reference: row.geneSeq, targets: new Map() }; genes.set(row.geneSeq, gene); }
+      if (!gene) {
+        gene = {
+          names: [],
+          homoeolog_group: this.homoeologMode ? row.homoeologName : '',
+          gene_reference: row.geneSeq,
+          targets: new Map()
+        };
+        genes.set(row.geneSeq, gene);
+      }
       if (!gene.names.includes(row.geneName)) gene.names.push(row.geneName);
       const names = gene.targets.get(row.targetSeq) || [];
       const targetName = row.targetName || `T${gene.targets.size + 1}`;
       if (!names.includes(targetName)) names.push(targetName);
       gene.targets.set(row.targetSeq, names);
     }
-    return [...genes.values()].map(gene => ({ gene_name: gene.names.join('/'), gene_reference: gene.gene_reference, geneTargets: [...gene.targets.entries()].map(([gRNA, names]) => ({ target_id: names.join('/'), gRNA })) }));
+    return [...genes.values()].map(gene => ({ gene_name: gene.names.join('/'), homoeolog_group: gene.homoeolog_group, gene_reference: gene.gene_reference, geneTargets: [...gene.targets.entries()].map(([gRNA, names]) => ({ target_id: names.join('/'), gRNA })) }));
   }
-  private genesToRows(genes: any[]): ReferenceExcelRow[] { return genes.flatMap(gene => (gene.geneTargets || []).map((target: any) => ({ geneName: gene.gene_name || '', geneSeq: gene.gene_reference || '', targetName: target.target_id || '', targetSeq: target.gRNA || '' }))); }
+  private genesToRows(genes: any[]): ReferenceExcelRow[] { return genes.flatMap(gene => (gene.geneTargets || []).map((target: any) => ({ homoeologName: gene.homoeolog_group || '', geneName: gene.gene_name || '', geneSeq: gene.gene_reference || '', targetName: target.target_id || '', targetSeq: target.gRNA || '' }))); }
   private validGenes(genes: any[]): boolean { return genes.length > 0 && genes.every(gene => Boolean(gene.gene_reference?.trim()) && Array.isArray(gene.geneTargets) && gene.geneTargets.length > 0 && gene.geneTargets.every((target: any) => Boolean(target.gRNA?.trim()))); }
 }
