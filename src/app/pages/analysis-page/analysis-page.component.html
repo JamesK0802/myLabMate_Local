@@ -316,15 +316,25 @@
                     </div>
                     <div class="homoeolog-track">
                       <div class="homoeolog-track-line"></div>
+                      <div *ngFor="let difference of lane.differences" class="homoeolog-difference"
+                        [style.left.%]="difference.leftPercent" [style.width.%]="difference.widthPercent"
+                        [title]="'Homoeolog difference · ' + difference.label"></div>
                       <ng-container *ngFor="let marker of lane.markers; let markerIndex = index">
-                        <div *ngIf="marker.leftPercent !== undefined" class="homoeolog-marker"
+                        <div *ngIf="marker.windowLeftPercent !== undefined" class="homoeolog-window"
+                          [style.left.%]="marker.windowLeftPercent" [style.width.%]="marker.windowWidthPercent"
+                          [style.--marker-color]="targetColor(markerIndex)"
+                          [title]="marker.targetId + ' window'"></div>
+                        <div *ngIf="marker.guideLeftPercent !== undefined" class="homoeolog-guide"
                           [class.near]="!marker.exact"
+                          [style.left.%]="marker.guideLeftPercent" [style.width.%]="marker.guideWidthPercent"
+                          [style.--marker-color]="targetColor(markerIndex)"
+                          [title]="marker.targetId + ' gRNA · cut ' + marker.cutSite"></div>
+                        <b *ngIf="marker.leftPercent !== undefined" class="homoeolog-marker-label"
                           [style.left.%]="marker.leftPercent"
-                          [style.top.px]="8"
                           [style.--marker-color]="targetColor(markerIndex)"
                           [title]="marker.targetId + ' · cut ' + marker.cutSite + (marker.exact ? ' · exact' : ' · ' + marker.mismatches + ' mismatch')">
-                          <span></span><b>{{ marker.targetId }}</b>
-                        </div>
+                          {{ marker.targetId }}
+                        </b>
                         <div *ngIf="marker.leftPercent === undefined" class="homoeolog-marker-error"
                           [style.top.px]="8" [title]="marker.error">
                           {{ marker.targetId }} !
@@ -543,14 +553,14 @@
           </ng-container>
 
           <ng-container *ngIf="homoeologMode">
-            <div class="homoeolog-input-card" *ngFor="let group of homoeologInputGroups"
+            <div class="homoeolog-input-card" *ngFor="let group of homoeologInputGroups; trackBy: trackHomoeologGroup"
               [attr.data-homoeolog-group]="group.name"
               [class.drag-over]="dragOverHomoeolog === group.name">
               <div class="homoeolog-input-head">
                 <input class="homoeolog-name-input" [value]="group.name"
-                  (change)="renameHomoeologGroup(group.indices, $any($event.target).value)"
+                  (blur)="renameHomoeologGroup(group.indices, $any($event.target).value)"
                   aria-label="Homoeolog name" />
-                <button type="button" class="btn-add-small" (click)="addReferenceToHomoeolog(group.name)">+ Reference</button>
+                <button type="button" class="btn-add-small" (click)="addReferenceToHomoeolog(group.indices)">+ Reference</button>
               </div>
               <div class="homoeolog-ref-row" *ngFor="let gi of group.indices; let ri = index" [formGroupName]="gi">
                 <div class="homoeolog-ref-main">

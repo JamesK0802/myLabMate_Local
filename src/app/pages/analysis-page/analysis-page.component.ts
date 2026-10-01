@@ -70,6 +70,10 @@ export interface HomoeologOverviewMarker {
   targetId: string;
   rowIndex: number;
   leftPercent?: number;
+  windowLeftPercent?: number;
+  windowWidthPercent?: number;
+  guideLeftPercent?: number;
+  guideWidthPercent?: number;
   cutSite?: number;
   exact: boolean;
   mismatches: number;
@@ -77,11 +81,18 @@ export interface HomoeologOverviewMarker {
   error?: string;
 }
 
+export interface HomoeologDifferenceSegment {
+  leftPercent: number;
+  widthPercent: number;
+  label: string;
+}
+
 export interface HomoeologOverviewLane {
   geneName: string;
   similarity: number;
   aligned: boolean;
   markers: HomoeologOverviewMarker[];
+  differences: HomoeologDifferenceSegment[];
 }
 
 export interface HomoeologOverview {
@@ -208,13 +219,20 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     return [...groups.entries()].map(([name, indices]) => ({ name, indices }));
   }
 
+  trackHomoeologGroup(_index: number, group: HomoeologInputGroup): string {
+    return group.name;
+  }
+
   addHomoeolog(): void {
     this.materializeHomoeologGroups();
     this.state.addGene(this.uniqueHomoeologName());
   }
 
-  addReferenceToHomoeolog(groupName: string): void {
+  addReferenceToHomoeolog(indices: number[]): void {
     this.materializeHomoeologGroups();
+    const groupName = indices.length
+      ? String(this.state.geneBlocks.at(indices[0]).get('homoeolog_group')?.value || '').trim()
+      : this.uniqueHomoeologName();
     this.state.addGene(groupName);
   }
 
@@ -616,6 +634,15 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
       const lanes: HomoeologOverviewLane[] = refs.map(ref => {
         const similarity = homoeologSimilarity(ref.sequence, anchor.sequence);
         const aligned = ref === anchor || similarity >= 45;
+        const differences = aligned && ref !== anchor
+          ? new SequenceMatcher(null, ref.sequence, anchor.sequence, false).getOpcodes()
+            .filter(([tag]) => tag !== 'equal')
+            .map(([tag, i1, i2, j1, j2]) => ({
+              leftPercent: Math.max(0, Math.min(100, (j1 / Math.max(1, anchor.sequence.length)) * 100)),
+              widthPercent: Math.max(0.55, ((j2 - j1) / Math.max(1, anchor.sequence.length)) * 100),
+              label: `${tag} · ref ${i1 + 1}-${i2} · alignment ${j1 + 1}-${j2}`
+            }))
+          : [];
         const markers = targetIds.map((targetId, rowIndex) => {
           const item = windows.find(window => window.geneName === ref.geneName && window.targetId === targetId);
           if (!item || item.cutSiteIndex < 0 || !aligned) {
@@ -625,12 +652,34 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
               error: !aligned ? `Reference alignment ${similarity.toFixed(1)}%` : (item?.guideMatch?.error || 'Guide not matched')
             };
           }
-          const guideMidpoint = (item.grnaStart ?? item.cutSiteIndex) + (item.grnaLength || 0) / 2;
-          const projected = projectHomoeologPosition(ref.sequence, anchor.sequence, guideMidpoint);
+          const guideStart = item.grnaStart ?? item.cutSiteIndex;
+          const guideEnd = guideStart + (item.grnaLength || 1);
+          const projectedGuideStart = projectHomoeologPosition(ref.sequence, anchor.sequence, guideStart);
+          const projectedGuideEnd = projectHomoeologPosition(ref.sequence, anchor.sequence, guideEnd);
+          const projectedWindowStart = projectHomoeologPosition(ref.sequence, anchor.sequence, item.winStart ?? 0);
+          const projectedWindowEnd = projectHomoeologPosition(ref.sequence, anchor.sequence, item.winEnd ?? ref.sequence.length);
+          const projected = projectedGuideStart === null || projectedGuideEnd === null
+            ? null
+            : (projectedGuideStart + projectedGuideEnd) / 2;
+          const percentageRange = (start: number | null, end: number | null) => {
+            if (start === null || end === null) return {};
+            const left = Math.min(start, end);
+            const right = Math.max(start, end);
+            return {
+              left: Math.max(0, Math.min(100, (left / Math.max(1, anchor.sequence.length)) * 100)),
+              width: Math.max(0.55, ((right - left) / Math.max(1, anchor.sequence.length)) * 100)
+            };
+          };
+          const guideRange = percentageRange(projectedGuideStart, projectedGuideEnd);
+          const windowRange = percentageRange(projectedWindowStart, projectedWindowEnd);
           return {
             targetId,
             rowIndex,
             leftPercent: projected === null ? undefined : Math.max(0, Math.min(100, (projected / Math.max(1, anchor.sequence.length)) * 100)),
+            guideLeftPercent: guideRange.left,
+            guideWidthPercent: guideRange.width,
+            windowLeftPercent: windowRange.left,
+            windowWidthPercent: windowRange.width,
             cutSite: item.cutSiteIndex,
             exact: item.guideMatch?.exact ?? true,
             mismatches: item.guideMatch?.mismatches ?? 0,
@@ -638,7 +687,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
             error: projected === null ? 'Alignment position unavailable' : undefined
           };
         });
-        return { geneName: ref.geneName, similarity, aligned, markers };
+        return { geneName: ref.geneName, similarity, aligned, markers, differences };
       });
       return { groupId, anchorName: anchor.geneName, targetIds, lanes };
     });
