@@ -41,7 +41,7 @@
           <button type="button" [class.active]="sequencingPlatform === 'nanopore'" (click)="setSequencingPlatform('nanopore')">Nanopore</button>
           <button type="button" [class.active]="sequencingPlatform === 'illumina'" (click)="setSequencingPlatform('illumina')">Illumina</button>
         </div>
-        <div class="platform-segmented" role="group" aria-label="Reference mode">
+        <div class="platform-segmented reference-mode-segmented" role="group" aria-label="Reference mode">
           <button type="button" [class.active]="!homoeologMode" (click)="setHomoeologMode(false)">Standard</button>
           <button type="button" [class.active]="homoeologMode" (click)="setHomoeologMode(true)">Homoeolog</button>
         </div>
@@ -198,7 +198,12 @@
                   <span class="tooltip-text">Excludes mutations (indels/substitutions) starting within cut site ±N bp from similarity score calculation (Default: 0).</span>
                 </span>
               </label>
-              <span class="slider-value-badge">±{{ state.analysisForm.get('cutSiteExclusionFlank')?.value }} bp</span>
+              <label class="slider-manual-value">
+                <span>±</span>
+                <input type="number" min="0" max="500" step="1" formControlName="cutSiteExclusionFlank"
+                  aria-label="Cut-site exclusion window" />
+                <span>bp</span>
+              </label>
             </div>
             <input type="range" min="0" max="10" step="1" formControlName="cutSiteExclusionFlank" class="form-range" />
             <p class="slider-description">Excludes indels/mutations starting within cut site ±N bp from similarity calculations to prevent score distortion.</p>
@@ -311,7 +316,12 @@
                     <strong>{{ overview.groupId }}</strong>
                   </div>
                   <div class="homoeolog-lane" *ngFor="let lane of overview.lanes">
-                    <div class="homoeolog-lane-label" [title]="lane.geneName">
+                    <div class="homoeolog-lane-label" [title]="lane.geneName + (lane.isAnchor ? ' · baseline' : '')">
+                      <label class="homoeolog-anchor-toggle" [title]="lane.isAnchor ? 'Baseline reference' : 'Use as baseline'">
+                        <input type="checkbox" [checked]="lane.isAnchor"
+                          (change)="selectHomoeologAnchor(overview.groupId, lane.geneIndex)" />
+                        <span></span>
+                      </label>
                       <strong>{{ lane.geneName }}</strong>
                     </div>
                     <div class="homoeolog-track">
@@ -334,6 +344,8 @@
                           [style.--marker-color]="targetColor(markerIndex)"
                           [title]="marker.targetId + ' · cut ' + marker.cutSite + (marker.exact ? ' · exact' : ' · ' + marker.mismatches + ' mismatch')">
                           {{ marker.targetId }}
+                          <small *ngIf="marker.windowDifferenceBp !== undefined"
+                            [class.same]="marker.windowDifferenceBp === 0">{{ marker.windowDifferenceBp }} bp</small>
                         </b>
                         <div *ngIf="marker.leftPercent === undefined" class="homoeolog-marker-error"
                           [style.top.px]="8" [title]="marker.error">

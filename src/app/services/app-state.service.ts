@@ -349,7 +349,7 @@ export class AppStateService {
       marginPercent: [10, [Validators.required, Validators.min(0), Validators.max(100)]],
       indelPercent: [2, [Validators.required, Validators.min(0), Validators.max(100)]],
       cutSiteDistanceWeight: [0, [Validators.required, Validators.min(0), Validators.max(10)]],
-      cutSiteExclusionFlank: [0, [Validators.required, Validators.min(0), Validators.max(10)]],
+      cutSiteExclusionFlank: [0, [Validators.required, Validators.min(0), Validators.max(500)]],
       customWindowEnabled: [false],
       customWindowLeft: [45, [Validators.required, Validators.min(0), Validators.max(500)]],
       customWindowRight: [45, [Validators.required, Validators.min(0), Validators.max(500)]],

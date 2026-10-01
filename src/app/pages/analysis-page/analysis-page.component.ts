@@ -78,6 +78,7 @@ export interface HomoeologOverviewMarker {
   exact: boolean;
   mismatches: number;
   identity: number;
+  windowDifferenceBp?: number;
   error?: string;
 }
 
@@ -88,7 +89,9 @@ export interface HomoeologDifferenceSegment {
 }
 
 export interface HomoeologOverviewLane {
+  geneIndex: number;
   geneName: string;
+  isAnchor: boolean;
   similarity: number;
   aligned: boolean;
   markers: HomoeologOverviewMarker[];
@@ -105,6 +108,7 @@ export interface HomoeologOverview {
 export interface HomoeologInputGroup {
   name: string;
   indices: number[];
+  trackKey: object | string;
 }
 
 interface ReferenceSource { key: string; label: string; workerKey: string; aliases: string[]; }
@@ -168,6 +172,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
   private resultsUpdateSub?: Subscription;
   private windowCheckFormSub?: Subscription;
   private windowCheckTimer?: ReturnType<typeof setTimeout>;
+  private homoeologAnchorByGroup = new Map<string, number>();
   draggedReferenceIndex: number | null = null;
   dragOverHomoeolog = '';
 
@@ -216,11 +221,15 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
       indices.push(index);
       groups.set(name, indices);
     });
-    return [...groups.entries()].map(([name, indices]) => ({ name, indices }));
+    return [...groups.entries()].map(([name, indices]) => ({
+      name,
+      indices,
+      trackKey: indices.length ? this.state.geneBlocks.at(indices[0]) : name
+    }));
   }
 
-  trackHomoeologGroup(_index: number, group: HomoeologInputGroup): string {
-    return group.name;
+  trackHomoeologGroup(_index: number, group: HomoeologInputGroup): object | string {
+    return group.trackKey;
   }
 
   addHomoeolog(): void {
@@ -296,6 +305,11 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
         control.get('homoeolog_group')?.setValue(`Homoeolog ${index + 1}`);
       }
     });
+  }
+
+  selectHomoeologAnchor(groupId: string, geneIndex: number): void {
+    this.homoeologAnchorByGroup.set(groupId, geneIndex);
+    if (this.showWindowCheck) this.recalculateWindowCheck();
   }
 
   get illuminaUnitCount(): number {
@@ -619,17 +633,20 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
 
   private buildHomoeologOverviews(genes: any[], windows: ExtractedWindowItem[]): HomoeologOverview[] {
     const grouped = new Map<string, any[]>();
-    for (const gene of genes) {
+    for (const [geneIndex, gene] of genes.entries()) {
       const sequence = String(gene.gene_reference || '').replace(/\s+/g, '').toUpperCase();
       if (!sequence) continue;
-      const groupId = String(gene.homoeolog_group || '').trim() || `Homoeolog ${genes.indexOf(gene) + 1}`;
+      const groupId = String(gene.homoeolog_group || '').trim() || `Homoeolog ${geneIndex + 1}`;
       const list = grouped.get(groupId) || [];
-      list.push({ ...gene, sequence, geneName: String(gene.gene_name || `Ref${list.length + 1}`).trim() });
+      list.push({ ...gene, geneIndex, sequence, geneName: String(gene.gene_name || `Ref${list.length + 1}`).trim() });
       grouped.set(groupId, list);
     }
 
     return [...grouped.entries()].map(([groupId, refs]) => {
-      const anchor = [...refs].sort((a, b) => b.sequence.length - a.sequence.length)[0];
+      const fallbackAnchor = [...refs].sort((a, b) => b.sequence.length - a.sequence.length)[0];
+      const selectedAnchorIndex = this.homoeologAnchorByGroup.get(groupId);
+      const anchor = refs.find(ref => ref.geneIndex === selectedAnchorIndex) || fallbackAnchor;
+      this.homoeologAnchorByGroup.set(groupId, anchor.geneIndex);
       const targetIds = [...new Set(refs.flatMap(ref => (ref.geneTargets || []).map((t: any, i: number) => String(t.target_id || `T${i + 1}`).trim())))];
       const lanes: HomoeologOverviewLane[] = refs.map(ref => {
         const similarity = homoeologSimilarity(ref.sequence, anchor.sequence);
@@ -645,6 +662,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
           : [];
         const markers = targetIds.map((targetId, rowIndex) => {
           const item = windows.find(window => window.geneName === ref.geneName && window.targetId === targetId);
+          const anchorItem = windows.find(window => window.geneName === anchor.geneName && window.targetId === targetId);
           if (!item || item.cutSiteIndex < 0 || !aligned) {
             return {
               targetId, rowIndex, exact: false, mismatches: item?.guideMatch?.mismatches ?? 0,
@@ -684,13 +702,30 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
             exact: item.guideMatch?.exact ?? true,
             mismatches: item.guideMatch?.mismatches ?? 0,
             identity: item.guideMatch?.identity ?? 100,
+            windowDifferenceBp: anchorItem ? this.sequenceDifferenceBp(item.sequence, anchorItem.sequence) : undefined,
             error: projected === null ? 'Alignment position unavailable' : undefined
           };
         });
-        return { geneName: ref.geneName, similarity, aligned, markers, differences };
+        return {
+          geneIndex: ref.geneIndex,
+          geneName: ref.geneName,
+          isAnchor: ref.geneIndex === anchor.geneIndex,
+          similarity,
+          aligned,
+          markers,
+          differences
+        };
       });
       return { groupId, anchorName: anchor.geneName, targetIds, lanes };
     });
+  }
+
+  private sequenceDifferenceBp(left: string, right: string): number {
+    if (!left || !right) return 0;
+    if (left === right) return 0;
+    return new SequenceMatcher(null, left, right, false).getOpcodes()
+      .filter(([tag]) => tag !== 'equal')
+      .reduce((total, [, i1, i2, j1, j2]) => total + Math.max(i2 - i1, j2 - j1), 0);
   }
 
   targetColor(index: number): string {
