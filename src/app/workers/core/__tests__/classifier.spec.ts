@@ -8,6 +8,7 @@ import {
   extractWindow,
   scoreReadAgainstWindow,
   isReadUsableUncached,
+  applyGeneClassification,
 } from '../classifier';
 
 describe('Classifier Core Utilities', () => {
@@ -127,6 +128,29 @@ describe('Classifier Core Utilities', () => {
     expect(result?.right_x).toBe(2);
     expect(result?.read_window.startsWith('XXGGAAGCTGGC')).toBe(true);
     expect(result?.read_window.endsWith('XX')).toBe(true);
+  });
+
+  it('uses the unique whole-window winner within a homoeolog group', () => {
+    const refA = 'AACCGGTTAACCGGTTAACCGGTTAACCGGTTAACCGGTT';
+    const refB = `${refA.slice(0, 20)}T${refA.slice(21)}`;
+    const result = applyGeneClassification(refA, null, {
+      A: [{ gene: 'A', target: 'T1', ref_window: refA, homoeolog_group: 'H1', cut_index_in_window: 20 }],
+      B: [{ gene: 'B', target: 'T1', ref_window: refB, homoeolog_group: 'H1', cut_index_in_window: 20 }],
+    }, 20, 0.10);
+
+    expect(result.assigned).toBe(true);
+    expect(result.predicted_gene).toBe('A');
+  });
+
+  it('keeps an exact homoeolog score tie ambiguous', () => {
+    const ref = 'AACCGGTTAACCGGTTAACCGGTTAACCGGTTAACCGGTT';
+    const result = applyGeneClassification(ref, null, {
+      A: [{ gene: 'A', target: 'T1', ref_window: ref, homoeolog_group: 'H1', cut_index_in_window: 20 }],
+      B: [{ gene: 'B', target: 'T1', ref_window: ref, homoeolog_group: 'H1', cut_index_in_window: 20 }],
+    }, 20, 0.10);
+
+    expect(result.assigned).toBe(false);
+    expect(result.reason).toBe('ambiguous');
   });
 
   it('should exclude cut-site mutations only when exclusionFlank is configured', () => {

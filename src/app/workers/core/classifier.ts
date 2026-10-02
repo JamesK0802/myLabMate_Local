@@ -30,7 +30,7 @@ const ANCHOR_LEN = 12;
 // When a terminal anchor is absent, scan inward for the nearest exact anchor
 // and treat only the skipped terminal bases as unobserved. The cap prevents a
 // read from discarding an arbitrarily large, potentially diagnostic region.
-const MAX_TERMINAL_ANCHOR_INSET = 30;
+const MAX_TERMINAL_ANCHOR_INSET = 10;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Type Helpers & Basic Utilities
@@ -457,7 +457,6 @@ function observedSegments(
 
 // Map-based memoization (replaces Python's lru_cache)
 const usabilityCache = new Map<string, [boolean, string, ReadResult | null]>();
-const diagnosticPositionsCache = new Map<string, number[]>();
 
 export interface ReadResult {
   fail: null;
@@ -588,7 +587,6 @@ export function isReadUsableUncached(
 
 export function clearClassifierCache(): void {
   usabilityCache.clear();
-  diagnosticPositionsCache.clear();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -749,73 +747,6 @@ export function scoreReadAgainstWindow(
   return Math.min(1.0, bestScore);
 }
 
-interface DiagnosticEvidenceScore {
-  score: number;
-  observed: number;
-  total: number;
-}
-
-/**
- * Score only coordinates that distinguish members of one homoeolog group.
- * X/missing bases contribute no evidence (rather than a mismatch), while an
- * observed match contributes +1 and an observed mismatch -1. Normalizing by
- * all diagnostic coordinates prevents a candidate from gaining confidence by
- * clipping away the positions that would disprove it.
- */
-function scoreDiagnosticEvidence(
-  readWindow: string,
-  refWindow: string,
-  peerWindows: string[],
-  cutIndex: number,
-  exclusionFlank: number,
-): DiagnosticEvidenceScore {
-  const readUp = readWindow.toUpperCase();
-  const refUp = refWindow.toUpperCase();
-  const comparablePeers = peerWindows.map(peer => peer.toUpperCase()).filter(peer => peer.length === refUp.length);
-  const diagnosticKey = `${refUp}|${comparablePeers.join('|')}|${cutIndex}|${exclusionFlank}`;
-  let diagnosticPositions = diagnosticPositionsCache.get(diagnosticKey);
-  if (!diagnosticPositions) {
-    diagnosticPositions = [];
-    for (let pos = 0; pos < refUp.length; pos++) {
-      if (exclusionFlank > 0 && Math.abs(pos - cutIndex) <= exclusionFlank) continue;
-      if (comparablePeers.some(peer => peer[pos] !== refUp[pos])) diagnosticPositions.push(pos);
-    }
-    diagnosticPositionsCache.set(diagnosticKey, diagnosticPositions);
-  }
-  if (!diagnosticPositions.length) return { score: 0, observed: 0, total: 0 };
-
-  const observedByReference = new Map<number, string>();
-  if (readUp.length === refUp.length) {
-    for (let pos = 0; pos < refUp.length; pos++) {
-      if (readUp[pos] !== 'X' && readUp[pos] !== 'N') observedByReference.set(pos, readUp[pos]);
-    }
-  } else {
-    const matcher = new SequenceMatcher(null, readUp, refUp);
-    for (const [tag, i1, i2, j1, j2] of matcher.getOpcodes()) {
-      if (tag !== 'equal' && tag !== 'replace') continue;
-      const shared = Math.min(i2 - i1, j2 - j1);
-      for (let offset = 0; offset < shared; offset++) {
-        const base = readUp[i1 + offset];
-        if (base !== 'X' && base !== 'N') observedByReference.set(j1 + offset, base);
-      }
-    }
-  }
-
-  let support = 0;
-  let observed = 0;
-  for (const pos of diagnosticPositions) {
-    const base = observedByReference.get(pos);
-    if (!base) continue;
-    observed++;
-    support += base === refUp[pos] ? 1 : -1;
-  }
-  return {
-    score: (support / diagnosticPositions.length + 1) / 2,
-    observed,
-    total: diagnosticPositions.length,
-  };
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Classification
 // ─────────────────────────────────────────────────────────────────────────────
@@ -952,15 +883,16 @@ export function applyGeneClassification(
   // Multi-gene: score each gene by its best target window
   const geneScores: Array<[number, string]> = [];
   const geneDebug: Record<string, any> = {};
+  const geneHomoeologGroups = new Map<string, string>();
   let anyUsable = false;
 
   for (const geneName of geneNames) {
     const targets = geneClasses[geneName];
     let bestScore = -1.0;
     let bestTarget: string | null = null;
-    let bestDiagnostic: DiagnosticEvidenceScore | null = null;
     let geneUsable = false;
     let usableCount = 0;
+    geneHomoeologGroups.set(geneName, targets.find(t => t.homoeolog_group)?.homoeolog_group || '');
 
     for (const t of targets) {
       const [usable, , res] = isReadUsable(
@@ -973,29 +905,10 @@ export function applyGeneClassification(
         usableCount++;
         const targetSeq = res?.read_window || readSeq;
         const baseScore = scoreReadAgainstWindow(targetSeq, t.ref_window, t.cut_index_in_window ?? -1, cutSiteDistanceWeight, cutSiteExclusionFlank);
-        const peerWindows = t.homoeolog_group
-          ? Object.values(geneClasses).flat().filter(peer =>
-              peer.gene !== t.gene &&
-              peer.target === t.target &&
-              peer.homoeolog_group === t.homoeolog_group
-            ).map(peer => peer.ref_window)
-          : [];
-        const diagnostic = scoreDiagnosticEvidence(
-          targetSeq,
-          t.ref_window,
-          peerWindows,
-          t.cut_index_in_window ?? Math.floor(t.ref_window.length / 2),
-          cutSiteExclusionFlank,
-        );
-        // In homoeolog mode, diagnostic bases carry the assignment decision;
-        // whole-window similarity remains a small deterministic tie-breaker.
-        const score = diagnostic.total > 0
-          ? diagnostic.score * 0.999 + baseScore * 0.001
-          : baseScore;
+        const score = baseScore;
         if (score > bestScore) {
           bestScore = score;
           bestTarget = t.target;
-          bestDiagnostic = diagnostic.total > 0 ? diagnostic : null;
         }
       }
     }
@@ -1005,8 +918,6 @@ export function applyGeneClassification(
       best_target: bestTarget,
       usable: usableCount,
       total: targets.length,
-      diagnostic_observed: bestDiagnostic?.observed ?? null,
-      diagnostic_total: bestDiagnostic?.total ?? null,
     };
 
     if (geneUsable) geneScores.push([bestScore, geneName]);
@@ -1041,14 +952,21 @@ export function applyGeneClassification(
 
   const [top2Score, top2Gene] = geneScores[1];
   const gap = top1Score - top2Score;
+  const top1Group = geneHomoeologGroups.get(top1Gene) || '';
+  const top2Group = geneHomoeologGroups.get(top2Gene) || '';
+  // Homoeolog references are expected to be nearly identical, so an absolute
+  // percentage margin would reject correctly ranked reads simply because the
+  // maximum possible score gap is small. Keep the existing whole-window score
+  // and accept its unique winner; exact numerical ties remain ambiguous.
+  const effectiveMargin = top1Group && top1Group === top2Group ? 1e-12 : margin;
 
   const debugBlock: any = {
     gene_scores: geneDebug,
     best_gene: top1Gene, second_gene: top2Gene,
-    gap: Math.round(gap * 10000) / 10000, margin,
+    gap: Math.round(gap * 10000) / 10000, margin, effective_margin: effectiveMargin,
   };
 
-  if (gap >= margin) {
+  if (gap >= effectiveMargin) {
     debugBlock.outcome = 'assigned_margin_pass';
     return {
       assigned: true,
