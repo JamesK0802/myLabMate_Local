@@ -6,7 +6,8 @@ import {
   getWindowBounds,
   cutIndexInWindow,
   extractWindow,
-  scoreReadAgainstWindow
+  scoreReadAgainstWindow,
+  isReadUsableUncached,
 } from '../classifier';
 
 describe('Classifier Core Utilities', () => {
@@ -73,6 +74,59 @@ describe('Classifier Core Utilities', () => {
     );
     const guardedScore = scoreReadAgainstWindow('AAAAXXXXCCCC', window);
     expect(guardedScore).toBeCloseTo(segmentScore);
+  });
+
+  it('penalizes real insertions and deletions outside the excluded cut-site region', () => {
+    const window = 'ACGTTGCACTGATCGTAGCTACGATGCTAGTCAGTCA';
+    const inserted = window.slice(0, 5) + 'A' + window.slice(5);
+    const deleted = window.slice(0, 30) + window.slice(31);
+
+    expect(scoreReadAgainstWindow(inserted, window, 19, 0, 2)).toBeLessThan(1);
+    expect(scoreReadAgainstWindow(deleted, window, 19, 0, 2)).toBeLessThan(1);
+  });
+
+  it('keeps terminal X padding neutral in assignment scoring', () => {
+    const window = 'ACGTTGCACTGATCGTAGCTACGATGCTAGTCAGTCA';
+    const padded = `XX${window.slice(2, -3)}XXX`;
+    expect(scoreReadAgainstWindow(padded, window, 19, 0, 2)).toBe(1);
+  });
+
+  it('soft-clips a primer-overwritten terminal prefix using the nearest inset anchor', () => {
+    const refWindow = 'TTGGAAGCTGGCCAGCTTTCTTCGTCGTTTAGAAGCAGTGAACGCCCCAGTAAACCATTACAGGTCGTGATTGCTGGTGCAGGTCTGAAGTCTGATGTAACTCCAAAATTTAAACATGTATACTTTTTCG';
+    const read = 'GCTTACGCTGGAGTGAGTACGGTGTGCGGAAGCTGGCCAGCTTTCTTCGTCGTTTAGAAGCAGTGAACGCCCCAGTAAACCATTACAGGTCGTGATTGCTGGTGCAGGTCTGAAGTCTGATGTAACTCCAAAATTTAAACATGTATACTTTTTCGCACACCAGATACCCTTGAGTGAATCACCATTGCCTCTTAGCGTTACTACCATCCAGCATCCAACTCACATCACAG';
+    const [usable, reason, result] = isReadUsableUncached(
+      read,
+      new Array(read.length).fill(35),
+      refWindow,
+      20,
+      'AGTAAACCATTACAGGTCGT',
+      65,
+    );
+
+    expect(usable).toBe(true);
+    expect(reason).toBe('ok');
+    expect(result?.left_x).toBe(2);
+    expect(result?.read_window.startsWith('XXGGAAGCTGGC')).toBe(true);
+  });
+
+  it('soft-clips both primer-overwritten ends when internal anchors retain the target span', () => {
+    const refWindow = 'TTGGAAGCTGGCCAGCTTTCTTCGTCGTTTAGAAGCAGTGAACGCCCCAGTAAACCATTACAGGTCGTGATTGCTGGTGCAGGTCTGAAGTCTGATGTAACTCCAAAATTTAAACATGTATACTTTTTCG';
+    const primerReplacedRead = `GC${refWindow.slice(2, -2)}AA`;
+    const [usable, reason, result] = isReadUsableUncached(
+      primerReplacedRead,
+      new Array(primerReplacedRead.length).fill(35),
+      refWindow,
+      20,
+      'AGTAAACCATTACAGGTCGT',
+      65,
+    );
+
+    expect(usable).toBe(true);
+    expect(reason).toBe('ok');
+    expect(result?.left_x).toBe(2);
+    expect(result?.right_x).toBe(2);
+    expect(result?.read_window.startsWith('XXGGAAGCTGGC')).toBe(true);
+    expect(result?.read_window.endsWith('XX')).toBe(true);
   });
 
   it('should exclude cut-site mutations only when exclusionFlank is configured', () => {

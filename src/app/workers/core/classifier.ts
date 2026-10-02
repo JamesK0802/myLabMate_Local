@@ -26,6 +26,11 @@ import type { QualityScores } from './fastq-parser';
 
 const CUT_SITE_MIN_FLANK = 15;
 const ANCHOR_LEN = 12;
+// PCR primer sequence can replace the genomic bases at an amplicon boundary.
+// When a terminal anchor is absent, scan inward for the nearest exact anchor
+// and treat only the skipped terminal bases as unobserved. The cap prevents a
+// read from discarding an arbitrarily large, potentially diagnostic region.
+const MAX_TERMINAL_ANCHOR_INSET = 30;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Type Helpers & Basic Utilities
@@ -147,6 +152,18 @@ export function extractWindow(reference: string, cutSite: number, windowSize: nu
 // X-Padding Pipeline
 // ─────────────────────────────────────────────────────────────────────────────
 
+function buildSeedPositionIndex(seqUp: string): Map<string, number[]> {
+  const positionsBySeed = new Map<string, number[]>();
+  for (let pos = 0; pos <= seqUp.length - ANCHOR_LEN; pos++) {
+    const seed = seqUp.substring(pos, pos + ANCHOR_LEN);
+    if (seed.includes('N') || seed.includes('X')) continue;
+    const positions = positionsBySeed.get(seed);
+    if (positions) positions.push(pos);
+    else positionsBySeed.set(seed, [pos]);
+  }
+  return positionsBySeed;
+}
+
 function findOffset(seqUp: string, refUp: string, sgrnaSeq: string): number | null {
   if (sgrnaSeq) {
     const sgrnaUp = sgrnaSeq.toUpperCase();
@@ -170,6 +187,22 @@ function findOffset(seqUp: string, refUp: string, sgrnaSeq: string): number | nu
   const ri2 = seqUp.indexOf(rightAnchor);
   if (ri2 !== -1) return ri2 - (refUp.length - ANCHOR_LEN);
 
+  // Edited gRNAs and primer-overwritten window ends can remove all three
+  // preferred seeds. Recover the coordinate from the most consistently
+  // observed internal 12-mers instead of declaring the read unalignable.
+  const readSeedPositions = buildSeedPositionIndex(seqUp);
+  const offsetVotes = new Map<number, number>();
+  for (let refPos = 1; refPos <= refUp.length - ANCHOR_LEN - 1; refPos++) {
+    const seed = refUp.substring(refPos, refPos + ANCHOR_LEN);
+    if (seed.includes('N') || seed.includes('X')) continue;
+    for (const readPos of readSeedPositions.get(seed) || []) {
+      const candidateOffset = readPos - refPos;
+      offsetVotes.set(candidateOffset, (offsetVotes.get(candidateOffset) || 0) + 1);
+    }
+  }
+  const bestOffset = [...offsetVotes.entries()].sort((a, b) => b[1] - a[1] || Math.abs(a[0]) - Math.abs(b[0]))[0];
+  if (bestOffset && bestOffset[1] >= 2) return bestOffset[0];
+
   return null;
 }
 
@@ -180,6 +213,28 @@ interface AlignResult {
   qual_observed?: QualityScores | null;
   left_x?: number;
   right_x?: number;
+}
+
+interface AnchorHit {
+  read_pos: number;
+  ref_pos: number;
+}
+
+function anchorHits(refUp: string, refPositions: number[], readSeedPositions: Map<string, number[]>): AnchorHit[] {
+  const hits: AnchorHit[] = [];
+  const seen = new Set<string>();
+  for (const refPos of refPositions) {
+    const anchor = refUp.substring(refPos, refPos + ANCHOR_LEN);
+    if (anchor.length !== ANCHOR_LEN || anchor.includes('N') || anchor.includes('X')) continue;
+    for (const readPos of readSeedPositions.get(anchor) || []) {
+      const key = `${readPos}:${refPos}`;
+      if (!seen.has(key)) {
+        hits.push({ read_pos: readPos, ref_pos: refPos });
+        seen.add(key);
+      }
+    }
+  }
+  return hits;
 }
 
 function alignReadToWindow(
@@ -203,7 +258,9 @@ function alignReadToWindow(
     return { fail: 'no_coverage' };
   }
 
-  // Step 3: Find anchors
+  // Step 3: Find terminal anchors and, if needed, exact inset anchors. Inset
+  // anchors make primer-overwritten terminal bases equivalent to X padding;
+  // the observed internal sequence remains mandatory evidence.
   const leftAnchor = refUp.substring(0, ANCHOR_LEN);
   const rightAnchor = refUp.substring(refUp.length - ANCHOR_LEN);
 
@@ -222,18 +279,70 @@ function alignReadToWindow(
     idx = seqUp.indexOf(rightAnchor, idx + 1);
   }
 
+  const maxLeftInset = Math.min(
+    MAX_TERMINAL_ANCHOR_INSET,
+    Math.max(0, cutIdxInWindow - CUT_SITE_MIN_FLANK - ANCHOR_LEN),
+  );
+  const maxRightInset = Math.min(
+    MAX_TERMINAL_ANCHOR_INSET,
+    Math.max(0, winLen - ANCHOR_LEN - (cutIdxInWindow + CUT_SITE_MIN_FLANK)),
+  );
+  const leftRefPositions = Array.from({ length: maxLeftInset + 1 }, (_, i) => i);
+  const rightRefPositions = Array.from(
+    { length: maxRightInset + 1 },
+    (_, i) => winLen - ANCHOR_LEN - i,
+  );
+  const readSeedPositions = buildSeedPositionIndex(seqUp);
+  const leftHits = anchorHits(refUp, leftRefPositions, readSeedPositions);
+  const rightHits = anchorHits(refUp, rightRefPositions, readSeedPositions);
+
   // Find best anchor pair
+  let bestLeftHit: AnchorHit | null = null;
+  let bestRightHit: AnchorHit | null = null;
+  let bestDiff = Infinity;
+  let bestTerminalSkip = Infinity;
+
+  // Preserve the original path whenever both true terminal anchors exist.
+  // Never prefer inner anchors merely because they avoid a real cut-site
+  // indel, since that would erase useful assignment evidence.
   const refInnerLen = winLen - 2 * ANCHOR_LEN;
-  let bestLi = -1, bestRi = -1, bestDiff = Infinity;
-  for (const l of leftPositions) {
-    for (const r of rightPositions) {
-      if (r >= l + ANCHOR_LEN) {
-        const innerLen = r - l - ANCHOR_LEN;
-        const diff = Math.abs(innerLen - refInnerLen);
+  for (const leftPos of leftPositions) {
+    for (const rightPos of rightPositions) {
+      if (rightPos >= leftPos + ANCHOR_LEN) {
+        const observedInnerLen = rightPos - leftPos - ANCHOR_LEN;
+        const diff = Math.abs(observedInnerLen - refInnerLen);
         if (diff < bestDiff) {
           bestDiff = diff;
-          bestLi = l;
-          bestRi = r;
+          bestTerminalSkip = 0;
+          bestLeftHit = { read_pos: leftPos, ref_pos: 0 };
+          bestRightHit = { read_pos: rightPos, ref_pos: winLen - ANCHOR_LEN };
+        }
+      }
+    }
+  }
+
+  // Adaptive clipping is preferred with at least one true terminal anchor.
+  // If both PCR primers overwrite genomic ends, two inset anchors are also
+  // accepted when they retain a substantial internal span. Final homoeolog
+  // assignment then relies on observed diagnostic bases, so a primer sequence
+  // cannot make only the coincidentally matching reference eligible.
+  if (!bestLeftHit || !bestRightHit) for (const leftHit of leftHits) {
+    for (const rightHit of rightHits) {
+      const hasTerminalEvidence = leftHit.ref_pos === 0 || rightHit.ref_pos === winLen - ANCHOR_LEN;
+      const grnaUp = sgrnaSeq.toUpperCase();
+      const hasExactGrnaSeed = !!grnaUp && (seqUp.includes(grnaUp) || seqUp.includes(reverseComplement(grnaUp)));
+      const retainedReferenceSpan = rightHit.ref_pos + ANCHOR_LEN - leftHit.ref_pos;
+      const hasStrongInternalSpan = retainedReferenceSpan >= Math.max(60, CUT_SITE_MIN_FLANK * 2 + ANCHOR_LEN);
+      if ((hasTerminalEvidence || hasExactGrnaSeed || hasStrongInternalSpan) && rightHit.read_pos >= leftHit.read_pos + ANCHOR_LEN && rightHit.ref_pos >= leftHit.ref_pos + ANCHOR_LEN) {
+        const observedInnerLen = rightHit.read_pos - leftHit.read_pos - ANCHOR_LEN;
+        const referenceInnerLen = rightHit.ref_pos - leftHit.ref_pos - ANCHOR_LEN;
+        const diff = Math.abs(observedInnerLen - referenceInnerLen);
+        const terminalSkip = leftHit.ref_pos + (winLen - rightHit.ref_pos - ANCHOR_LEN);
+        if (diff < bestDiff || (diff === bestDiff && terminalSkip < bestTerminalSkip)) {
+          bestDiff = diff;
+          bestTerminalSkip = terminalSkip;
+          bestLeftHit = leftHit;
+          bestRightHit = rightHit;
         }
       }
     }
@@ -246,13 +355,15 @@ function alignReadToWindow(
   let rightX: number;
   let qualObserved: QualityScores | null;
 
-  if (bestLi !== -1 && bestRi !== -1) {
-    // CASE A: Both anchors found
-    observedRead = seq.substring(bestLi, bestRi + ANCHOR_LEN).toUpperCase();
-    leftX = 0;
-    rightX = 0;
-    readWindow = observedRead;
-    qualObserved = qual ? qual.slice(bestLi, bestRi + ANCHOR_LEN) : null;
+  if (bestLeftHit && bestRightHit) {
+    // CASE A: Both terminal or inset anchors found. Bases outside inset
+    // anchors are deliberately represented as X instead of being interpreted
+    // as genomic mismatches introduced by PCR primers.
+    observedRead = seq.substring(bestLeftHit.read_pos, bestRightHit.read_pos + ANCHOR_LEN).toUpperCase();
+    leftX = bestLeftHit.ref_pos;
+    rightX = winLen - bestRightHit.ref_pos - ANCHOR_LEN;
+    readWindow = 'X'.repeat(leftX) + observedRead + 'X'.repeat(rightX);
+    qualObserved = qual ? qual.slice(bestLeftHit.read_pos, bestRightHit.read_pos + ANCHOR_LEN) : null;
 
   } else if (leftPositions.length > 0) {
     // CASE B: Left anchor found, right truncated
@@ -346,6 +457,7 @@ function observedSegments(
 
 // Map-based memoization (replaces Python's lru_cache)
 const usabilityCache = new Map<string, [boolean, string, ReadResult | null]>();
+const diagnosticPositionsCache = new Map<string, number[]>();
 
 export interface ReadResult {
   fail: null;
@@ -476,6 +588,7 @@ export function isReadUsableUncached(
 
 export function clearClassifierCache(): void {
   usabilityCache.clear();
+  diagnosticPositionsCache.clear();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -553,9 +666,13 @@ function computeAlignmentScoreWithDynamicExclusion(
         totalMaxWeight += w;
         matchedWeight += w;
       }
-    } else if (tag === 'replace' || tag === 'delete') {
-      const len = j2 - j1;
-      for (let k = 0; k < len; k++) {
+    } else if (tag === 'replace' || tag === 'insert') {
+      // SequenceMatcher compares read (a) with reference (b). `insert`
+      // therefore means reference bases are absent from the read. Penalize
+      // the reference span; the previous implementation used the empty read
+      // span and accidentally gave deletions a zero cost.
+      const refLen = j2 - j1;
+      for (let k = 0; k < refLen; k++) {
         const refIdx = j1 + k;
         if (excludedRefIndices.has(refIdx)) continue;
         const refChar = cleanRef[refIdx];
@@ -564,10 +681,22 @@ function computeAlignmentScoreWithDynamicExclusion(
         const w = calcSeagullWeight(d, maxDist, distanceWeight);
         totalMaxWeight += w;
       }
-    } else if (tag === 'insert') {
-      const refIdx = j1;
-      if (!excludedRefIndices.has(refIdx)) {
+      // A replacement can also contain extra read bases beyond the replaced
+      // reference span. Count only that excess here; the shared span above is
+      // already represented by the reference positions.
+      const excessReadBases = Math.max(0, (i2 - i1) - refLen);
+      if (excessReadBases > 0 && !excludedRefIndices.has(Math.min(j1, cleanRef.length - 1))) {
+        const refIdx = Math.min(j1, cleanRef.length - 1);
         const d = Math.abs(refIdx - cutSitePos);
+        totalMaxWeight += calcSeagullWeight(d, maxDist, distanceWeight) * excessReadBases;
+      }
+    } else if (tag === 'delete') {
+      // `delete` means extra bases exist in the read at reference coordinate
+      // j1. Penalize the read span unless that coordinate is excluded.
+      const refIdx = j1;
+      const boundedRefIdx = Math.max(0, Math.min(refIdx, cleanRef.length - 1));
+      if (!excludedRefIndices.has(boundedRefIdx)) {
+        const d = Math.abs(boundedRefIdx - cutSitePos);
         const w = calcSeagullWeight(d, maxDist, distanceWeight);
         totalMaxWeight += w * (i2 - i1);
       }
@@ -584,11 +713,24 @@ export function scoreReadAgainstWindow(
   distanceWeight: number = 0.0,
   exclusionFlank: number = 0
 ): number {
-  const readUp = toStr(read).toUpperCase();
-  const refUp = toStr(refWindow).toUpperCase();
+  let readUp = toStr(read).toUpperCase();
+  let refUp = toStr(refWindow).toUpperCase();
   if (!readUp || !refUp) return 0.0;
 
-  const cutSitePos = cutIndexInWindow >= 0 ? cutIndexInWindow : Math.floor(refUp.length / 2);
+  // Terminal X padding denotes bases outside read coverage. Remove the same
+  // coordinates from the reference so unobserved bases neither help nor hurt
+  // assignment. Real substitutions and indels remain in the alignment.
+  let adjustedCutIndex = cutIndexInWindow;
+  if (readUp.length === refUp.length) {
+    const leadingX = readUp.match(/^X+/)?.[0].length || 0;
+    const trailingX = readUp.match(/X+$/)?.[0].length || 0;
+    const end = Math.max(leadingX, readUp.length - trailingX);
+    readUp = readUp.slice(leadingX, end);
+    refUp = refUp.slice(leadingX, end);
+    if (adjustedCutIndex >= 0) adjustedCutIndex -= leadingX;
+  }
+
+  const cutSitePos = adjustedCutIndex >= 0 ? adjustedCutIndex : Math.floor(refUp.length / 2);
   const maxDist = Math.max(cutSitePos, refUp.length - cutSitePos, 1);
 
   const segments = readUp.split(/X+/).filter(Boolean);
@@ -607,6 +749,73 @@ export function scoreReadAgainstWindow(
   return Math.min(1.0, bestScore);
 }
 
+interface DiagnosticEvidenceScore {
+  score: number;
+  observed: number;
+  total: number;
+}
+
+/**
+ * Score only coordinates that distinguish members of one homoeolog group.
+ * X/missing bases contribute no evidence (rather than a mismatch), while an
+ * observed match contributes +1 and an observed mismatch -1. Normalizing by
+ * all diagnostic coordinates prevents a candidate from gaining confidence by
+ * clipping away the positions that would disprove it.
+ */
+function scoreDiagnosticEvidence(
+  readWindow: string,
+  refWindow: string,
+  peerWindows: string[],
+  cutIndex: number,
+  exclusionFlank: number,
+): DiagnosticEvidenceScore {
+  const readUp = readWindow.toUpperCase();
+  const refUp = refWindow.toUpperCase();
+  const comparablePeers = peerWindows.map(peer => peer.toUpperCase()).filter(peer => peer.length === refUp.length);
+  const diagnosticKey = `${refUp}|${comparablePeers.join('|')}|${cutIndex}|${exclusionFlank}`;
+  let diagnosticPositions = diagnosticPositionsCache.get(diagnosticKey);
+  if (!diagnosticPositions) {
+    diagnosticPositions = [];
+    for (let pos = 0; pos < refUp.length; pos++) {
+      if (exclusionFlank > 0 && Math.abs(pos - cutIndex) <= exclusionFlank) continue;
+      if (comparablePeers.some(peer => peer[pos] !== refUp[pos])) diagnosticPositions.push(pos);
+    }
+    diagnosticPositionsCache.set(diagnosticKey, diagnosticPositions);
+  }
+  if (!diagnosticPositions.length) return { score: 0, observed: 0, total: 0 };
+
+  const observedByReference = new Map<number, string>();
+  if (readUp.length === refUp.length) {
+    for (let pos = 0; pos < refUp.length; pos++) {
+      if (readUp[pos] !== 'X' && readUp[pos] !== 'N') observedByReference.set(pos, readUp[pos]);
+    }
+  } else {
+    const matcher = new SequenceMatcher(null, readUp, refUp);
+    for (const [tag, i1, i2, j1, j2] of matcher.getOpcodes()) {
+      if (tag !== 'equal' && tag !== 'replace') continue;
+      const shared = Math.min(i2 - i1, j2 - j1);
+      for (let offset = 0; offset < shared; offset++) {
+        const base = readUp[i1 + offset];
+        if (base !== 'X' && base !== 'N') observedByReference.set(j1 + offset, base);
+      }
+    }
+  }
+
+  let support = 0;
+  let observed = 0;
+  for (const pos of diagnosticPositions) {
+    const base = observedByReference.get(pos);
+    if (!base) continue;
+    observed++;
+    support += base === refUp[pos] ? 1 : -1;
+  }
+  return {
+    score: (support / diagnosticPositions.length + 1) / 2,
+    observed,
+    total: diagnosticPositions.length,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Classification
 // ─────────────────────────────────────────────────────────────────────────────
@@ -617,6 +826,7 @@ export interface ClassInfo {
   ref_window: string;
   sgrna_seq?: string;
   cut_index_in_window?: number;
+  homoeolog_group?: string;
 }
 
 export interface ClassificationResult {
@@ -748,6 +958,7 @@ export function applyGeneClassification(
     const targets = geneClasses[geneName];
     let bestScore = -1.0;
     let bestTarget: string | null = null;
+    let bestDiagnostic: DiagnosticEvidenceScore | null = null;
     let geneUsable = false;
     let usableCount = 0;
 
@@ -761,10 +972,30 @@ export function applyGeneClassification(
         anyUsable = true;
         usableCount++;
         const targetSeq = res?.read_window || readSeq;
-        const score = scoreReadAgainstWindow(targetSeq, t.ref_window, t.cut_index_in_window ?? -1, cutSiteDistanceWeight, cutSiteExclusionFlank);
+        const baseScore = scoreReadAgainstWindow(targetSeq, t.ref_window, t.cut_index_in_window ?? -1, cutSiteDistanceWeight, cutSiteExclusionFlank);
+        const peerWindows = t.homoeolog_group
+          ? Object.values(geneClasses).flat().filter(peer =>
+              peer.gene !== t.gene &&
+              peer.target === t.target &&
+              peer.homoeolog_group === t.homoeolog_group
+            ).map(peer => peer.ref_window)
+          : [];
+        const diagnostic = scoreDiagnosticEvidence(
+          targetSeq,
+          t.ref_window,
+          peerWindows,
+          t.cut_index_in_window ?? Math.floor(t.ref_window.length / 2),
+          cutSiteExclusionFlank,
+        );
+        // In homoeolog mode, diagnostic bases carry the assignment decision;
+        // whole-window similarity remains a small deterministic tie-breaker.
+        const score = diagnostic.total > 0
+          ? diagnostic.score * 0.999 + baseScore * 0.001
+          : baseScore;
         if (score > bestScore) {
           bestScore = score;
           bestTarget = t.target;
+          bestDiagnostic = diagnostic.total > 0 ? diagnostic : null;
         }
       }
     }
@@ -774,6 +1005,8 @@ export function applyGeneClassification(
       best_target: bestTarget,
       usable: usableCount,
       total: targets.length,
+      diagnostic_observed: bestDiagnostic?.observed ?? null,
+      diagnostic_total: bestDiagnostic?.total ?? null,
     };
 
     if (geneUsable) geneScores.push([bestScore, geneName]);
