@@ -88,7 +88,6 @@ export function assignReadsToReferences(
       geneClasses[geneName].push({
         target: t.target_id,
         gene: geneName,
-        homoeolog_group: g.homoeolog_group,
         ref_window: refWin,
         sgrna_seq: t.sgrna_seq,
         cut_index_in_window: cutIdx,

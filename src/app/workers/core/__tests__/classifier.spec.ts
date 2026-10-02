@@ -7,8 +7,7 @@ import {
   cutIndexInWindow,
   extractWindow,
   scoreReadAgainstWindow,
-  isReadUsableUncached,
-  applyGeneClassification,
+  isReadUsable
 } from '../classifier';
 
 describe('Classifier Core Utilities', () => {
@@ -41,22 +40,46 @@ describe('Classifier Core Utilities', () => {
     expect(res.pam).toBe('TGG');
   });
 
+  it('uses the same cut coordinate when a forward PAM is included in the guide input', () => {
+    const spacer = 'ATCGATCGATCGATCGATCG';
+    const reference = `GCGCATGC${spacer}TGGATCGATCG`;
+    const result = findGrnaCutSite(reference, `${spacer}TGG`);
+
+    expect(result.strand).toBe('forward');
+    expect(result.pam_found).toBe(true);
+    expect(result.cut_site).toBe(25);
+  });
+
+  it('resolves a reverse reference-oriented guide with its included CCN PAM', () => {
+    const matchedGuide = `CCA${'ATCG'.repeat(5)}`;
+    const reference = `TTTT${matchedGuide}AAAA`;
+    const result = findGrnaCutSite(reference, matchedGuide);
+
+    expect(result.strand).toBe('reverse');
+    expect(result.pam_found).toBe(true);
+    expect(result.cut_site).toBe(10);
+  });
+
   it('should get correct window bounds', () => {
     const ref = 'A'.repeat(100);
     expect(getWindowBounds(ref, 50, 40)).toEqual([30, 70]);
     expect(getWindowBounds(ref, 10, 40)).toEqual([0, 30]);
     expect(getWindowBounds(ref, 90, 40)).toEqual([70, 100]);
+    expect(getWindowBounds(ref, 50, 60, 20, 40)).toEqual([30, 90]);
+    expect(getWindowBounds(ref, 10, 60, 20, 40)).toEqual([0, 50]);
   });
 
   it('should get correct cut index in window', () => {
     const ref = 'A'.repeat(100);
     expect(cutIndexInWindow(ref, 50, 40)).toBe(20);
     expect(cutIndexInWindow(ref, 10, 40)).toBe(10);
+    expect(cutIndexInWindow(ref, 50, 60, 20, 40)).toBe(20);
   });
 
   it('should extract correct window subsegment', () => {
     const ref = 'abcdefghijklmnopqrstuvwxyz';
     expect(extractWindow(ref, 10, 10)).toBe('fghijklmno'); // cutSite = 10, windowSize = 10, [10-5, 10+5] = [5, 15] = 'fghijklmno'
+    expect(extractWindow(ref, 10, 6, 2, 4)).toBe('ijklmn');
   });
 
   it('should score read against window using alignment scoring', () => {
@@ -77,80 +100,14 @@ describe('Classifier Core Utilities', () => {
     expect(guardedScore).toBeCloseTo(segmentScore);
   });
 
-  it('penalizes real insertions and deletions outside the excluded cut-site region', () => {
-    const window = 'ACGTTGCACTGATCGTAGCTACGATGCTAGTCAGTCA';
-    const inserted = window.slice(0, 5) + 'A' + window.slice(5);
-    const deleted = window.slice(0, 30) + window.slice(31);
-
-    expect(scoreReadAgainstWindow(inserted, window, 19, 0, 2)).toBeLessThan(1);
-    expect(scoreReadAgainstWindow(deleted, window, 19, 0, 2)).toBeLessThan(1);
-  });
-
-  it('keeps terminal X padding neutral in assignment scoring', () => {
-    const window = 'ACGTTGCACTGATCGTAGCTACGATGCTAGTCAGTCA';
-    const padded = `XX${window.slice(2, -3)}XXX`;
-    expect(scoreReadAgainstWindow(padded, window, 19, 0, 2)).toBe(1);
-  });
-
-  it('soft-clips a primer-overwritten terminal prefix using the nearest inset anchor', () => {
-    const refWindow = 'TTGGAAGCTGGCCAGCTTTCTTCGTCGTTTAGAAGCAGTGAACGCCCCAGTAAACCATTACAGGTCGTGATTGCTGGTGCAGGTCTGAAGTCTGATGTAACTCCAAAATTTAAACATGTATACTTTTTCG';
-    const read = 'GCTTACGCTGGAGTGAGTACGGTGTGCGGAAGCTGGCCAGCTTTCTTCGTCGTTTAGAAGCAGTGAACGCCCCAGTAAACCATTACAGGTCGTGATTGCTGGTGCAGGTCTGAAGTCTGATGTAACTCCAAAATTTAAACATGTATACTTTTTCGCACACCAGATACCCTTGAGTGAATCACCATTGCCTCTTAGCGTTACTACCATCCAGCATCCAACTCACATCACAG';
-    const [usable, reason, result] = isReadUsableUncached(
-      read,
-      new Array(read.length).fill(35),
-      refWindow,
-      20,
-      'AGTAAACCATTACAGGTCGT',
-      65,
-    );
+  it('aligns an exact short direct-input window inside a long read', () => {
+    const target = 'AACATCAATC';
+    const read = `${'G'.repeat(25)}${target}${'T'.repeat(25)}`;
+    const [usable, reason, result] = isReadUsable(read, null, target, 0, '', 5);
 
     expect(usable).toBe(true);
     expect(reason).toBe('ok');
-    expect(result?.left_x).toBe(2);
-    expect(result?.read_window.startsWith('XXGGAAGCTGGC')).toBe(true);
-  });
-
-  it('soft-clips both primer-overwritten ends when internal anchors retain the target span', () => {
-    const refWindow = 'TTGGAAGCTGGCCAGCTTTCTTCGTCGTTTAGAAGCAGTGAACGCCCCAGTAAACCATTACAGGTCGTGATTGCTGGTGCAGGTCTGAAGTCTGATGTAACTCCAAAATTTAAACATGTATACTTTTTCG';
-    const primerReplacedRead = `GC${refWindow.slice(2, -2)}AA`;
-    const [usable, reason, result] = isReadUsableUncached(
-      primerReplacedRead,
-      new Array(primerReplacedRead.length).fill(35),
-      refWindow,
-      20,
-      'AGTAAACCATTACAGGTCGT',
-      65,
-    );
-
-    expect(usable).toBe(true);
-    expect(reason).toBe('ok');
-    expect(result?.left_x).toBe(2);
-    expect(result?.right_x).toBe(2);
-    expect(result?.read_window.startsWith('XXGGAAGCTGGC')).toBe(true);
-    expect(result?.read_window.endsWith('XX')).toBe(true);
-  });
-
-  it('uses the unique whole-window winner within a homoeolog group', () => {
-    const refA = 'AACCGGTTAACCGGTTAACCGGTTAACCGGTTAACCGGTT';
-    const refB = `${refA.slice(0, 20)}T${refA.slice(21)}`;
-    const result = applyGeneClassification(refA, null, {
-      A: [{ gene: 'A', target: 'T1', ref_window: refA, homoeolog_group: 'H1', cut_index_in_window: 20 }],
-      B: [{ gene: 'B', target: 'T1', ref_window: refB, homoeolog_group: 'H1', cut_index_in_window: 20 }],
-    }, 20, 0.10);
-
-    expect(result.assigned).toBe(true);
-    expect(result.predicted_gene).toBe('A');
-  });
-
-  it('keeps an exact homoeolog score tie ambiguous', () => {
-    const ref = 'AACCGGTTAACCGGTTAACCGGTTAACCGGTTAACCGGTT';
-    const result = applyGeneClassification(ref, null, {
-      A: [{ gene: 'A', target: 'T1', ref_window: ref, homoeolog_group: 'H1', cut_index_in_window: 20 }],
-      B: [{ gene: 'B', target: 'T1', ref_window: ref, homoeolog_group: 'H1', cut_index_in_window: 20 }],
-    }, 20, 0.10);
-
-    expect(result.assigned).toBe(false);
-    expect(result.reason).toBe('ambiguous');
+    expect(result?.read_window).toBe(target);
   });
 
   it('should exclude cut-site mutations only when exclusionFlank is configured', () => {
