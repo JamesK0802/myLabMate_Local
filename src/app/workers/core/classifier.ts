@@ -323,9 +323,9 @@ function alignReadToWindow(
 
   // Adaptive clipping is preferred with at least one true terminal anchor.
   // If both PCR primers overwrite genomic ends, two inset anchors are also
-  // accepted when they retain a substantial internal span. Final homoeolog
-  // assignment then relies on observed diagnostic bases, so a primer sequence
-  // cannot make only the coincidentally matching reference eligible.
+  // accepted when they retain a substantial internal span. The 10 bp inset cap
+  // limits how much terminal evidence can be discarded before whole-window
+  // similarity scoring.
   if (!bestLeftHit || !bestRightHit) for (const leftHit of leftHits) {
     for (const rightHit of rightHits) {
       const hasTerminalEvidence = leftHit.ref_pos === 0 || rightHit.ref_pos === winLen - ANCHOR_LEN;
