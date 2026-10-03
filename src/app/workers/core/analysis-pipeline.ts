@@ -289,11 +289,15 @@ function runAnalysisOnReads(
       let groupKey = readWindow.toUpperCase();
       let groupTokens = readTokens;
       if (leftX > 0 || rightX > 0 || groupKey.includes('X')) {
-        let imputed = '';
+        let cleanObs = groupKey;
+        if (cleanObs.startsWith('X')) cleanObs = cleanObs.replace(/^X+/, '');
+        if (cleanObs.endsWith('X')) cleanObs = cleanObs.replace(/X+$/, '');
         const refUpper = refWindow.toUpperCase();
-        for (let pos = 0; pos < groupKey.length; pos++) {
-          imputed += groupKey[pos] === 'X' ? (refUpper[pos] || '') : groupKey[pos];
-        }
+        const effLeftX = leftX > 0 ? leftX : (groupKey.match(/^X+/)?.[0].length || 0);
+        const effRightX = rightX > 0 ? rightX : (groupKey.match(/X+$/)?.[0].length || 0);
+        const leftFill = effLeftX > 0 ? refUpper.substring(0, Math.min(effLeftX, refUpper.length)) : '';
+        const rightFill = effRightX > 0 ? refUpper.substring(Math.max(0, refUpper.length - effRightX)) : '';
+        const imputed = leftFill + cleanObs + rightFill;
         groupKey = imputed;
         groupTokens = alignReadToRef(refUpper, imputed);
       }

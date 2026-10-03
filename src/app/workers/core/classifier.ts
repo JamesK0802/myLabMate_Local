@@ -323,11 +323,40 @@ function alignReadToWindow(
   } else if (leftPositions.length > 0) {
     // CASE B: Left anchor found, right truncated
     const bestLeft = leftPositions.reduce((best, x) => Math.abs(x - offset) < Math.abs(best - offset) ? x : best);
-    observedRead = seq.substring(bestLeft).toUpperCase();
-    leftX = 0;
-    rightX = Math.max(0, bestLeft + winLen - seq.length);
-    readWindow = observedRead + 'X'.repeat(rightX);
-    qualObserved = qual ? qual.slice(bestLeft) : null;
+    const candidateObs = seq.substring(bestLeft).toUpperCase();
+    if (bestLeft + winLen > seq.length) {
+      // Right truncated by end of read / X-gap
+      const matcher = new SequenceMatcher(null, refUp, candidateObs);
+      const blocks = matcher.getMatchingBlocks();
+      let lastRefEnd = 0;
+      let lastObsEnd = 0;
+      for (const b of blocks) {
+        if (b[2] > 0) {
+          lastRefEnd = b[0] + b[2];
+          lastObsEnd = b[1] + b[2];
+        }
+      }
+
+      if (lastRefEnd >= winLen) {
+        observedRead = candidateObs.substring(0, lastObsEnd);
+        leftX = 0;
+        rightX = 0;
+        readWindow = observedRead;
+        qualObserved = qual ? qual.slice(bestLeft, bestLeft + lastObsEnd) : null;
+      } else {
+        observedRead = candidateObs.substring(0, lastObsEnd);
+        leftX = 0;
+        rightX = Math.max(0, winLen - lastRefEnd);
+        readWindow = observedRead + 'X'.repeat(rightX);
+        qualObserved = qual ? qual.slice(bestLeft, bestLeft + lastObsEnd) : null;
+      }
+    } else {
+      observedRead = seq.substring(bestLeft, Math.min(seq.length, bestLeft + winLen)).toUpperCase();
+      leftX = 0;
+      rightX = 0;
+      readWindow = observedRead;
+      qualObserved = qual ? qual.slice(bestLeft, bestLeft + winLen) : null;
+    }
 
   } else if (rightPositions.length > 0) {
     // CASE C: Right anchor found, left truncated
@@ -336,12 +365,40 @@ function alignReadToWindow(
     );
     const endPos = bestRight + anchorLen;
     const winStart = bestRight - (winLen - anchorLen);
-    const actualStart = Math.max(0, winStart);
-    observedRead = seq.substring(actualStart, endPos).toUpperCase();
-    leftX = Math.max(0, -winStart);
-    rightX = 0;
-    readWindow = 'X'.repeat(leftX) + observedRead;
-    qualObserved = qual ? qual.slice(actualStart, endPos) : null;
+    if (winStart < 0) {
+      // Left truncated by start of read
+      const candidateObs = seq.substring(0, endPos).toUpperCase();
+      const matcher = new SequenceMatcher(null, refUp, candidateObs);
+      const blocks = matcher.getMatchingBlocks();
+      let firstRefStart = winLen;
+      let firstObsStart = candidateObs.length;
+      for (const b of blocks) {
+        if (b[2] > 0) {
+          firstRefStart = Math.min(firstRefStart, b[0]);
+          firstObsStart = Math.min(firstObsStart, b[1]);
+        }
+      }
+
+      if (firstRefStart <= 0) {
+        observedRead = candidateObs.substring(firstObsStart);
+        leftX = 0;
+        rightX = 0;
+        readWindow = observedRead;
+        qualObserved = qual ? qual.slice(firstObsStart, endPos) : null;
+      } else {
+        observedRead = candidateObs.substring(firstObsStart);
+        leftX = Math.max(0, firstRefStart);
+        rightX = 0;
+        readWindow = 'X'.repeat(leftX) + observedRead;
+        qualObserved = qual ? qual.slice(firstObsStart, endPos) : null;
+      }
+    } else {
+      observedRead = seq.substring(winStart, endPos).toUpperCase();
+      leftX = 0;
+      rightX = 0;
+      readWindow = observedRead;
+      qualObserved = qual ? qual.slice(winStart, endPos) : null;
+    }
 
   } else {
     // CASE D: No anchors found — offset-based extraction

@@ -162,4 +162,41 @@ describe('Analysis Pipeline End-to-End', () => {
     expect(target.top_groups.length).toBeGreaterThan(10);
     expect(target.top_groups.length).toBe(15);
   });
+
+  it('merges unmerged Illumina reads with X-padding across variable truncation cycles into WT group 1 without fake indels', () => {
+    const ref = 'GTGCTTACATGGCTCCTTCTCTGGACACCAGACAGGACATCGTGGTGGTCGAAGTCCCTAAGCTAGGCAAAGAAGCGGCAGTGAAGGCCATCAAGGAGTGGGGCCAGCCCAAGTCAAAGATCACTCATGTCGTCTTCTGCACTACCTCCGGCGTCGACATGCCTGGTGCTGACTACCAGCTCACCAAGCTTCTTGGTCTCCGTCCTTCCGTCAAGCGTCTCATGATGTACCAGCAAGGTTGCTTCGCCGGCGGTACTGTCCTCCGTATCGCTAAGGATCTCGCCGAGAACAATCGTGGAGCACGTGTCCTCGTTGTCTGCTCTGAGATCACAGCCGTTACCTTCCGTGGTCCCTCTGACACCCACCTTGACTCCCTCGTCGGTCAGGCTCTTTTCAGTGATGGCGCCGCCGCACTCATTGTGGGGTCGGACCCTGACACATCTGTCGGAGAGAAACCCATCTTTGA';
+    const genesPayload: GenePayload[] = [
+      {
+        gene: 'TT4',
+        sequence: ref,
+        targets: [{ target_id: 'sgRNA-TT4', sgrna_seq: 'CGTCTCATGATGTACCAGCA', window_size: 120 }]
+      }
+    ];
+
+    // Simulate 3 WT reads ending at different cycles before 120-X padding
+    const r1_wt_1 = ref.substring(0, 277) + 'X'.repeat(120) + ref.substring(300); // ends at AAGGAT
+    const r1_wt_2 = ref.substring(0, 280) + 'X'.repeat(120) + ref.substring(300); // ends at AAGGATCTC
+    const r1_wt_3 = ref.substring(0, 290) + 'X'.repeat(120) + ref.substring(300); // ends at AAGGATCTCGCCGAGAACA
+
+    const reads: FastqRead[] = [
+      { seq: r1_wt_1, qual: new Array(r1_wt_1.length).fill(40) },
+      { seq: r1_wt_2, qual: new Array(r1_wt_2.length).fill(40) },
+      { seq: r1_wt_3, qual: new Array(r1_wt_3.length).fill(40) },
+    ];
+
+    const fileResult = processFile('unmerged.fastq', reads, genesPayload, {
+      phredThreshold: 10,
+      indelThreshold: 0,
+      marginThreshold: 0.05,
+      windowSize: 120
+    });
+
+    const target = fileResult.multi_reference_result.genes[0].analysis_result.targets[0];
+    expect(target.summary.aligned_reads).toBe(3);
+    expect(target.breakdown.no_indel).toBe(3);
+    expect(target.top_groups).toHaveLength(1);
+    expect(target.top_groups[0].classification).toBe('No indel');
+    expect(target.top_groups[0].read_count).toBe(3);
+    expect(target.top_groups[0].tokens.every(t => t.type === 'equal')).toBe(true);
+  });
 });

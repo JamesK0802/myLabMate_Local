@@ -39,7 +39,7 @@ export function classifyMutationWithAlignment(
   // impute the unobserved flanks from the reference sequence so alignment treats them as WT,
   // preventing artificial terminal insertions or deletions.
   let targetRead = readSeq;
-  if (leftX > 0 || rightX > 0) {
+  if (leftX > 0 || rightX > 0 || readSeq.startsWith('X') || readSeq.endsWith('X')) {
     let cleanObserved = readSeq;
     if (cleanObserved.startsWith('X')) {
       cleanObserved = cleanObserved.replace(/^X+/, '');
@@ -47,8 +47,10 @@ export function classifyMutationWithAlignment(
     if (cleanObserved.endsWith('X')) {
       cleanObserved = cleanObserved.replace(/X+$/, '');
     }
-    const leftFill = leftX > 0 ? refSeq.substring(0, Math.min(leftX, refSeq.length)) : '';
-    const rightFill = rightX > 0 ? refSeq.substring(Math.max(0, refSeq.length - rightX)) : '';
+    const effLeftX = leftX > 0 ? leftX : (readSeq.match(/^X+/)?.[0].length || 0);
+    const effRightX = rightX > 0 ? rightX : (readSeq.match(/X+$/)?.[0].length || 0);
+    const leftFill = effLeftX > 0 ? refSeq.substring(0, Math.min(effLeftX, refSeq.length)) : '';
+    const rightFill = effRightX > 0 ? refSeq.substring(Math.max(0, refSeq.length - effRightX)) : '';
     targetRead = leftFill + cleanObserved + rightFill;
   }
 
