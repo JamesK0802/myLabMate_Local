@@ -214,14 +214,6 @@ function findOffset(seqUp: string, refUp: string, sgrnaSeq: string): number | nu
   const ri2 = seqUp.indexOf(rightAnchor);
   if (ri2 !== -1) return ri2 - (refUp.length - ANCHOR_LEN);
 
-  // Slow fallback only after all exact seeds fail. A terminal anchor may
-  // contain primer-derived substitutions or a short indel. Recover its
-  // coordinate with an edit-distance alignment, capped at four errors.
-  const approxLeft = findApproximateAnchor(seqUp, leftAnchor);
-  if (approxLeft !== null) return approxLeft;
-  const approxRight = findApproximateAnchor(seqUp, rightAnchor);
-  if (approxRight !== null) return approxRight - (refUp.length - ANCHOR_LEN);
-
   return null;
 }
 
@@ -241,26 +233,6 @@ function editDistance(a: string, b: string, maxErrors: number = MAX_ANCHOR_ERROR
     previous = current;
   }
   return previous[b.length];
-}
-
-function findApproximateAnchor(seqUp: string, refAnchor: string): number | null {
-  if (!refAnchor || refAnchor.includes('N') || refAnchor.includes('X')) return null;
-  const minLength = Math.max(1, refAnchor.length - MAX_ANCHOR_ERRORS);
-  const maxLength = refAnchor.length + MAX_ANCHOR_ERRORS;
-  let bestPosition = -1;
-  let bestErrors = MAX_ANCHOR_ERRORS + 1;
-  for (let start = 0; start <= seqUp.length - minLength; start++) {
-    const longest = Math.min(maxLength, seqUp.length - start);
-    for (let length = minLength; length <= longest; length++) {
-      const errors = editDistance(refAnchor, seqUp.substring(start, start + length), MAX_ANCHOR_ERRORS);
-      if (errors < bestErrors) {
-        bestErrors = errors;
-        bestPosition = start;
-        if (errors === 0) return bestPosition;
-      }
-    }
-  }
-  return bestErrors <= MAX_ANCHOR_ERRORS ? bestPosition : null;
 }
 
 interface AlignResult {
