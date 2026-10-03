@@ -842,38 +842,7 @@ export function applyGeneClassification(
 ): ClassificationResult {
   const geneNames = Object.keys(geneClasses);
 
-  // Single-gene shortcut
-  if (geneNames.length === 1) {
-    const geneName = geneNames[0];
-    for (const t of geneClasses[geneName]) {
-      const [usable] = isReadUsable(
-        readSeq, readQual, t.ref_window, phredThreshold,
-        t.sgrna_seq || '', t.cut_index_in_window ?? -1
-      );
-      if (usable) {
-        return {
-          assigned: true,
-          predicted_gene: geneName,
-          top1_score: 1.0,
-          debug: {
-            gene_scores: { [geneName]: { best_score: 1.0, best_target: t.target, usable: 1, total: geneClasses[geneName].length } },
-            best_gene: geneName, second_gene: null, gap: null, margin,
-            outcome: 'assigned_single_gene',
-          },
-        };
-      }
-    }
-    return {
-      assigned: false, reason: 'filtered',
-      debug: {
-        gene_scores: { [geneName]: { best_score: null, best_target: null, usable: 0, total: geneClasses[geneName].length } },
-        best_gene: null, second_gene: null, gap: null, margin,
-        outcome: 'filtered_no_usable_window',
-      },
-    };
-  }
-
-  // Multi-gene: score each gene by its best target window
+  // Unified gene-level classification: score each gene candidate by its best target window
   const geneScores: Array<[number, string]> = [];
   const geneDebug: Record<string, any> = {};
   let anyUsable = false;
