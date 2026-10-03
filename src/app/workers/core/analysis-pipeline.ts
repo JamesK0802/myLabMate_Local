@@ -280,7 +280,7 @@ function runAnalysisOnReads(
 
       // Classify
       const { category, has_sub: hasSub, net_indel: netIndel, tokens: readTokens } =
-        classifyMutationWithAlignment(refWindow.toUpperCase(), observedRead.toUpperCase(), leftX, rightX);
+        classifyMutationWithAlignment(refWindow.toUpperCase(), readWindow.toUpperCase(), leftX, rightX);
 
       counts[category]++;
       if (hasSub) counts['substitution']++;

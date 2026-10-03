@@ -27,6 +27,28 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
   startX = 0;
   scrollLeft = 0;
 
+  visibleGroupCount = 10;
+
+  get visibleTopGroups(): MutationGroup[] {
+    const all = this.state.selectedTarget?.top_groups || [];
+    return all.slice(0, this.visibleGroupCount);
+  }
+
+  get hasMoreGroups(): boolean {
+    const all = this.state.selectedTarget?.top_groups || [];
+    return all.length > this.visibleGroupCount;
+  }
+
+  get remainingGroupCount(): number {
+    const all = this.state.selectedTarget?.top_groups || [];
+    return Math.max(0, all.length - this.visibleGroupCount);
+  }
+
+  loadMoreGroups(): void {
+    this.visibleGroupCount += 10;
+    this.cdr.detectChanges();
+  }
+
   get annotationCutSiteIndex(): number | null {
     return resolveAnnotationCutSite(this.state.selectedTarget);
   }
@@ -239,7 +261,11 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
       if (!gene?.analysis_result?.targets?.length) return;
       const targets = gene.analysis_result.targets;
       const idx = Math.min(this.state.selectedRowIndex, targets.length - 1);
+      const previousTargetId = this.state.selectedTarget?.target_id;
       this.state.selectedTarget = targets[idx];
+      if (previousTargetId !== this.state.selectedTarget?.target_id) {
+        this.visibleGroupCount = 10;
+      }
 
       if (!this.state.selectedTarget) {
         this.cdr.detectChanges();
