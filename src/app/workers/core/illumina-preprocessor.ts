@@ -21,7 +21,8 @@ export interface IlluminaPreprocessOptions {
 }
 
 export const DEFAULT_ILLUMINA_MIN_OVERLAP_BASES = 10;
-export const DEFAULT_ILLUMINA_MIN_OVERLAP_IDENTITY = 0.90;
+export const DEFAULT_ILLUMINA_MIN_OVERLAP_IDENTITY = 0.80;
+export const DEFAULT_ILLUMINA_MAX_OVERLAP_DIFFERENCES = 5;
 
 interface TargetContext {
   key: string;
@@ -213,10 +214,73 @@ export interface IlluminaPairNormalization {
   overlapIdentity: number;
 }
 
+interface IlluminaOverlap {
+  offset: number;
+  overlapBases: number;
+  comparableBases: number;
+  differences: number;
+}
+
+function findIlluminaOverlap(
+  aSeq: string,
+  bSeq: string,
+  minimumOverlap: number,
+  minimumIdentity: number,
+): IlluminaOverlap | null {
+  const evaluate = (offset: number): IlluminaOverlap | null => {
+    const aStart = Math.max(0, offset);
+    const bStart = Math.max(0, -offset);
+    const overlapBases = Math.min(aSeq.length - aStart, bSeq.length - bStart);
+    if (overlapBases < minimumOverlap) return null;
+
+    let comparableBases = 0;
+    let differences = 0;
+    let protectedComparableBases = 0;
+    let protectedDifferences = 0;
+    const protectedLength = Math.min(overlapBases, 50);
+    for (let i = 0; i < overlapBases; i++) {
+      const a = aSeq[aStart + i];
+      const b = bSeq[bStart + i];
+      if (a === 'X' || b === 'X') continue;
+      comparableBases++;
+      if (i < protectedLength) protectedComparableBases++;
+      if (a !== b) {
+        differences++;
+        if (i < protectedLength) protectedDifferences++;
+      }
+    }
+    if (comparableBases < minimumOverlap) return null;
+
+    // fastp rejects candidates from a protected leading comparison (up to
+    // 50 bp), then uses the full overlap for reporting/consensus. Keeping that
+    // bounded gate is important for long amplicons containing genuine indels:
+    // they must not make an otherwise unique mate overlap disappear.
+    const percentDifferenceLimit = Math.floor(protectedComparableBases * (1 - minimumIdentity) + 1e-9);
+    const allowedDifferences = Math.min(DEFAULT_ILLUMINA_MAX_OVERLAP_DIFFERENCES, percentDifferenceLimit);
+    return protectedDifferences <= allowedDifferences
+      ? { offset, overlapBases, comparableBases, differences }
+      : null;
+  };
+
+  // fastp searches the ordinary orientation first (R2rc shifted right), from
+  // maximum to minimum overlap, then the reverse orientation. The latter is
+  // essential when a short insert leaves sequenced primer/adapter overhangs.
+  for (let offset = 0; offset <= aSeq.length - minimumOverlap; offset++) {
+    const overlap = evaluate(offset);
+    if (overlap) return overlap;
+  }
+  for (let offset = -1; offset >= -(bSeq.length - minimumOverlap); offset--) {
+    const overlap = evaluate(offset);
+    if (overlap) return overlap;
+  }
+  return null;
+}
+
 /**
  * Normalize a pair without reference or target information. R2 must already be
- * reverse-complemented. The longest suffix(R1)-prefix(R2rc) overlap satisfying
- * both thresholds is collapsed; otherwise the mates remain separated by X.
+ * reverse-complemented. Both overlap orientations are inspected using the same
+ * absolute and proportional mismatch limits as fastp; otherwise the mates stay
+ * separated by X for CasMANGO's non-overlap workflow.
  */
 export function normalizeIlluminaPairByOverlap(
   r1: FastqRead,
@@ -227,44 +291,39 @@ export function normalizeIlluminaPairByOverlap(
 ): IlluminaPairNormalization {
   const aSeq = r1.seq.toUpperCase();
   const bSeq = r2rc.seq.toUpperCase();
-  const maximumOverlap = Math.min(aSeq.length, bSeq.length);
   const minimumOverlap = Math.max(1, Math.floor(minOverlapBases));
+  const overlap = findIlluminaOverlap(aSeq, bSeq, minimumOverlap, minOverlapIdentity);
 
-  for (let overlap = maximumOverlap; overlap >= minimumOverlap; overlap--) {
-    const aStart = aSeq.length - overlap;
-    let comparable = 0;
-    let matches = 0;
-    for (let offset = 0; offset < overlap; offset++) {
-      const a = aSeq[aStart + offset];
-      const b = bSeq[offset];
-      if (a === 'X' || b === 'X' || a === 'N' || b === 'N') continue;
-      comparable++;
-      if (a === b) matches++;
-    }
-    const identity = comparable > 0 ? matches / comparable : 0;
-    if (comparable < minimumOverlap || identity < minOverlapIdentity) continue;
-
+  if (overlap) {
+    const aStart = Math.max(0, overlap.offset);
+    const bStart = Math.max(0, -overlap.offset);
     const sequence = aSeq.slice(0, aStart).split('');
     const quality = Array.from(r1.qual).slice(0, aStart);
-    for (let offset = 0; offset < overlap; offset++) {
-      const ai = aStart + offset;
+    for (let i = 0; i < overlap.overlapBases; i++) {
+      const ai = aStart + i;
+      const bi = bStart + i;
       const qa = r1.qual[ai] ?? 0;
-      const qb = r2rc.qual[offset] ?? 0;
-      if (aSeq[ai] === bSeq[offset] || qa >= qb) {
+      const qb = r2rc.qual[bi] ?? 0;
+      if (aSeq[ai] === bSeq[bi] || qa >= qb) {
         sequence.push(aSeq[ai]);
         quality.push(Math.max(qa, qb));
       } else {
-        sequence.push(bSeq[offset]);
+        sequence.push(bSeq[bi]);
         quality.push(qb);
       }
     }
-    sequence.push(...bSeq.slice(overlap).split(''));
-    quality.push(...Array.from(r2rc.qual).slice(overlap));
+    if (overlap.offset >= 0) {
+      const bEnd = bStart + overlap.overlapBases;
+      sequence.push(...bSeq.slice(bEnd).split(''));
+      quality.push(...Array.from(r2rc.qual).slice(bEnd));
+    }
     return {
       read: { id: r1.id || r2rc.id, seq: sequence.join(''), qual: quality },
       merged: true,
-      overlapBases: overlap,
-      overlapIdentity: identity,
+      overlapBases: overlap.overlapBases,
+      overlapIdentity: overlap.comparableBases > 0
+        ? (overlap.comparableBases - overlap.differences) / overlap.comparableBases
+        : 0,
     };
   }
 

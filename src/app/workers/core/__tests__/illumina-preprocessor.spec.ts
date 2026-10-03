@@ -137,16 +137,55 @@ describe('Illumina paired-end preprocessing', () => {
     expect(Array.from(normalized.read.qual).slice(8, 16)).toEqual(new Array(8).fill(38));
   });
 
+  it('merges the reverse overlap orientation and trims primer overhangs', () => {
+    const normalized = normalizeIlluminaPairByOverlap(
+      read('AAAACCCCGGGGTTTTADAPTER', 35, 'overhang/1'),
+      read('PRIMERAAAACCCCGGGGTTTT', 35, 'overhang/2'),
+      windowSize,
+      12,
+      0.8,
+    );
+    expect(normalized.merged).toBe(true);
+    expect(normalized.overlapBases).toBe(16);
+    expect(normalized.read.seq).toBe('AAAACCCCGGGGTTTT');
+  });
+
+  it('uses both fastp-style absolute and proportional mismatch limits', () => {
+    const accepted = normalizeIlluminaPairByOverlap(
+      read(`TTTT${'A'.repeat(25)}`, 35, 'errors/1'),
+      read(`${'A'.repeat(20)}CCCCC`, 35, 'errors/2'),
+      windowSize,
+      20,
+      0.8,
+    );
+    expect(accepted.merged).toBe(true);
+    expect(accepted.overlapIdentity).toBeGreaterThanOrEqual(0.8);
+
+    const template = 'ACGTTGCATGTCAGTACCGATGCTAGCTAC';
+    const changed = template.split('');
+    for (const index of [2, 7, 12, 17, 22, 27]) {
+      changed[index] = changed[index] === 'A' ? 'C' : 'A';
+    }
+    const rejected = normalizeIlluminaPairByOverlap(
+      read(template, 35, 'too-many/1'),
+      read(changed.join(''), 35, 'too-many/2'),
+      windowSize,
+      30,
+      0.8,
+    );
+    expect(rejected.merged).toBe(false);
+  });
+
   it('uses an X guard when mate overlap is shorter than the minimum', () => {
     const normalized = normalizeIlluminaPairByOverlap(
       read('AAAACCCCGGGG', 35, 'guard/1'),
-      read('TTTTAAAACCCC', 35, 'guard/2'),
+      read('TTAATTAATTAA', 35, 'guard/2'),
       6,
       8,
       0.9,
     );
     expect(normalized.merged).toBe(false);
-    expect(normalized.read.seq).toBe('AAAACCCCGGGGXXXXXXTTTTAAAACCCC');
+    expect(normalized.read.seq).toBe('AAAACCCCGGGGXXXXXXTTAATTAATTAA');
     expect(Array.from(normalized.read.qual).slice(12, 18)).toEqual(new Array(6).fill(0));
   });
 

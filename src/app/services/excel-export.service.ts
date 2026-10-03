@@ -9,6 +9,7 @@ export interface ExportParams {
   assignmentMargin: number; rescueThreshold: number; cutSiteDistanceWeight?: number; cutSiteExclusionFlank?: number;
   customWindowEnabled?: boolean; customWindowLeft?: number; customWindowRight?: number;
   homoeologMode?: boolean;
+  sequencingPlatform?: 'nanopore' | 'illumina';
   analyzeAmbiguous: boolean; rescueAmbiguous: boolean;
   dataType: string; fileCount: number;
 }
