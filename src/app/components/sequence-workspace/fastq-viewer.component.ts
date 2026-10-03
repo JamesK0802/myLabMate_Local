@@ -1,4 +1,4 @@
-import { Component, Input, OnInit, OnChanges, SimpleChanges, ViewChild, ElementRef, AfterViewInit, OnDestroy } from '@angular/core';
+import { Component, Input, OnInit, OnChanges, SimpleChanges, ViewChild, ElementRef, AfterViewInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { FastqDocument } from '../../models/sequence.model';
@@ -901,7 +901,10 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit, O
   private loadSentinelRef?: ElementRef<HTMLElement>;
   private loadObserver?: IntersectionObserver;
 
-  constructor(private sequenceWorkspaceService: SequenceWorkspaceService) {}
+  constructor(
+    private sequenceWorkspaceService: SequenceWorkspaceService,
+    private changeDetectorRef: ChangeDetectorRef
+  ) {}
 
   ngOnInit() {
     this.sequenceWorkspaceService.pendingAutoAlign$.subscribe(pending => {
@@ -1327,9 +1330,14 @@ export class FastqViewerComponent implements OnInit, OnChanges, AfterViewInit, O
   private requestMoreReads() {
     if (this.isLoadingMore || !this.hasMore) return;
     this.isLoadingMore = true;
+    this.changeDetectorRef.markForCheck();
     window.setTimeout(() => {
       this.loadMore();
       this.isLoadingMore = false;
+      // IntersectionObserver and timer callbacks can complete without an
+      // Angular UI event. Explicitly schedule a render so the next chunk and
+      // the cleared loading state appear immediately.
+      this.changeDetectorRef.markForCheck();
       this.observeLoadSentinel();
     }, 80);
   }
