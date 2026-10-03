@@ -1189,18 +1189,26 @@ export class AppStateService {
   isExportingFastq = false;
   exportStatus$ = new BehaviorSubject<{ active: boolean; percent: number; stage: string; title: string } | null>(null);
 
+  get hasFastqExportSources(): boolean {
+    return this.fastqExportSources().length > 0;
+  }
+
+  private fastqExportSources(): Array<File | IlluminaFilePair> {
+    const sources: Array<File | IlluminaFilePair> = this.lastRunParams?.sequencingPlatform === 'illumina'
+      ? this.illuminaPairs.filter(pair => pair.r1 || pair.r2)
+      : this.selectedFiles;
+    if (this.selectedScopeIndex === -1) return sources;
+    const selected = sources[this.selectedScopeIndex];
+    return selected ? [selected] : [];
+  }
+
   async downloadGroupFastq(group: any) {
-    if (!this.selectedTarget || !this.selectedFiles.length) return;
+    if (!this.selectedTarget || !this.hasFastqExportSources) return;
     this.isExportingFastq = true;
     this.exportStatus$.next({ active: true, percent: 10, stage: 'Reading FASTQ file...', title: `Exporting Group ${group.group_rank} FASTQ` });
 
     try {
-      let filesToProcess: File[] = [];
-      if (this.selectedScopeIndex === -1) {
-        filesToProcess = this.selectedFiles;
-      } else {
-        filesToProcess = [this.selectedFiles[this.selectedScopeIndex]];
-      }
+      const filesToProcess = this.fastqExportSources();
 
       const blobs: Blob[] = [];
       const target = this.selectedTarget;
@@ -1249,17 +1257,12 @@ export class AppStateService {
   }
 
   async downloadAllTargetFastq(target: any) {
-    if (!target || !this.selectedFiles.length) return;
+    if (!target || !this.hasFastqExportSources) return;
     this.isExportingFastq = true;
     this.exportStatus$.next({ active: true, percent: 10, stage: 'Reading FASTQ file...', title: `Exporting All Reads (${target.target_id})` });
 
     try {
-      let filesToProcess: File[] = [];
-      if (this.selectedScopeIndex === -1) {
-        filesToProcess = this.selectedFiles;
-      } else {
-        filesToProcess = [this.selectedFiles[this.selectedScopeIndex]];
-      }
+      const filesToProcess = this.fastqExportSources();
 
       const blobs: Blob[] = [];
       const params = this.lastRunParams || { phredThreshold: 10 };
@@ -1303,18 +1306,13 @@ export class AppStateService {
   }
 
   async openGroupInSequenceWorkspace(group: any, target: any) {
-    if (!target || !group || !this.selectedFiles.length) return;
+    if (!target || !group || !this.hasFastqExportSources) return;
     this.isExportingFastq = true;
     this.exportStatus$.next({ active: true, percent: 10, stage: 'Preparing Sequence Workspace...', title: `Opening Group ${group.group_rank} in Workspace` });
     this.switchMainTab('workspace');
 
     try {
-      let filesToProcess: File[] = [];
-      if (this.selectedScopeIndex === -1) {
-        filesToProcess = this.selectedFiles;
-      } else {
-        filesToProcess = [this.selectedFiles[this.selectedScopeIndex]];
-      }
+      const filesToProcess = this.fastqExportSources();
 
       const blobs: Blob[] = [];
       const readInner = group.read_inner;
@@ -1366,18 +1364,13 @@ export class AppStateService {
   }
 
   async openAllTargetInSequenceWorkspace(target: any) {
-    if (!target || !this.selectedFiles.length) return;
+    if (!target || !this.hasFastqExportSources) return;
     this.isExportingFastq = true;
     this.exportStatus$.next({ active: true, percent: 10, stage: 'Preparing Sequence Workspace...', title: `Opening All Reads (${target.target_id}) in Workspace` });
     this.switchMainTab('workspace');
 
     try {
-      let filesToProcess: File[] = [];
-      if (this.selectedScopeIndex === -1) {
-        filesToProcess = this.selectedFiles;
-      } else {
-        filesToProcess = [this.selectedFiles[this.selectedScopeIndex]];
-      }
+      const filesToProcess = this.fastqExportSources();
 
       const blobs: Blob[] = [];
       const params = this.lastRunParams || { phredThreshold: 10 };

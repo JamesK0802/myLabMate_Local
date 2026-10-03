@@ -167,7 +167,7 @@ export class LocalAnalysisService {
    * Start local export of group fastq.
    */
   exportGroupFastq(
-    file: File,
+    source: File | IlluminaFilePair,
     target: any,
     readInner: string,
     params: any
@@ -214,9 +214,16 @@ export class LocalAnalysisService {
       this.terminate();
     };
 
+    const isFile = typeof File !== 'undefined' && source instanceof File;
     this.worker.postMessage({
       type: 'export-group-fastq',
-      payload: { file, target, readInner, params }
+      payload: {
+        file: isFile ? source : null,
+        illuminaPair: isFile ? null : source,
+        target,
+        readInner,
+        params,
+      }
     });
 
     return subject.asObservable();

@@ -353,7 +353,7 @@
       </div>
 
       <!-- All Target Reads Actions (Download & Open in Workspace) - Only in Analysis Mode -->
-      <div class="target-all-actions-bar" *ngIf="state.activeMode !== 'viewer' && state.selectedFiles && state.selectedFiles.length > 0" style="display: flex; gap: 8px; margin-left: 8px;">
+      <div class="target-all-actions-bar" *ngIf="state.activeMode !== 'viewer' && state.hasFastqExportSources" style="display: flex; gap: 8px; margin-left: 8px;">
         <button 
           type="button"
           (click)="state.downloadAllTargetFastq(state.selectedTarget)"
