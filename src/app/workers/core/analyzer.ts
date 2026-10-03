@@ -35,9 +35,26 @@ export function classifyMutationWithAlignment(
   leftX: number = 0,
   rightX: number = 0
 ): MutationResult {
-  const tokens = alignReadToRefXaware(refSeq, readSeq, leftX, rightX);
+  // If the read has unobserved terminal positions (X-padding from Illumina truncation),
+  // impute the unobserved flanks from the reference sequence so alignment treats them as WT,
+  // preventing artificial terminal insertions or deletions.
+  let targetRead = readSeq;
+  if (leftX > 0 || rightX > 0) {
+    let cleanObserved = readSeq;
+    if (cleanObserved.startsWith('X')) {
+      cleanObserved = cleanObserved.replace(/^X+/, '');
+    }
+    if (cleanObserved.endsWith('X')) {
+      cleanObserved = cleanObserved.replace(/X+$/, '');
+    }
+    const leftFill = leftX > 0 ? refSeq.substring(0, Math.min(leftX, refSeq.length)) : '';
+    const rightFill = rightX > 0 ? refSeq.substring(Math.max(0, refSeq.length - rightX)) : '';
+    targetRead = leftFill + cleanObserved + rightFill;
+  }
 
-  // Count only biological (non-unobserved) operations
+  const tokens = alignReadToRef(refSeq, targetRead);
+
+  // Count only biological operations
   let insLen = 0, delLen = 0, subCount = 0;
   for (const t of tokens) {
     if (t.type === 'insert') insLen += t.val.length;

@@ -118,10 +118,24 @@ export function selectIlluminaConsensusEvidence(
 
 export interface IlluminaPreprocessStats {
   inputMolecules: number;
+  phredPassedMolecules: number;
   normalizedMolecules: number;
   filteredMolecules: number;
   consensusMolecules: number;
   paddedMolecules: number;
+}
+
+function pairMeanQualityPasses(reads: Array<FastqRead | null | undefined>, threshold: number): boolean {
+  let total = 0;
+  let observed = 0;
+  for (const read of reads) {
+    if (!read) continue;
+    for (const quality of read.qual) {
+      total += quality;
+      observed++;
+    }
+  }
+  return observed === 0 || total / observed >= threshold;
 }
 
 export interface IlluminaPreprocessResult {
@@ -432,6 +446,7 @@ export function preprocessIlluminaReads(
   const inputCount = Math.max(r1Reads?.length || 0, r2Reads?.length || 0);
   const stats: IlluminaPreprocessStats = {
     inputMolecules: inputCount,
+    phredPassedMolecules: 0,
     normalizedMolecules: 0,
     filteredMolecules: 0,
     consensusMolecules: 0,
@@ -451,10 +466,12 @@ export function preprocessIlluminaReads(
   if (!r1Reads && !r2Reads) return { reads: [], stats, diagnostics };
   if (!r1Reads) {
     const reads = (r2Reads || []).map(reverseComplementRead);
+    stats.phredPassedMolecules = reads.filter(read => pairMeanQualityPasses([read], options.phredThreshold)).length;
     stats.normalizedMolecules = reads.length;
     return { reads, stats, diagnostics };
   }
   if (!r2Reads) {
+    stats.phredPassedMolecules = r1Reads.filter(read => pairMeanQualityPasses([read], options.phredThreshold)).length;
     stats.normalizedMolecules = r1Reads.length;
     return { reads: r1Reads.map(read => ({ ...read, qual: [...read.qual] })), stats, diagnostics };
   }
@@ -468,6 +485,7 @@ export function preprocessIlluminaReads(
     const r1 = r1Reads[i];
     const r2rc = reverseComplementRead(r2Reads[i]);
     validatePair(r1, r2Reads[i], i);
+    if (pairMeanQualityPasses([r1, r2Reads[i]], options.phredThreshold)) stats.phredPassedMolecules++;
 
     const normalized = normalizeIlluminaPairByOverlap(
       r1,

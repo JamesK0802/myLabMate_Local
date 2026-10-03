@@ -85,7 +85,6 @@ function finalizeTargetResult(target: any): void {
   summary.indel_editing_efficiency = pct(summary.modified);
   target.top_groups = (target.top_groups || [])
     .sort((a: any, b: any) => b.read_count - a.read_count)
-    .slice(0, 10)
     .map((group: any, index: number) => ({
       ...group,
       group_rank: index + 1,
@@ -240,7 +239,13 @@ addEventListener('message', async (event: MessageEvent) => {
             fileProgress: { ...fileProgress },
           });
 
-          allResults.push(processFile(pair.name, normalized.reads, inputGenes, params));
+          const result = processFile(pair.name, normalized.reads, inputGenes, params);
+          // Raw/phred counts describe input molecules, not the window-dependent
+          // normalized subset that is handed to the downstream classifier.
+          const debug = result.multi_reference_result.debug;
+          debug.total_reads_parsed = normalized.stats.inputMolecules;
+          debug.phred_passed_count = normalized.stats.phredPassedMolecules;
+          allResults.push(result);
           fileProgress[pair.name] = 100;
           postMessage({
             type: 'progress',

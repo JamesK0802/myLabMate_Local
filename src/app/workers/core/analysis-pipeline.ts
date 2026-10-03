@@ -20,7 +20,7 @@ import {
   clearClassifierCache,
   ClassInfo,
 } from './classifier';
-import { classifyMutationWithAlignment, AlignmentToken } from './analyzer';
+import { classifyMutationWithAlignment, alignReadToRef, AlignmentToken } from './analyzer';
 import { assignReadsToReferences, GenePayload, DemuxResult } from './multi-reference-assigner';
 import { FastqRead, QualityScores } from './fastq-parser';
 import { SequencingPlatform } from '../../models/illumina.model';
@@ -285,8 +285,20 @@ function runAnalysisOnReads(
       counts[category]++;
       if (hasSub) counts['substitution']++;
 
-      // Grouping for Annotation View
-      const key = readWindow.toUpperCase();
+      // Grouping for Annotation View (treat X as WT sequence so all lengths merge into 1 group)
+      let groupKey = readWindow.toUpperCase();
+      let groupTokens = readTokens;
+      if (leftX > 0 || rightX > 0 || groupKey.includes('X')) {
+        let imputed = '';
+        const refUpper = refWindow.toUpperCase();
+        for (let pos = 0; pos < groupKey.length; pos++) {
+          imputed += groupKey[pos] === 'X' ? (refUpper[pos] || '') : groupKey[pos];
+        }
+        groupKey = imputed;
+        groupTokens = alignReadToRef(refUpper, imputed);
+      }
+
+      const key = groupKey;
       if (!groupsDict[key]) {
         groupsDict[key] = {
           read_inner: key,
@@ -294,7 +306,7 @@ function runAnalysisOnReads(
           classification: category,
           net_indel: netIndel,
           has_sub: hasSub,
-          tokens: readTokens,
+          tokens: groupTokens,
         };
       }
       groupsDict[key].read_count++;
@@ -348,10 +360,9 @@ function runAnalysisOnReads(
 
     const pct = (val: number) => newAligned > 0 ? Math.round((val / newAligned) * 10000) / 100 : 0.0;
 
-    // Step 5b: Top Groups
+    // Step 5b: Top Groups (all groups displayed)
     const sortedGroups = Object.values(passedGroupsDict)
-      .sort((a, b) => b.read_count - a.read_count)
-      .slice(0, 10);
+      .sort((a, b) => b.read_count - a.read_count);
 
     const topGroups: TopGroup[] = sortedGroups.map((g, idx) => {
       let displayClass: string;

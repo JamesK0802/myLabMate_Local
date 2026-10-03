@@ -59,6 +59,15 @@ describe('Illumina paired-end preprocessing', () => {
     expect(buildIlluminaPseudoReads(null, [read('AACCGG')], 10)[0].seq).toBe(reverseComplement('AACCGG'));
   });
 
+  it('reports input and phred-passed molecules independently of window normalization', () => {
+    const result = preprocess(
+      [read(targetWindow, 35, 'good/1'), read(targetWindow, 5, 'bad/1')],
+      [read(reverseComplement(targetWindow), 35, 'good/2'), read(reverseComplement(targetWindow), 5, 'bad/2')],
+    );
+    expect(result.stats.inputMolecules).toBe(2);
+    expect(result.stats.phredPassedMolecules).toBe(1);
+  });
+
   it('attaches the dominant validated reference/window for Sequence Viewer auto-alignment', () => {
     const pseudo = buildIlluminaPseudoReads(
       [read(targetWindow, 35, 'pair/1')],
