@@ -110,6 +110,52 @@ describe('Classifier Core Utilities', () => {
     expect(result?.read_window).toBe(target);
   });
 
+  it('accepts up to four alignment errors in a 15 bp terminal anchor', () => {
+    const left = 'ACGTTGCACTGATCG';
+    const guide = 'GATTACAGTCGATCGTACGA';
+    const right = 'TGCATGACCTAGTCA';
+    const reference = `${left}${'CCGTA'.repeat(4)}${guide}${'AGTCC'.repeat(4)}${right}`;
+    const cutIndex = left.length + 20 + 10;
+    const mutatePrefix = (count: number) => reference
+      .split('')
+      .map((base, index) => index < count ? (base === 'A' ? 'C' : 'A') : base)
+      .join('');
+    const fourErrors = mutatePrefix(4);
+    const fiveErrors = mutatePrefix(5);
+
+    expect(isReadUsable(fourErrors, null, reference, 0, guide, cutIndex)[0]).toBe(true);
+    const [usable, reason] = isReadUsable(fiveErrors, null, reference, 0, guide, cutIndex);
+    expect(usable).toBe(false);
+    expect(reason).toBe('no_anchor');
+  });
+
+  it('counts a terminal deletion as one anchor error', () => {
+    const left = 'ACGTTGCACTGATCG';
+    const guide = 'GATTACAGTCGATCGTACGA';
+    const right = 'TGCATGACCTAGTCA';
+    const reference = `${left}${'CCGTA'.repeat(4)}${guide}${'AGTCC'.repeat(4)}${right}`;
+    const cutIndex = left.length + 20 + 10;
+    const oneBaseDeletion = `${reference[0]}${reference.substring(2)}`;
+
+    const [usable, reason] = isReadUsable(oneBaseDeletion, null, reference, 0, guide, cutIndex);
+    expect(usable).toBe(true);
+    expect(reason).toBe('ok');
+  });
+
+  it('keeps terminal X padding unobserved instead of counting it as an anchor error', () => {
+    const left = 'ACGTTGCACTGATCG';
+    const guide = 'GATTACAGTCGATCGTACGA';
+    const right = 'TGCATGACCTAGTCA';
+    const reference = `${left}${'CCGTA'.repeat(4)}${guide}${'AGTCC'.repeat(4)}${right}`;
+    const cutIndex = left.length + 20 + 10;
+    const leftTruncated = reference.substring(8);
+
+    const [usable, reason, result] = isReadUsable(leftTruncated, null, reference, 0, guide, cutIndex);
+    expect(usable).toBe(true);
+    expect(reason).toBe('ok');
+    expect(result?.left_x).toBe(8);
+  });
+
   it('should exclude cut-site mutations only when exclusionFlank is configured', () => {
     const window = 'ATCGGCTAAGCTTGCCGAATCGCCTAGGCTA';
     // Read has a mutation right at cut site (index 16)
