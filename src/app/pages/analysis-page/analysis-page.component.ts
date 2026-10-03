@@ -1,6 +1,6 @@
 import { Component, ChangeDetectorRef, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ReactiveFormsModule, FormsModule } from '@angular/forms';
+import { AbstractControl, ReactiveFormsModule, FormsModule } from '@angular/forms';
 import { AppStateService, AnalysisTab } from '../../services/app-state.service';
 import { ResultDashboardComponent } from '../../components/result-dashboard/result-dashboard.component';
 import ExcelJS from 'exceljs';
@@ -25,6 +25,9 @@ import {
 } from '../../models/illumina.model';
 
 export interface ExtractedWindowItem {
+  /** Stable FormArray position used internally; names may be edited or duplicated. */
+  geneIndex: number;
+  targetIndex: number;
   geneName: string;
   targetId: string;
   sequence: string;
@@ -107,6 +110,7 @@ export interface HomoeologOverview {
 
 export interface HomoeologInputGroup {
   name: string;
+  references: Array<{ index: number; control: AbstractControl }>;
   indices: number[];
   trackKey: object | string;
 }
@@ -172,6 +176,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
   private resultsUpdateSub?: Subscription;
   private windowCheckFormSub?: Subscription;
   private windowCheckTimer?: ReturnType<typeof setTimeout>;
+  private windowCheckRevision = 0;
   private homoeologAnchorByGroup = new Map<string, number>();
   draggedReferenceIndex: number | null = null;
   dragOverHomoeolog = '';
@@ -213,23 +218,32 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
   }
 
   get homoeologInputGroups(): HomoeologInputGroup[] {
-    const groups = new Map<string, number[]>();
+    const groups = new Map<string, Array<{ index: number; control: AbstractControl }>>();
     this.state.geneBlocks.controls.forEach((control, index) => {
       const entered = String(control.get('homoeolog_group')?.value || '').trim();
       const name = entered || `Homoeolog ${index + 1}`;
-      const indices = groups.get(name) || [];
-      indices.push(index);
-      groups.set(name, indices);
+      const references = groups.get(name) || [];
+      references.push({ index, control });
+      groups.set(name, references);
     });
-    return [...groups.entries()].map(([name, indices]) => ({
+    return [...groups.entries()].map(([name, references]) => ({
       name,
-      indices,
-      trackKey: indices.length ? this.state.geneBlocks.at(indices[0]) : name
+      references,
+      indices: references.map(reference => reference.index),
+      trackKey: references.length ? references[0].control : name
     }));
   }
 
   trackHomoeologGroup(_index: number, group: HomoeologInputGroup): object | string {
     return group.trackKey;
+  }
+
+  trackControl(_index: number, control: AbstractControl): AbstractControl {
+    return control;
+  }
+
+  trackHomoeologReference(_index: number, reference: { index: number; control: AbstractControl }): AbstractControl {
+    return reference.control;
   }
 
   addHomoeolog(): void {
@@ -502,6 +516,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
 
   recalculateWindowCheck() {
     if (this.windowCheckTimer) clearTimeout(this.windowCheckTimer);
+    const revision = ++this.windowCheckRevision;
     this.isCalculatingWindowCheck = true;
     this.cdr.detectChanges();
 
@@ -561,6 +576,8 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
             const targetWidthPercent = (grnaStart >= 0 && refLength > 0) ? (grnaLength / refLength) * 100 : 0;
 
             extracted.push({
+              geneIndex: gi,
+              targetIndex: ti,
               geneName,
               targetId,
               sequence: winSeq,
@@ -583,6 +600,10 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
           });
         });
 
+        // A delete/reorder can trigger a newer form update while a previous
+        // calculation is queued. Only let the current FormArray snapshot
+        // update the cards, matrix, and homoeolog lanes together.
+        if (revision !== this.windowCheckRevision) return;
         this.extractedWindows = extracted;
         const n = extracted.length;
         const matrix: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
@@ -606,7 +627,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
       } catch (err) {
         console.error('Error calculating window check matrix:', err);
       } finally {
-        this.isCalculatingWindowCheck = false;
+        if (revision === this.windowCheckRevision) this.isCalculatingWindowCheck = false;
         this.cdr.detectChanges();
       }
     }, 20);
@@ -661,8 +682,8 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
             }))
           : [];
         const markers = targetIds.map((targetId, rowIndex) => {
-          const item = windows.find(window => window.geneName === ref.geneName && window.targetId === targetId);
-          const anchorItem = windows.find(window => window.geneName === anchor.geneName && window.targetId === targetId);
+          const item = windows.find(window => window.geneIndex === ref.geneIndex && window.targetId === targetId);
+          const anchorItem = windows.find(window => window.geneIndex === anchor.geneIndex && window.targetId === targetId);
           if (!item || item.cutSiteIndex < 0 || !aligned) {
             return {
               targetId, rowIndex, exact: false, mismatches: item?.guideMatch?.mismatches ?? 0,

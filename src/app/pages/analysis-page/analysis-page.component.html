@@ -519,7 +519,7 @@
         </div>
         <div formArrayName="genes">
           <ng-container *ngIf="!homoeologMode">
-            <div *ngFor="let gene of state.geneBlocks.controls; let gi = index" [formGroupName]="gi"
+            <div *ngFor="let gene of state.geneBlocks.controls; let gi = index; trackBy: trackControl" [formGroupName]="gi"
               class="gene-block-card">
               <div class="gene-block-header">
                 <div class="gene-block-title"><span>Gene {{ gi + 1 }}</span></div>
@@ -544,7 +544,7 @@
                     <button type="button" class="btn-add-small" (click)="state.addGeneTarget(gi)">Add Target</button>
                   </div>
                   <div formArrayName="geneTargets">
-                    <div *ngFor="let gt of state.getGeneTargets(gi).controls; let ti = index" [formGroupName]="ti"
+                    <div *ngFor="let gt of state.getGeneTargets(gi).controls; let ti = index; trackBy: trackControl" [formGroupName]="ti"
                        class="gene-target-row">
                       <span class="gene-target-num">T{{ ti + 1 }}</span>
                       <div class="form-group" style="flex:0 0 180px;">
@@ -574,24 +574,24 @@
                   aria-label="Homoeolog name" />
                 <button type="button" class="btn-add-small" (click)="addReferenceToHomoeolog(group.indices)">+ Reference</button>
               </div>
-              <div class="homoeolog-ref-row" *ngFor="let gi of group.indices; let ri = index" [formGroupName]="gi">
+              <div class="homoeolog-ref-row" *ngFor="let reference of group.references; let ri = index; trackBy: trackHomoeologReference" [formGroupName]="reference.index">
                 <div class="homoeolog-ref-main">
                   <span class="homoeolog-drag-handle"
-                    (pointerdown)="startReferencePointerDrag($event, gi)"
+                    (pointerdown)="startReferencePointerDrag($event, reference.index)"
                     (pointercancel)="endReferenceDrag()" title="Move reference">⠿</span>
                   <span class="homoeolog-ref-label">Ref {{ ri + 1 }}</span>
                   <input type="text" formControlName="gene_name" [placeholder]="'Reference ' + (ri + 1)" aria-label="Reference name" />
                   <textarea formControlName="gene_reference" rows="1" class="monospaced homoeolog-ref-sequence" placeholder="Reference sequence" aria-label="Reference sequence"></textarea>
-                  <button type="button" class="homoeolog-remove-ref" (click)="state.removeGene(gi)" *ngIf="state.geneBlocks.length > 1" aria-label="Remove reference">&times;</button>
+                  <button type="button" class="homoeolog-remove-ref" (click)="state.removeGene(reference.index)" *ngIf="state.geneBlocks.length > 1" aria-label="Remove reference">&times;</button>
                 </div>
                 <div class="homoeolog-targets" formArrayName="geneTargets">
-                  <div class="homoeolog-target-row" *ngFor="let gt of state.getGeneTargets(gi).controls; let ti = index" [formGroupName]="ti">
+                  <div class="homoeolog-target-row" *ngFor="let gt of state.getGeneTargets(reference.index).controls; let ti = index; trackBy: trackControl" [formGroupName]="ti">
                     <span>T{{ ti + 1 }}</span>
                     <input type="text" formControlName="target_id" placeholder="Target" aria-label="Target name" />
                     <input type="text" formControlName="gRNA" placeholder="gRNA sequence" aria-label="gRNA sequence" class="monospaced" />
-                    <button type="button" (click)="state.removeGeneTarget(gi, ti)" *ngIf="state.getGeneTargets(gi).length > 1" aria-label="Remove target">&times;</button>
+                    <button type="button" (click)="state.removeGeneTarget(reference.index, ti)" *ngIf="state.getGeneTargets(reference.index).length > 1" aria-label="Remove target">&times;</button>
                   </div>
-                  <button type="button" class="btn-add-small homoeolog-add-target" (click)="state.addGeneTarget(gi)">+ Target</button>
+                  <button type="button" class="btn-add-small homoeolog-add-target" (click)="state.addGeneTarget(reference.index)">+ Target</button>
                 </div>
               </div>
             </div>

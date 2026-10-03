@@ -486,6 +486,7 @@ export class AppStateService {
         }));
         const geneGroup = this.fb.group({
           gene_name: [name],
+          homoeolog_group: [''],
           gene_reference: [val.seq, Validators.required],
           geneTargets: this.fb.array(targetGroups)
         });
