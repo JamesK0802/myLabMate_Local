@@ -337,7 +337,6 @@
       </div>
     </div>
   </div>
-</div>
 
 <!-- ══════════════ ANNOTATION PANEL ══════════════ -->
 <div class="annotation-panel"
@@ -610,207 +609,124 @@
     </div>
   </div>
 </div>
+</div>
 
   <div class="homoeolog-result-view" *ngIf="resultView === 'homoeolog' && hasHomoeologResults">
-    <!-- Filter Bar: Group / Target / Mutation Mode -->
-    <div class="homo-filter-row">
-      <div class="homo-chip-set" *ngIf="homoeologGroupIds.length > 1">
-        <button type="button" *ngFor="let group of homoeologGroupIds"
-          [class.active]="activeHomoeologGroup === group" (click)="selectHomoeologGroup(group)">{{ group }}</button>
-      </div>
-
+    <!-- Target Selector (Only if multiple targets exist) -->
+    <div class="homo-filter-row" *ngIf="homoeologTargetIds.length > 1">
       <div class="homo-chip-set targets">
         <button type="button" *ngFor="let target of homoeologTargetIds"
           [class.active]="activeHomoeologTarget === target" (click)="selectHomoeologTarget(target)">{{ target }}</button>
       </div>
+    </div>
 
-      <!-- Mutation Evaluation Mode -->
-      <div class="homo-chip-set mode-filter">
-        <button type="button" [class.active]="homoeologMutationFilter === 'all'" (click)="setHomoeologMutationFilter('all')" title="All Indel / Total Editing">
-          전체 편집 (All)
-        </button>
-        <button type="button" [class.active]="homoeologMutationFilter === 'oof'" (click)="setHomoeologMutationFilter('oof')" title="Out-of-Frame Functional Knockout">
-          기능 상실 (OOF)
-        </button>
-        <button type="button" [class.active]="homoeologMutationFilter === 'inframe'" (click)="setHomoeologMutationFilter('inframe')" title="In-Frame Mutations">
-          인프레임 (IF)
-        </button>
-        <button type="button" [class.active]="homoeologMutationFilter === 'sub'" (click)="setHomoeologMutationFilter('sub')" title="Substitution Mutations">
-          치환 (Sub)
-        </button>
+    <!-- Overview Metrics Grid -->
+    <div class="metrics-grid homo-metrics-grid">
+      <div class="metric-card">
+        <span class="m-label">References</span>
+        <span class="m-value">{{ homoeologGenes.length }}</span>
+      </div>
+      <div class="metric-card">
+        <span class="m-label">Aligned Reads</span>
+        <span class="m-value">{{ homoeologAssignedReads | number }}</span>
+      </div>
+      <div class="metric-card">
+        <span class="m-label">Mean Editing</span>
+        <span class="m-value">{{ homoeologMeanEditing | number:'1.1-2' }}%</span>
+      </div>
+      <div class="metric-card out-of-frame">
+        <span class="m-label">Concomitant Edit</span>
+        <span class="m-value">{{ homoeologCoEditStats.pBoth | number:'1.1-2' }}%</span>
+      </div>
+      <div class="metric-card in-frame">
+        <span class="m-label">Single Homoeolog</span>
+        <span class="m-value">{{ homoeologCoEditStats.pSingle | number:'1.1-2' }}%</span>
+      </div>
+      <div class="metric-card sub">
+        <span class="m-label">Parity Index</span>
+        <span class="m-value">{{ homoeologCoEditStats.parityScore | number:'1.1-2' }}%</span>
       </div>
     </div>
 
-    <!-- Overview Metrics -->
-    <div class="homo-metrics">
-      <div><span>Refs</span><strong>{{ homoeologGenes.length }}</strong></div>
-      <div><span>Aligned Reads</span><strong>{{ homoeologAssignedReads | number }}</strong></div>
-      <div><span>Mean Rate</span><strong>{{ homoeologMeanEditing | number:'1.1-1' }}%</strong></div>
-      <div><span>Spread (Δ)</span><strong>{{ homoeologEditingSpread | number:'1.1-1' }}%</strong></div>
+    <!-- Charts Section -->
+    <div class="charts-section homo-charts-section">
+      <div class="chart-card"><canvas id="homoeologEditingChart"></canvas></div>
+      <div class="chart-card"><canvas id="homoeologCoverageChart"></canvas></div>
+      <div class="chart-card donut"><canvas id="homoeologCoEditChart"></canvas></div>
     </div>
 
-    <!-- Co-editing / Concomitant Analysis KPI Row -->
-    <div class="homo-coedit-kpi-grid">
-      <div class="homo-kpi-card highlight">
-        <div class="kpi-header">
-          <span class="kpi-title">동시 편집률 (Concomitant Edit)</span>
-          <span class="kpi-tag">All Edited</span>
-        </div>
-        <div class="kpi-val">{{ homoeologCoEditStats.pBoth | number:'1.1-1' }}%</div>
-        <div class="kpi-desc">모든 상동체(Homoeolog)가 동시에 변이될 확률</div>
-      </div>
-
-      <div class="homo-kpi-card">
-        <div class="kpi-header">
-          <span class="kpi-title">단일 상동체 편집 (Single Only)</span>
-          <span class="kpi-tag">Hemizygous</span>
-        </div>
-        <div class="kpi-val">{{ homoeologCoEditStats.pSingle | number:'1.1-1' }}%</div>
-        <div class="kpi-desc">하나의 상동체만 특이적으로 편집될 확률</div>
-      </div>
-
-      <div class="homo-kpi-card">
-        <div class="kpi-header">
-          <span class="kpi-title">최소 1개 편집 (At Least One)</span>
-          <span class="kpi-tag">≥1 Edited</span>
-        </div>
-        <div class="kpi-val">{{ homoeologCoEditStats.pAtLeastOne | number:'1.1-1' }}%</div>
-        <div class="kpi-desc">최소 1개 이상의 상동체에서 변이가 유발될 확률</div>
-      </div>
-
-      <div class="homo-kpi-card">
-        <div class="kpi-header">
-          <span class="kpi-title">상동체 균등 지수 (Parity Index)</span>
-          <span class="kpi-tag">{{ homoeologCoEditStats.biasDominant }} 우세</span>
-        </div>
-        <div class="kpi-val">{{ homoeologCoEditStats.parityScore | number:'1.1-1' }}%</div>
-        <div class="kpi-desc">상동체 간 편집 편향비: {{ homoeologCoEditStats.biasRatio | number:'1.2-2' }}x</div>
-      </div>
-    </div>
-
-    <!-- Joint Genotype Breakdown & Co-editing Donut Chart -->
-    <div class="homo-joint-section">
-      <div class="homo-joint-card">
-        <div class="joint-card-header">
-          <h3>상동체 조합별 유전자형 예측 분포 (Joint Genotype Distribution)</h3>
-          <span class="joint-badge">독립 유전형 모델 기반</span>
-        </div>
-
-        <div class="homo-genotype-bar" title="Joint genotype distribution">
-          <ng-container *ngFor="let item of homoeologCoEditStats.pairBreakdown">
-            <div class="bar-segment" [style.width.%]="item.pct" [style.background-color]="item.color" [title]="item.label + ': ' + (item.pct | number:'1.1-1') + '%'"></div>
-          </ng-container>
-        </div>
-
-        <div class="homo-genotype-legend">
-          <div class="legend-item" *ngFor="let item of homoeologCoEditStats.pairBreakdown">
-            <span class="legend-color-dot" [style.background-color]="item.color"></span>
-            <span class="legend-label">{{ item.label }}</span>
-            <strong class="legend-pct">{{ item.pct | number:'1.1-1' }}%</strong>
-          </div>
-        </div>
-      </div>
-
-      <div class="homo-chart-card donut-card">
-        <canvas id="homoeologCoEditChart"></canvas>
-      </div>
-    </div>
-
-    <!-- Charts Row: Rate Bar & Mutation Profile Stacked Bar -->
-    <div class="homo-chart-grid">
-      <div class="homo-chart-card"><canvas id="homoeologEditingChart"></canvas></div>
-      <div class="homo-chart-card"><canvas id="homoeologCoverageChart"></canvas></div>
-    </div>
-
-    <!-- Individual Homoeolog Reference Cards -->
-    <div class="homo-ref-grid">
-      <ng-container *ngFor="let gene of homoeologGenes">
-        <div class="homo-ref-card" *ngIf="homoeologTarget(gene, activeHomoeologTarget) as target">
-          <div class="homo-ref-head">
-            <strong>{{ gene.gene }}</strong>
-            <span>{{ target.summary?.aligned_reads | number }} reads</span>
-          </div>
-          <div class="homo-ref-edit">
-            <strong>{{ getHomoeologTargetRate(target) | number:'1.1-1' }}%</strong>
-            <span>{{ homoeologMutationFilter === 'oof' ? 'OOF' : (homoeologMutationFilter === 'inframe' ? 'IF' : (homoeologMutationFilter === 'sub' ? 'SUB' : 'EDIT')) }}</span>
-          </div>
-          <div class="homo-mini-profile" title="Unmodified · Substitution · In-frame · Out-of-frame">
-            <i class="unmod" [style.width.%]="(target.summary?.no_indel_pct ?? 0) - (target.summary?.substitution_pct ?? 0)"></i>
-            <i class="sub" [style.width.%]="target.summary?.substitution_pct ?? 0"></i>
-            <i class="inframe" [style.width.%]="target.summary?.in_frame_pct ?? 0"></i>
-            <i class="outframe" [style.width.%]="target.summary?.out_of_frame_pct ?? 0"></i>
-          </div>
-          <div class="homo-ref-values">
-            <span><i class="unmod"></i>Unmod <b>{{ ((target.summary?.no_indel_pct ?? 0) - (target.summary?.substitution_pct ?? 0)) | number:'1.1-1' }}%</b></span>
-            <span><i class="sub"></i>Sub <b>{{ target.summary?.substitution_pct ?? 0 | number:'1.1-1' }}%</b></span>
-            <span><i class="inframe"></i>IF <b>{{ target.summary?.in_frame_pct ?? 0 | number:'1.1-1' }}%</b></span>
-            <span><i class="outframe"></i>OOF <b>{{ target.summary?.out_of_frame_pct ?? 0 | number:'1.1-1' }}%</b></span>
-          </div>
-        </div>
-      </ng-container>
-    </div>
-
-    <!-- Shared vs Subgenome-Specific Allele Patterns -->
-    <div class="homo-alleles-card" *ngIf="homoeologSharedAlleles.length > 0">
-      <div class="alleles-header">
-        <h3>상동체 간 공통 수선 패턴 vs 특이적 대립유전자 (Shared vs Unique Alleles)</h3>
-        <span class="alleles-subtitle">NHEJ/MMEJ 수선 패턴이 상동체 간에 보존되는지 비교합니다</span>
-      </div>
-      <div class="homo-allele-table-wrapper">
-        <table class="homo-allele-table">
+    <!-- Comparison Summary Table -->
+    <div class="table-card">
+      <h3>Homoeolog Summary Table
+        <span class="table-gene-badge">{{ activeHomoeologTarget }}</span>
+      </h3>
+      <div class="table-responsive">
+        <table class="summary-table">
           <thead>
             <tr>
-              <th>수선 패턴 (Pattern)</th>
-              <th>Net Indel</th>
-              <th>분류</th>
-              <th>공통 여부</th>
-              <th *ngFor="let gene of homoeologGenes">{{ gene.gene }} (%)</th>
-              <th>평균 빈도</th>
+              <th>Reference</th>
+              <th>Total Reads</th>
+              <th>Aligned Reads</th>
+              <th>Total Editing</th>
+              <th>Out-of-Frame</th>
+              <th>In-Frame</th>
+              <th>Substitution</th>
+              <th>Unmodified</th>
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let allele of homoeologSharedAlleles">
-              <td class="font-mono"><strong>{{ allele.alleleKey }}</strong></td>
-              <td>
-                <span class="indel-badge" [class.ins]="allele.netIndel > 0" [class.del]="allele.netIndel < 0">
-                  {{ allele.netIndel > 0 ? '+' : '' }}{{ allele.netIndel }} bp
-                </span>
-              </td>
-              <td><span class="class-badge" [ngClass]="allele.classification">{{ allele.classification }}</span></td>
-              <td>
-                <span class="status-badge" [class.shared]="allele.isShared" [class.unique]="!allele.isShared">
-                  {{ allele.isShared ? '공통 (Shared)' : '특이적 (Unique)' }}
-                </span>
-              </td>
-              <td *ngFor="let freq of allele.homoeologFrequencies">
-                <span [class.active-freq]="freq.pct > 0">{{ freq.pct > 0 ? (freq.pct | number:'1.1-1') + '%' : '-' }}</span>
-              </td>
-              <td><strong>{{ allele.meanFrequency | number:'1.1-1' }}%</strong></td>
-            </tr>
+            <ng-container *ngFor="let gene of homoeologGenes">
+              <tr *ngIf="homoeologTarget(gene, activeHomoeologTarget) as target">
+                <td><strong>{{ gene.gene }}</strong></td>
+                <td>{{ target.summary?.total_reads ?? 0 | number }}</td>
+                <td>{{ target.summary?.aligned_reads ?? 0 | number }}</td>
+                <td><strong>{{ (target.summary?.editing_efficiency ?? target.summary?.indel_editing_efficiency ?? 0) | number:'1.1-2' }}%</strong></td>
+                <td><span class="highlight-oof">{{ target.summary?.out_of_frame_pct ?? 0 | number:'1.1-2' }}%</span></td>
+                <td>{{ target.summary?.in_frame_pct ?? 0 | number:'1.1-2' }}%</td>
+                <td>{{ target.summary?.substitution_pct ?? 0 | number:'1.1-2' }}%</td>
+                <td>{{ ((target.summary?.no_indel_pct ?? 0) - (target.summary?.substitution_pct ?? 0)) | number:'1.1-2' }}%</td>
+              </tr>
+            </ng-container>
           </tbody>
         </table>
       </div>
     </div>
 
-    <!-- Comparison Summary Table -->
-    <div class="homo-compare-card">
-      <table>
-        <thead><tr><th>Reference</th><th>Total</th><th>Aligned</th><th>Selected Rate</th><th>Total Edit</th><th>OOF</th><th>IF</th><th>Sub</th></tr></thead>
-        <tbody>
-          <ng-container *ngFor="let gene of homoeologGenes">
-            <tr *ngIf="homoeologTarget(gene, activeHomoeologTarget) as target">
-              <td><strong>{{ gene.gene }}</strong></td>
-              <td>{{ target.summary?.total_reads ?? 0 | number }}</td>
-              <td>{{ target.summary?.aligned_reads ?? 0 | number }}</td>
-              <td><strong class="highlight-rate">{{ getHomoeologTargetRate(target) | number:'1.1-1' }}%</strong></td>
-              <td>{{ (target.summary?.editing_efficiency ?? target.summary?.indel_editing_efficiency ?? 0) | number:'1.1-1' }}%</td>
-              <td>{{ target.summary?.out_of_frame_pct ?? 0 | number:'1.1-1' }}%</td>
-              <td>{{ target.summary?.in_frame_pct ?? 0 | number:'1.1-1' }}%</td>
-              <td>{{ target.summary?.substitution_pct ?? 0 | number:'1.1-1' }}%</td>
+    <!-- Shared vs Unique Repair Alleles -->
+    <div class="table-card" *ngIf="homoeologSharedAlleles.length > 0">
+      <h3>Shared & Subgenome-Specific Alleles
+        <span class="table-gene-badge">{{ activeHomoeologTarget }}</span>
+      </h3>
+      <div class="table-responsive">
+        <table class="summary-table">
+          <thead>
+            <tr>
+              <th>Repair Pattern</th>
+              <th>Net Indel</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th *ngFor="let gene of homoeologGenes">{{ gene.gene }}</th>
+              <th>Mean Freq</th>
             </tr>
-          </ng-container>
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            <tr *ngFor="let allele of homoeologSharedAlleles">
+              <td class="font-mono"><strong>{{ allele.alleleKey }}</strong></td>
+              <td>{{ allele.netIndel > 0 ? '+' : '' }}{{ allele.netIndel }} bp</td>
+              <td><span class="badge">{{ allele.classification }}</span></td>
+              <td>
+                <span class="badge" [style.background-color]="allele.isShared ? 'var(--color-success-bg)' : 'var(--color-surface-alt)'" [style.color]="allele.isShared ? 'var(--color-success)' : 'var(--color-text-secondary)'">
+                  {{ allele.isShared ? 'Shared' : 'Unique' }}
+                </span>
+              </td>
+              <td *ngFor="let freq of allele.homoeologFrequencies">
+                {{ freq.pct > 0 ? (freq.pct | number:'1.1-2') + '%' : '-' }}
+              </td>
+              <td><strong>{{ allele.meanFrequency | number:'1.1-2' }}%</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>

@@ -237,10 +237,10 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
       const biasDominant = rates[0].rate > rates[1].rate ? rates[0].name : (rates[1].rate > rates[0].rate ? rates[1].name : 'Equal');
 
       const pairBreakdown = [
-        { label: `Both Edited (${rates[0].name}+ / ${rates[1].name}+)`, pct: pBoth, color: '#7c3aed' },
-        { label: `Only ${rates[0].name} (${rates[0].name}+ / ${rates[1].name}⁻)`, pct: pOnlyA, color: '#3b82f6' },
-        { label: `Only ${rates[1].name} (${rates[0].name}⁻ / ${rates[1].name}+)`, pct: pOnlyB, color: '#06b6d4' },
-        { label: `Wild-Type (${rates[0].name}⁻ / ${rates[1].name}⁻)`, pct: pNone, color: '#94a3b8' }
+        { label: `Both Edited (${rates[0].name}+ / ${rates[1].name}+)`, pct: pBoth, color: '#f59e0b' },
+        { label: `Only ${rates[0].name} (${rates[0].name}+ / ${rates[1].name}⁻)`, pct: pOnlyA, color: '#65a30d' },
+        { label: `Only ${rates[1].name} (${rates[0].name}⁻ / ${rates[1].name}+)`, pct: pOnlyB, color: '#0ea5e9' },
+        { label: `Wild-Type (${rates[0].name}⁻ / ${rates[1].name}⁻)`, pct: pNone, color: '#cbd5e1' }
       ];
 
       return { rates, pBoth, pAtLeastOne, pNone, pSingle, parityScore, biasRatio, biasDominant, pairBreakdown };
@@ -261,9 +261,9 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
     const dominantGene = rates.find(r => r.rate === maxR)?.name || 'Equal';
 
     const pairBreakdown = [
-      { label: `All Homoeologs Edited`, pct: pBoth, color: '#7c3aed' },
-      { label: `Partial Homoeologs Edited`, pct: pSingle, color: '#3b82f6' },
-      { label: `Wild-Type (All Unedited)`, pct: pNone, color: '#94a3b8' }
+      { label: `All Homoeologs Edited`, pct: pBoth, color: '#f59e0b' },
+      { label: `Partial Homoeologs Edited`, pct: pSingle, color: '#65a30d' },
+      { label: `Wild-Type (All Unedited)`, pct: pNone, color: '#cbd5e1' }
     ];
 
     return { rates, pBoth, pAtLeastOne, pNone, pSingle, parityScore, biasRatio, biasDominant: dominantGene, pairBreakdown };
@@ -557,9 +557,9 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
       const metricLabel = this.homoeologMutationFilter === 'oof' ? 'Out-of-Frame %' :
                            this.homoeologMutationFilter === 'inframe' ? 'In-Frame %' :
                            this.homoeologMutationFilter === 'sub' ? 'Substitution %' : 'Editing Efficiency %';
-      const metricColor = this.homoeologMutationFilter === 'oof' ? '#e74c3c' :
-                          this.homoeologMutationFilter === 'inframe' ? '#e67e22' :
-                          this.homoeologMutationFilter === 'sub' ? '#3498db' : '#7c3aed';
+      const metricColor = this.homoeologMutationFilter === 'oof' ? '#ef4444' :
+                          this.homoeologMutationFilter === 'inframe' ? '#f59e0b' :
+                          this.homoeologMutationFilter === 'sub' ? '#3b82f6' : '#f59e0b';
 
       this.state.addChart(new Chart(editingCanvas, {
         type: 'bar',
@@ -593,10 +593,10 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
             { label: 'Unmodified', data: genes.map(gene => {
               const summary = this.homoeologTarget(gene, targetId)?.summary;
               return Math.max(0, Number(summary?.no_indel_pct ?? 0) - Number(summary?.substitution_pct ?? 0));
-            }), backgroundColor: '#2ecc71' },
-            { label: 'Substitution', data: genes.map(gene => Number(this.homoeologTarget(gene, targetId)?.summary?.substitution_pct ?? 0)), backgroundColor: '#3498db' },
-            { label: 'In-frame', data: genes.map(gene => Number(this.homoeologTarget(gene, targetId)?.summary?.in_frame_pct ?? 0)), backgroundColor: '#e67e22' },
-            { label: 'Out-of-frame', data: genes.map(gene => Number(this.homoeologTarget(gene, targetId)?.summary?.out_of_frame_pct ?? 0)), backgroundColor: '#e74c3c' }
+            }), backgroundColor: '#10b981' },
+            { label: 'Substitution', data: genes.map(gene => Number(this.homoeologTarget(gene, targetId)?.summary?.substitution_pct ?? 0)), backgroundColor: '#3b82f6' },
+            { label: 'In-frame', data: genes.map(gene => Number(this.homoeologTarget(gene, targetId)?.summary?.in_frame_pct ?? 0)), backgroundColor: '#f59e0b' },
+            { label: 'Out-of-frame', data: genes.map(gene => Number(this.homoeologTarget(gene, targetId)?.summary?.out_of_frame_pct ?? 0)), backgroundColor: '#ef4444' }
           ]
         },
         options: {
