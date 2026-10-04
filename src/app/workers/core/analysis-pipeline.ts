@@ -323,13 +323,30 @@ function runAnalysisOnReads(
       }
     }
 
-    // Step 5: Indel Threshold Filter
+    // Step 5: Indel Threshold Filter (post-cut percentage standard)
     const aligned = counts['aligned_reads'];
-    const thresholdCount = aligned * (indelThreshold / 100.0);
 
     const passedGroupsDict: Record<string, typeof groupsDict[string]> = {};
-    for (const [k, g] of Object.entries(groupsDict)) {
-      if (g.read_count >= thresholdCount) passedGroupsDict[k] = g;
+    if (indelThreshold <= 0) {
+      for (const [k, g] of Object.entries(groupsDict)) {
+        passedGroupsDict[k] = g;
+      }
+    } else {
+      // Sort groups descending by read_count so largest groups are included first
+      const sortedCandidates = Object.entries(groupsDict)
+        .sort((a, b) => b[1].read_count - a[1].read_count);
+
+      let runningSum = 0;
+      for (const [k, g] of sortedCandidates) {
+        const nextSum = runningSum + g.read_count;
+        const postCutPct = (g.read_count / nextSum) * 100.0;
+        if (postCutPct >= indelThreshold) {
+          runningSum = nextSum;
+          passedGroupsDict[k] = g;
+        } else {
+          break;
+        }
+      }
     }
 
     const newAligned = Object.values(passedGroupsDict).reduce((s, g) => s + g.read_count, 0);
