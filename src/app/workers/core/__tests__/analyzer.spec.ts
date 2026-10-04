@@ -55,6 +55,18 @@ describe('Analyzer Alignment Core', () => {
     ]);
   });
 
+  it('should preserve an observed deletion while ignoring an internal X gap', () => {
+    const ref = 'GTGCTTACATGGCTCCTTCTCTGGACACCAGACAGGACATCGTGGTGGTCGAAGTCCCTA';
+    const leftObserved = ref.substring(0, 12) + ref.substring(15, 36); // observed 3 bp deletion
+    const rightObserved = ref.substring(48);
+    const read = leftObserved + 'X'.repeat(120) + rightObserved;
+    const result = classifyMutationWithAlignment(ref, read);
+
+    expect(result.net_indel).toBe(-3);
+    expect(result.category).toBe('in_frame');
+    expect(result.tokens.some(token => token.type === 'unobserved')).toBe(true);
+  });
+
   it('should classify mutations correctly', () => {
     // No indel (pure substitution)
     const resNoIndel = classifyMutationWithAlignment('ACTG', 'ACAG');

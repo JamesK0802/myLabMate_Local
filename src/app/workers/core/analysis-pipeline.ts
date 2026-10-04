@@ -20,7 +20,7 @@ import {
   clearClassifierCache,
   ClassInfo,
 } from './classifier';
-import { classifyMutationWithAlignment, alignReadToRef, AlignmentToken } from './analyzer';
+import { classifyMutationWithAlignment, alignReadToRef, materializeTokensAgainstReference, AlignmentToken } from './analyzer';
 import { assignReadsToReferences, GenePayload, DemuxResult } from './multi-reference-assigner';
 import { FastqRead, QualityScores } from './fastq-parser';
 import { SequencingPlatform } from '../../models/illumina.model';
@@ -289,17 +289,9 @@ function runAnalysisOnReads(
       let groupKey = readWindow.toUpperCase();
       let groupTokens = readTokens;
       if (leftX > 0 || rightX > 0 || groupKey.includes('X')) {
-        let cleanObs = groupKey;
-        if (cleanObs.startsWith('X')) cleanObs = cleanObs.replace(/^X+/, '');
-        if (cleanObs.endsWith('X')) cleanObs = cleanObs.replace(/X+$/, '');
         const refUpper = refWindow.toUpperCase();
-        const effLeftX = leftX > 0 ? leftX : (groupKey.match(/^X+/)?.[0].length || 0);
-        const effRightX = rightX > 0 ? rightX : (groupKey.match(/X+$/)?.[0].length || 0);
-        const leftFill = effLeftX > 0 ? refUpper.substring(0, Math.min(effLeftX, refUpper.length)) : '';
-        const rightFill = effRightX > 0 ? refUpper.substring(Math.max(0, refUpper.length - effRightX)) : '';
-        const imputed = leftFill + cleanObs + rightFill;
-        groupKey = imputed;
-        groupTokens = alignReadToRef(refUpper, imputed);
+        groupKey = materializeTokensAgainstReference(refUpper, readTokens);
+        groupTokens = alignReadToRef(refUpper, groupKey);
       }
 
       const key = groupKey;

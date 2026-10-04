@@ -235,6 +235,40 @@ function editDistance(a: string, b: string, maxErrors: number = MAX_ANCHOR_ERROR
   return previous[b.length];
 }
 
+/** Locate an observed terminal anchor without letting SequenceMatcher discard
+ * a valid downstream flank after an indel. Exact matching keeps this hot path
+ * cheap; the existing alignment fallback handles reads without such a match. */
+function exactAnchorPositions(reference: string, anchor: string): number[] {
+  const positions: number[] = [];
+  if (!anchor.length) return positions;
+  let index = reference.indexOf(anchor);
+  while (index !== -1) {
+    positions.push(index);
+    index = reference.indexOf(anchor, index + 1);
+  }
+  return positions;
+}
+
+function boundedAnchorPositions(reference: string, anchor: string): number[] {
+  const exact = exactAnchorPositions(reference, anchor);
+  if (exact.length || !anchor.length) return exact;
+  let bestErrors = MAX_ANCHOR_ERRORS + 1;
+  const positions: number[] = [];
+  for (let start = 0; start <= reference.length - anchor.length; start++) {
+    let errors = 0;
+    for (let i = 0; i < anchor.length; i++) {
+      if (reference[start + i] !== anchor[i] && ++errors > MAX_ANCHOR_ERRORS) break;
+    }
+    if (errors > MAX_ANCHOR_ERRORS) continue;
+    if (errors < bestErrors) {
+      bestErrors = errors;
+      positions.length = 0;
+    }
+    if (errors === bestErrors) positions.push(start);
+  }
+  return positions;
+}
+
 interface AlignResult {
   fail: string | null;
   observed_read?: string;
@@ -326,6 +360,21 @@ function alignReadToWindow(
     const candidateObs = seq.substring(bestLeft).toUpperCase();
     if (bestLeft + winLen > seq.length) {
       // Right truncated by end of read / X-gap
+      const terminalLen = Math.min(ANCHOR_LEN, candidateObs.length);
+      const terminalAnchor = candidateObs.substring(candidateObs.length - terminalLen);
+      const terminalPositions = boundedAnchorPositions(refUp, terminalAnchor);
+      if (terminalPositions.length > 0) {
+        const expectedEnd = Math.min(winLen, candidateObs.length);
+        const terminalPos = terminalPositions.reduce((best, position) =>
+          Math.abs(position + terminalLen - expectedEnd) < Math.abs(best + terminalLen - expectedEnd) ? position : best
+        );
+        const observedRefEnd = terminalPos + terminalLen;
+        observedRead = candidateObs;
+        leftX = 0;
+        rightX = Math.max(0, winLen - observedRefEnd);
+        readWindow = observedRead + 'X'.repeat(rightX);
+        qualObserved = qual ? qual.slice(bestLeft) : null;
+      } else {
       const matcher = new SequenceMatcher(null, refUp, candidateObs);
       const blocks = matcher.getMatchingBlocks();
       let lastRefEnd = 0;
@@ -350,6 +399,7 @@ function alignReadToWindow(
         readWindow = observedRead + 'X'.repeat(rightX);
         qualObserved = qual ? qual.slice(bestLeft, bestLeft + lastObsEnd) : null;
       }
+      }
     } else {
       observedRead = seq.substring(bestLeft, Math.min(seq.length, bestLeft + winLen)).toUpperCase();
       leftX = 0;
@@ -368,6 +418,20 @@ function alignReadToWindow(
     if (winStart < 0) {
       // Left truncated by start of read
       const candidateObs = seq.substring(0, endPos).toUpperCase();
+      const terminalLen = Math.min(ANCHOR_LEN, candidateObs.length);
+      const terminalAnchor = candidateObs.substring(0, terminalLen);
+      const terminalPositions = boundedAnchorPositions(refUp, terminalAnchor);
+      if (terminalPositions.length > 0) {
+        const expectedStart = Math.max(0, winLen - candidateObs.length);
+        const terminalPos = terminalPositions.reduce((best, position) =>
+          Math.abs(position - expectedStart) < Math.abs(best - expectedStart) ? position : best
+        );
+        observedRead = candidateObs;
+        leftX = terminalPos;
+        rightX = 0;
+        readWindow = 'X'.repeat(leftX) + observedRead;
+        qualObserved = qual ? qual.slice(0, endPos) : null;
+      } else {
       const matcher = new SequenceMatcher(null, refUp, candidateObs);
       const blocks = matcher.getMatchingBlocks();
       let firstRefStart = winLen;
@@ -391,6 +455,7 @@ function alignReadToWindow(
         rightX = 0;
         readWindow = 'X'.repeat(leftX) + observedRead;
         qualObserved = qual ? qual.slice(firstObsStart, endPos) : null;
+      }
       }
     } else {
       observedRead = seq.substring(winStart, endPos).toUpperCase();

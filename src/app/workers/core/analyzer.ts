@@ -35,26 +35,10 @@ export function classifyMutationWithAlignment(
   leftX: number = 0,
   rightX: number = 0
 ): MutationResult {
-  // If the read has unobserved terminal positions (X-padding from Illumina truncation),
-  // impute the unobserved flanks from the reference sequence so alignment treats them as WT,
-  // preventing artificial terminal insertions or deletions.
-  let targetRead = readSeq;
-  if (leftX > 0 || rightX > 0 || readSeq.startsWith('X') || readSeq.endsWith('X')) {
-    let cleanObserved = readSeq;
-    if (cleanObserved.startsWith('X')) {
-      cleanObserved = cleanObserved.replace(/^X+/, '');
-    }
-    if (cleanObserved.endsWith('X')) {
-      cleanObserved = cleanObserved.replace(/X+$/, '');
-    }
-    const effLeftX = leftX > 0 ? leftX : (readSeq.match(/^X+/)?.[0].length || 0);
-    const effRightX = rightX > 0 ? rightX : (readSeq.match(/X+$/)?.[0].length || 0);
-    const leftFill = effLeftX > 0 ? refSeq.substring(0, Math.min(effLeftX, refSeq.length)) : '';
-    const rightFill = effRightX > 0 ? refSeq.substring(Math.max(0, refSeq.length - effRightX)) : '';
-    targetRead = leftFill + cleanObserved + rightFill;
-  }
-
-  const tokens = alignReadToRef(refSeq, targetRead);
+  // Every X run is unobserved sequence. Align the observed segments on either
+  // side independently so an internal paired-read gap cannot become a giant
+  // substitution or erase a real indel seen in either mate.
+  const tokens = alignReadToRefXaware(refSeq, readSeq, leftX, rightX);
 
   // Count only biological operations
   let insLen = 0, delLen = 0, subCount = 0;
@@ -119,37 +103,83 @@ export function alignReadToRefXaware(
   leftX: number = 0,
   rightX: number = 0
 ): AlignmentToken[] {
-  if (leftX > 0 || rightX > 0) {
-    const leftPadLen = Math.min(leftX, refSeq.length);
-    const rightPadLen = Math.min(rightX, Math.max(0, refSeq.length - leftPadLen));
-    
-    const targetRef = refSeq.substring(leftPadLen, refSeq.length - rightPadLen);
-    
-    let realObserved = readSeq;
-    if (readSeq.startsWith('X')) {
-      realObserved = readSeq.substring(leftPadLen, Math.max(leftPadLen, readSeq.length - rightPadLen));
-    } else if (readSeq.endsWith('X')) {
-      realObserved = readSeq.substring(0, Math.max(0, readSeq.length - rightPadLen));
-    }
+  if (!readSeq.includes('X') && leftX <= 0 && rightX <= 0) return alignReadToRef(refSeq, readSeq);
 
-    const tokens: AlignmentToken[] = [];
-    if (leftPadLen > 0) {
-      tokens.push({ type: 'unobserved', val: 'X'.repeat(leftPadLen) });
-    }
+  const leadingRun = readSeq.match(/^X+/)?.[0].length || 0;
+  const trailingRun = readSeq.match(/X+$/)?.[0].length || 0;
+  const leftPadLen = Math.min(Math.max(leftX, leadingRun), refSeq.length);
+  const rightPadLen = Math.min(Math.max(rightX, trailingRun), Math.max(0, refSeq.length - leftPadLen));
+  const coreStart = leadingRun;
+  const coreEnd = Math.max(coreStart, readSeq.length - trailingRun);
+  const coreRead = readSeq.substring(coreStart, coreEnd);
+  const coreRefStart = leftPadLen;
+  const coreRefEnd = Math.max(coreRefStart, refSeq.length - rightPadLen);
+  const coreRef = refSeq.substring(coreRefStart, coreRefEnd);
+  const tokens: AlignmentToken[] = [];
+  if (leftPadLen > 0) tokens.push({ type: 'unobserved', val: 'X'.repeat(leftPadLen) });
 
-    if (targetRef.length > 0 && realObserved.length > 0) {
-      const innerTokens = alignReadToRef(targetRef, realObserved);
-      tokens.push(...innerTokens);
-    } else if (targetRef.length > 0) {
-      tokens.push({ type: 'delete', val: '-'.repeat(targetRef.length) });
-    }
+  const segments = coreRead.split(/X+/).filter(Boolean);
+  if (segments.length <= 1) {
+    if (coreRef.length && segments.length) tokens.push(...alignReadToRef(coreRef, segments[0]));
+    else if (coreRef.length) tokens.push({ type: 'unobserved', val: 'X'.repeat(coreRef.length) });
+  } else {
+    // X-padded paired reads have an observed left mate, an unknown internal
+    // interval, and an observed right mate. Anchor the left segment from the
+    // reference start and the right segment from the reference end. Matching
+    // blocks determine how much reference each observed segment covers, so
+    // genuine indels inside either segment remain countable.
+    const leftObserved = segments[0];
+    const rightObserved = segments[segments.length - 1];
+    const leftBlocks = new SequenceMatcher(null, coreRef, leftObserved).getMatchingBlocks().filter(b => b[2] > 0);
+    const rightBlocks = new SequenceMatcher(null, coreRef, rightObserved).getMatchingBlocks().filter(b => b[2] > 0);
 
-    if (rightPadLen > 0) {
-      tokens.push({ type: 'unobserved', val: 'X'.repeat(rightPadLen) });
-    }
+    if (leftBlocks.length && rightBlocks.length) {
+      const leftLast = leftBlocks[leftBlocks.length - 1];
+      const rightLast = rightBlocks[rightBlocks.length - 1];
+      const leftRefEnd = Math.min(coreRef.length, leftLast[0] + leftLast[2]);
+      const leftObsEnd = Math.min(leftObserved.length, leftLast[1] + leftLast[2]);
+      const endOffset = (rightLast[0] + rightLast[2]) - (rightLast[1] + rightLast[2]);
+      const rightRefStart = Math.max(leftRefEnd, Math.min(coreRef.length, endOffset));
+      const rightObsStart = Math.max(0, rightRefStart - endOffset);
 
-    return tokens;
+      if (leftRefEnd > 0 && leftObsEnd > 0) {
+        tokens.push(...alignReadToRef(coreRef.substring(0, leftRefEnd), leftObserved.substring(0, leftObsEnd)));
+      }
+      const unknownLen = Math.max(0, rightRefStart - leftRefEnd);
+      if (unknownLen > 0) tokens.push({ type: 'unobserved', val: 'X'.repeat(unknownLen) });
+      if (rightRefStart < coreRef.length && rightObsStart < rightObserved.length) {
+        tokens.push(...alignReadToRef(coreRef.substring(rightRefStart), rightObserved.substring(rightObsStart)));
+      }
+    } else {
+      // Conservative fallback: X is still never considered an observed
+      // mismatch. Use reference bases at those coordinates and align once.
+      const chars = coreRead.split('');
+      const imputed = chars.map((base, i) => base === 'X' ? (coreRef[i] || '') : base).join('');
+      tokens.push(...alignReadToRef(coreRef, imputed));
+    }
   }
 
-  return alignReadToRef(refSeq, readSeq);
+  if (rightPadLen > 0) tokens.push({ type: 'unobserved', val: 'X'.repeat(rightPadLen) });
+  return tokens;
+}
+
+/** Build the annotation/grouping sequence while rendering unobserved bases as WT. */
+export function materializeTokensAgainstReference(refSeq: string, tokens: AlignmentToken[]): string {
+  let refPos = 0;
+  let sequence = '';
+  for (const token of tokens) {
+    if (token.type === 'equal' || token.type === 'substitute') {
+      sequence += token.val;
+      refPos += token.val.length;
+    } else if (token.type === 'insert') {
+      sequence += token.val;
+    } else if (token.type === 'delete') {
+      refPos += token.val.length;
+    } else {
+      const len = token.val.length;
+      sequence += refSeq.substring(refPos, refPos + len);
+      refPos += len;
+    }
+  }
+  return sequence;
 }
