@@ -138,10 +138,34 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
     return [...new Set(this.homoeologGenes.flatMap(gene => (gene.analysis_result?.targets || []).map(target => target.target_id)))];
   }
 
+  homoeologMutationFilter: 'all' | 'oof' | 'inframe' | 'sub' = 'all';
+
   get activeHomoeologTarget(): string {
     return this.homoeologTargetIds.includes(this.selectedHomoeologTarget)
       ? this.selectedHomoeologTarget
       : (this.homoeologTargetIds[0] || '');
+  }
+
+  setHomoeologMutationFilter(filter: 'all' | 'oof' | 'inframe' | 'sub'): void {
+    if (this.homoeologMutationFilter === filter) return;
+    this.homoeologMutationFilter = filter;
+    this.refreshHomoeologView();
+  }
+
+  getHomoeologTargetRate(target: any | null | undefined): number {
+    if (!target?.summary) return 0;
+    const sum = target.summary;
+    switch (this.homoeologMutationFilter) {
+      case 'oof':
+        return Number(sum.out_of_frame_pct ?? 0);
+      case 'inframe':
+        return Number(sum.in_frame_pct ?? 0);
+      case 'sub':
+        return Number(sum.substitution_pct ?? 0);
+      case 'all':
+      default:
+        return Number(sum.editing_efficiency ?? sum.indel_editing_efficiency ?? 0);
+    }
   }
 
   get homoeologRows() {
@@ -152,17 +176,171 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
   }
 
   get homoeologMeanEditing(): number {
-    const values = this.homoeologRows.map(row => Number(row.target.summary?.editing_efficiency ?? row.target.summary?.indel_editing_efficiency ?? 0));
+    const values = this.homoeologRows.map(row => this.getHomoeologTargetRate(row.target));
     return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
   }
 
   get homoeologEditingSpread(): number {
-    const values = this.homoeologRows.map(row => Number(row.target.summary?.editing_efficiency ?? row.target.summary?.indel_editing_efficiency ?? 0));
+    const values = this.homoeologRows.map(row => this.getHomoeologTargetRate(row.target));
     return values.length ? Math.max(...values) - Math.min(...values) : 0;
   }
 
   get homoeologAssignedReads(): number {
     return this.homoeologRows.reduce((sum, row) => sum + Number(row.target.summary?.aligned_reads || 0), 0);
+  }
+
+  get homoeologCoEditStats(): {
+    rates: { name: string; rate: number }[];
+    pBoth: number;
+    pAtLeastOne: number;
+    pNone: number;
+    pSingle: number;
+    parityScore: number;
+    biasRatio: number;
+    biasDominant: string;
+    pairBreakdown: { label: string; pct: number; color: string }[];
+  } {
+    const rows = this.homoeologRows;
+    const rates = rows.map(r => ({
+      name: r.gene.gene,
+      rate: Math.max(0, Math.min(100, this.getHomoeologTargetRate(r.target)))
+    }));
+
+    if (rates.length === 0) {
+      return {
+        rates: [],
+        pBoth: 0,
+        pAtLeastOne: 0,
+        pNone: 100,
+        pSingle: 0,
+        parityScore: 100,
+        biasRatio: 1,
+        biasDominant: 'Equal',
+        pairBreakdown: []
+      };
+    }
+
+    if (rates.length === 2) {
+      const eA = rates[0].rate / 100;
+      const eB = rates[1].rate / 100;
+      const pBoth = (eA * eB) * 100;
+      const pOnlyA = (eA * (1 - eB)) * 100;
+      const pOnlyB = ((1 - eA) * eB) * 100;
+      const pNone = ((1 - eA) * (1 - eB)) * 100;
+      const pAtLeastOne = (1 - (1 - eA) * (1 - eB)) * 100;
+      const pSingle = pOnlyA + pOnlyB;
+
+      const maxRate = Math.max(rates[0].rate, rates[1].rate);
+      const minRate = Math.min(rates[0].rate, rates[1].rate);
+      const parityScore = maxRate > 0 ? (minRate / maxRate) * 100 : 100;
+      const biasRatio = minRate > 0 ? (maxRate / minRate) : (maxRate > 0 ? 999 : 1);
+      const biasDominant = rates[0].rate > rates[1].rate ? rates[0].name : (rates[1].rate > rates[0].rate ? rates[1].name : 'Equal');
+
+      const pairBreakdown = [
+        { label: `Both Edited (${rates[0].name}+ / ${rates[1].name}+)`, pct: pBoth, color: '#7c3aed' },
+        { label: `Only ${rates[0].name} (${rates[0].name}+ / ${rates[1].name}⁻)`, pct: pOnlyA, color: '#3b82f6' },
+        { label: `Only ${rates[1].name} (${rates[0].name}⁻ / ${rates[1].name}+)`, pct: pOnlyB, color: '#06b6d4' },
+        { label: `Wild-Type (${rates[0].name}⁻ / ${rates[1].name}⁻)`, pct: pNone, color: '#94a3b8' }
+      ];
+
+      return { rates, pBoth, pAtLeastOne, pNone, pSingle, parityScore, biasRatio, biasDominant, pairBreakdown };
+    }
+
+    // N >= 3 or N == 1
+    const fracEdited = rates.map(r => r.rate / 100);
+    const pBoth = fracEdited.reduce((acc, f) => acc * f, 1) * 100;
+    const pNone = fracEdited.reduce((acc, f) => acc * (1 - f), 1) * 100;
+    const pAtLeastOne = 100 - pNone;
+    const pSingle = Math.max(0, pAtLeastOne - pBoth);
+
+    const numericRates = rates.map(r => r.rate);
+    const maxR = Math.max(...numericRates);
+    const minR = Math.min(...numericRates);
+    const parityScore = maxR > 0 ? (minR / maxR) * 100 : 100;
+    const biasRatio = minR > 0 ? (maxR / minR) : (maxR > 0 ? 999 : 1);
+    const dominantGene = rates.find(r => r.rate === maxR)?.name || 'Equal';
+
+    const pairBreakdown = [
+      { label: `All Homoeologs Edited`, pct: pBoth, color: '#7c3aed' },
+      { label: `Partial Homoeologs Edited`, pct: pSingle, color: '#3b82f6' },
+      { label: `Wild-Type (All Unedited)`, pct: pNone, color: '#94a3b8' }
+    ];
+
+    return { rates, pBoth, pAtLeastOne, pNone, pSingle, parityScore, biasRatio, biasDominant: dominantGene, pairBreakdown };
+  }
+
+  get homoeologSharedAlleles(): {
+    alleleKey: string;
+    netIndel: number;
+    classification: string;
+    isShared: boolean;
+    genesPresent: string[];
+    homoeologFrequencies: { geneName: string; pct: number }[];
+    meanFrequency: number;
+  }[] {
+    const rows = this.homoeologRows;
+    if (rows.length === 0) return [];
+
+    const alleleMap = new Map<string, {
+      netIndel: number;
+      classification: string;
+      freqs: Map<string, number>;
+    }>();
+
+    for (const { gene, target } of rows) {
+      const topGroups: MutationGroup[] = target.top_groups || [];
+      for (const group of topGroups) {
+        if (!group.read_inner) continue;
+        const key = `${group.classification} [${group.net_indel >= 0 ? '+' : ''}${group.net_indel}bp]`;
+        if (!alleleMap.has(key)) {
+          alleleMap.set(key, {
+            netIndel: group.net_indel,
+            classification: group.classification,
+            freqs: new Map<string, number>()
+          });
+        }
+        const item = alleleMap.get(key)!;
+        const currentPct = item.freqs.get(gene.gene) || 0;
+        item.freqs.set(gene.gene, Math.max(currentPct, Number(group.read_pct || 0)));
+      }
+    }
+
+    const geneNames = rows.map(r => r.gene.gene);
+    const result: {
+      alleleKey: string;
+      netIndel: number;
+      classification: string;
+      isShared: boolean;
+      genesPresent: string[];
+      homoeologFrequencies: { geneName: string; pct: number }[];
+      meanFrequency: number;
+    }[] = [];
+
+    alleleMap.forEach((val, key) => {
+      const genesPresent = Array.from(val.freqs.keys());
+      const isShared = genesPresent.length > 1;
+      const homoeologFrequencies = geneNames.map(g => ({
+        geneName: g,
+        pct: val.freqs.get(g) || 0
+      }));
+      const totalFreq = homoeologFrequencies.reduce((sum, h) => sum + h.pct, 0);
+      const meanFrequency = totalFreq / geneNames.length;
+
+      result.push({
+        alleleKey: key,
+        netIndel: val.netIndel,
+        classification: val.classification,
+        isShared,
+        genesPresent,
+        homoeologFrequencies,
+        meanFrequency
+      });
+    });
+
+    return result.sort((a, b) => {
+      if (a.isShared !== b.isShared) return a.isShared ? -1 : 1;
+      return b.meanFrequency - a.meanFrequency;
+    }).slice(0, 15);
   }
 
   switchResultView(view: 'standard' | 'homoeolog'): void {
@@ -376,24 +554,31 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
 
     const editingCanvas = document.getElementById('homoeologEditingChart') as HTMLCanvasElement | null;
     if (editingCanvas) {
+      const metricLabel = this.homoeologMutationFilter === 'oof' ? 'Out-of-Frame %' :
+                           this.homoeologMutationFilter === 'inframe' ? 'In-Frame %' :
+                           this.homoeologMutationFilter === 'sub' ? 'Substitution %' : 'Editing Efficiency %';
+      const metricColor = this.homoeologMutationFilter === 'oof' ? '#e74c3c' :
+                          this.homoeologMutationFilter === 'inframe' ? '#e67e22' :
+                          this.homoeologMutationFilter === 'sub' ? '#3498db' : '#7c3aed';
+
       this.state.addChart(new Chart(editingCanvas, {
         type: 'bar',
         data: {
           labels: geneLabels,
           datasets: [{
-            label: 'Indel edit %',
+            label: metricLabel,
             data: genes.map(gene => {
               const target = this.homoeologTarget(gene, targetId);
-              return Number(target?.summary?.editing_efficiency ?? target?.summary?.indel_editing_efficiency ?? 0);
+              return this.getHomoeologTargetRate(target);
             }),
-            backgroundColor: '#7c3aed',
-            borderRadius: 5,
+            backgroundColor: metricColor,
+            borderRadius: 6,
           }]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: 'Editing (%)' } } },
-          plugins: { legend: { display: false }, title: { display: true, text: `${targetId} · editing` } }
+          scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: 'Rate (%)' } } },
+          plugins: { legend: { display: false }, title: { display: true, text: `${targetId} · ${metricLabel}` } }
         }
       }));
     }
@@ -417,7 +602,33 @@ export class ResultDashboardComponent implements OnInit, OnDestroy {
         options: {
           responsive: true, maintainAspectRatio: false,
           scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, max: 100, title: { display: true, text: 'Reads (%)' } } },
-          plugins: { legend: { position: 'bottom' }, title: { display: true, text: `${targetId} · profile` } }
+          plugins: { legend: { position: 'bottom' }, title: { display: true, text: `${targetId} · Mutation Profile` } }
+        }
+      }));
+    }
+
+    const coEditCanvas = document.getElementById('homoeologCoEditChart') as HTMLCanvasElement | null;
+    if (coEditCanvas) {
+      const coStats = this.homoeologCoEditStats;
+      const breakdown = coStats.pairBreakdown.filter(item => item.pct > 0.05);
+      this.state.addChart(new Chart(coEditCanvas, {
+        type: 'doughnut',
+        data: {
+          labels: breakdown.map(b => b.label),
+          datasets: [{
+            data: breakdown.map(b => Number(b.pct.toFixed(2))),
+            backgroundColor: breakdown.map(b => b.color),
+            borderWidth: 2,
+            borderColor: '#ffffff'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+            title: { display: true, text: `${targetId} · Joint Knockout / Edit Distribution` }
+          }
         }
       }));
     }
