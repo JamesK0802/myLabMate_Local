@@ -82,6 +82,16 @@ describe('Analyzer Alignment Core', () => {
     }
   });
 
+  it('places 301-bp X-padded mates without DNA autojunk suppressing all matches', () => {
+    const ref = 'AACCGGTTAGCTAGGCTAACCGTACGATCGTACCTGACTGATCGTAGCTAGCATGCTACGATCGGATCCGATGCTAGCTAGGCTAACGTTACGATCGATGGCATCGTAGCTAGCATCGATGCTAGGCTAACCGATCGTAGCATGCTAGCATCGATGCTAACGATCGTAGCTAGCATGCTAGCATCGATGCTAGCATCGATGCTAACG';
+    const read = 'T'.repeat(301 - ref.length) + ref + 'X'.repeat(216) + ref + 'A'.repeat(301 - ref.length);
+    const result = classifyMutationWithAlignment(ref, read);
+
+    expect(result.category).toBe('no_indel');
+    expect(result.net_indel).toBe(0);
+    expect(result.tokens.some(token => token.type === 'equal')).toBe(true);
+  });
+
   it('should classify mutations correctly', () => {
     // No indel (pure substitution)
     const resNoIndel = classifyMutationWithAlignment('ACTG', 'ACAG');

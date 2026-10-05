@@ -130,7 +130,11 @@ export function alignReadToRefXaware(
     // mutation-calling rule: alignReadToRef still calls edits inside each
     // observed envelope exactly as before.
     const placements = segments.flatMap(observed => {
-      const blocks = new SequenceMatcher(null, coreRef, observed)
+      // DNA uses only four symbols. For a 301-bp Illumina mate the generic
+      // SequenceMatcher autojunk heuristic marks every nucleotide as
+      // "popular", yielding no matching blocks at all. Placement is a short,
+      // reference-guided operation, so disable that text-oriented heuristic.
+      const blocks = new SequenceMatcher(null, coreRef, observed, false)
         .getMatchingBlocks()
         .filter(block => block[2] > 0);
       // A remote mate can share a few incidental bases with the window. It is
