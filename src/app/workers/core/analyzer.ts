@@ -61,13 +61,39 @@ export function classifyMutationWithAlignment(
   return { category, has_sub: hasSub, net_indel: netIndel, tokens };
 }
 
-export function alignReadToRef(refSeq: string, readSeq: string): AlignmentToken[] {
+export function alignReadToRef(refSeq: string, readSeq: string, minMatchLength: number = 1): AlignmentToken[] {
   // SequenceMatcher's default autojunk mode is designed for prose. At 200+
   // characters it treats frequent symbols as noise; with DNA that removes
   // all four nucleotides and turns the sequence after the first edit into one
   // giant replacement. DNA bases are evidence, never junk.
   const matcher = new SequenceMatcher(null, refSeq, readSeq, readSeq.length < 200);
-  const opcodes = matcher.getOpcodes();
+  let opcodes = matcher.getOpcodes();
+  // The strict X-padding path must not chain short chance matches into a
+  // deletion/insertion mosaic. Keep the requested 10-bp floor for normal
+  // windows, while allowing genuinely shorter test/terminal slices to align.
+  const effectiveMinMatchLength = Math.min(
+    Math.max(1, minMatchLength),
+    refSeq.length,
+    readSeq.length,
+  );
+  if (effectiveMinMatchLength > 1) {
+    const anchors = matcher.getMatchingBlocks()
+      .filter(([, , length]) => length >= effectiveMinMatchLength);
+    anchors.push([refSeq.length, readSeq.length, 0]);
+    opcodes = [];
+    let refPos = 0;
+    let readPos = 0;
+    for (const [refStart, readStart, length] of anchors) {
+      let tag = '';
+      if (refPos < refStart && readPos < readStart) tag = 'replace';
+      else if (refPos < refStart) tag = 'delete';
+      else if (readPos < readStart) tag = 'insert';
+      if (tag) opcodes.push([tag, refPos, refStart, readPos, readStart]);
+      if (length > 0) opcodes.push(['equal', refStart, refStart + length, readStart, readStart + length]);
+      refPos = refStart + length;
+      readPos = readStart + length;
+    }
+  }
 
   if (opcodes.length === 0) return [];
 
@@ -124,7 +150,7 @@ export function alignReadToRefXaware(
 
   const segments = coreRead.split(/X+/).filter(Boolean);
   if (segments.length <= 1) {
-    if (coreRef.length && segments.length) tokens.push(...alignReadToRef(coreRef, segments[0]));
+    if (coreRef.length && segments.length) tokens.push(...alignReadToRef(coreRef, segments[0], 10));
     else if (coreRef.length) tokens.push({ type: 'unobserved', val: 'X'.repeat(coreRef.length) });
   } else {
     // Place every observed mate by its matching-block envelope. Bases outside
@@ -196,6 +222,7 @@ export function alignReadToRefXaware(
         tokens.push(...alignReadToRef(
           coreRef.substring(refStart, refEnd),
           placement.observed.substring(obsStart, obsEnd),
+          10,
         ));
       }
       refCursor = Math.max(refCursor, refEnd);
