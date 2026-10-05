@@ -67,6 +67,21 @@ describe('Analyzer Alignment Core', () => {
     expect(result.tokens.some(token => token.type === 'unobserved')).toBe(true);
   });
 
+  it('trims paired-read overhang and keeps an internal X gap unobserved at larger windows', () => {
+    const ref = 'AACCGGTTAGCTAGGCTAACCGTACGATCGTACCTGACTGATCGTAGCTAGCATGCTACGATCGGATCCGATGCTAGCTAGGCTAACGTTACGATCGATGGCATCGTAGCTAGCATCGATGCTAGGCTAACCGATCGTAGCATGCTAGCATCGATGCTAACGATCGTAGCTAGCATGCTAGCATCGATGCTAGCATCGATGCTAACG';
+    const leftMate = 'TTTTTT' + ref.substring(0, 92);
+    const rightMate = ref.substring(126) + 'AAAAAA';
+    for (const paddingLength of [120, 216]) {
+      const read = leftMate + 'X'.repeat(paddingLength) + rightMate;
+      const result = classifyMutationWithAlignment(ref, read);
+
+      expect(result.category).toBe('no_indel');
+      expect(result.net_indel).toBe(0);
+      expect(result.has_sub).toBe(false);
+      expect(result.tokens.some(token => token.type === 'unobserved')).toBe(true);
+    }
+  });
+
   it('should classify mutations correctly', () => {
     // No indel (pure substitution)
     const resNoIndel = classifyMutationWithAlignment('ACTG', 'ACAG');

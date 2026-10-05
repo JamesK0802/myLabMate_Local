@@ -123,39 +123,53 @@ export function alignReadToRefXaware(
     if (coreRef.length && segments.length) tokens.push(...alignReadToRef(coreRef, segments[0]));
     else if (coreRef.length) tokens.push({ type: 'unobserved', val: 'X'.repeat(coreRef.length) });
   } else {
-    // X-padded paired reads have an observed left mate, an unknown internal
-    // interval, and an observed right mate. Anchor the left segment from the
-    // reference start and the right segment from the reference end. Matching
-    // blocks determine how much reference each observed segment covers, so
-    // genuine indels inside either segment remain countable.
-    const leftObserved = segments[0];
-    const rightObserved = segments[segments.length - 1];
-    const leftBlocks = new SequenceMatcher(null, coreRef, leftObserved).getMatchingBlocks().filter(b => b[2] > 0);
-    const rightBlocks = new SequenceMatcher(null, coreRef, rightObserved).getMatchingBlocks().filter(b => b[2] > 0);
+    // Place every observed mate by its matching-block envelope. Bases outside
+    // that envelope are primer/read overhang, not evidence of an indel. The
+    // uncovered reference interval between mates remains explicitly
+    // unobserved. This is deliberately a placement correction, not a new
+    // mutation-calling rule: alignReadToRef still calls edits inside each
+    // observed envelope exactly as before.
+    const placements = segments.flatMap(observed => {
+      const blocks = new SequenceMatcher(null, coreRef, observed)
+        .getMatchingBlocks()
+        .filter(block => block[2] > 0);
+      // A remote mate can share a few incidental bases with the window. It is
+      // not positioned evidence unless it contains at least the same 10-bp
+      // exact seed used by paired-read overlap detection.
+      if (!blocks.length || Math.max(...blocks.map(block => block[2])) < 10) return [];
+      const first = blocks[0];
+      const last = blocks[blocks.length - 1];
+      return [{
+        refStart: first[0],
+        refEnd: last[0] + last[2],
+        observed,
+        obsStart: first[1],
+        obsEnd: last[1] + last[2],
+      }];
+    }).sort((a, b) => a.refStart - b.refStart);
 
-    if (leftBlocks.length && rightBlocks.length) {
-      const leftLast = leftBlocks[leftBlocks.length - 1];
-      const rightLast = rightBlocks[rightBlocks.length - 1];
-      const leftRefEnd = Math.min(coreRef.length, leftLast[0] + leftLast[2]);
-      const leftObsEnd = Math.min(leftObserved.length, leftLast[1] + leftLast[2]);
-      const endOffset = (rightLast[0] + rightLast[2]) - (rightLast[1] + rightLast[2]);
-      const rightRefStart = Math.max(leftRefEnd, Math.min(coreRef.length, endOffset));
-      const rightObsStart = Math.max(0, rightRefStart - endOffset);
-
-      if (leftRefEnd > 0 && leftObsEnd > 0) {
-        tokens.push(...alignReadToRef(coreRef.substring(0, leftRefEnd), leftObserved.substring(0, leftObsEnd)));
+    let refCursor = 0;
+    for (const placement of placements) {
+      let { refStart, refEnd, obsStart, obsEnd } = placement;
+      if (refEnd <= refCursor) continue;
+      if (refStart < refCursor) {
+        const overlap = refCursor - refStart;
+        refStart = refCursor;
+        obsStart = Math.min(obsEnd, obsStart + overlap);
       }
-      const unknownLen = Math.max(0, rightRefStart - leftRefEnd);
-      if (unknownLen > 0) tokens.push({ type: 'unobserved', val: 'X'.repeat(unknownLen) });
-      if (rightRefStart < coreRef.length && rightObsStart < rightObserved.length) {
-        tokens.push(...alignReadToRef(coreRef.substring(rightRefStart), rightObserved.substring(rightObsStart)));
+      if (refStart > refCursor) {
+        tokens.push({ type: 'unobserved', val: 'X'.repeat(refStart - refCursor) });
       }
-    } else {
-      // Conservative fallback: X is still never considered an observed
-      // mismatch. Use reference bases at those coordinates and align once.
-      const chars = coreRead.split('');
-      const imputed = chars.map((base, i) => base === 'X' ? (coreRef[i] || '') : base).join('');
-      tokens.push(...alignReadToRef(coreRef, imputed));
+      if (refEnd > refStart && obsEnd > obsStart) {
+        tokens.push(...alignReadToRef(
+          coreRef.substring(refStart, refEnd),
+          placement.observed.substring(obsStart, obsEnd),
+        ));
+      }
+      refCursor = Math.max(refCursor, refEnd);
+    }
+    if (refCursor < coreRef.length) {
+      tokens.push({ type: 'unobserved', val: 'X'.repeat(coreRef.length - refCursor) });
     }
   }
 

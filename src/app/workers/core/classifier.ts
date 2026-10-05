@@ -622,13 +622,28 @@ function isReadUsableCached(
     return a.res.observed_read!.length >= b.res.observed_read!.length ? a : b;
   });
 
+  const inputSegments = observedSegments(seq, qualTuple);
+  const preservePairedObservation = inputSegments.length > 1;
+  // The Illumina preprocessor already emits R1 + X + reverse-complemented R2
+  // in genomic order. A single repetitive mate can tie in both orientations,
+  // so using that mate's tie-break to flip the whole pair is incorrect.
+  const orientedComposite = seq.toUpperCase();
+
   const result: ReadResult = {
     fail: null,
-    observed_read: best.res.observed_read!,
-    read_window: best.res.read_window!,
-    qual_observed: best.res.qual_observed || null,
-    left_x: best.res.left_x!,
-    right_x: best.res.right_x!,
+    // For an X-separated paired read, usability is still decided from the
+    // strongest observed mate, but mutation calling must receive both mates.
+    // Returning only `best.res.read_window` silently discarded the other mate
+    // and made the result depend on analysis-window size.
+    observed_read: preservePairedObservation
+      ? orientedComposite.replace(/X/g, '')
+      : best.res.observed_read!,
+    read_window: preservePairedObservation
+      ? orientedComposite
+      : best.res.read_window!,
+    qual_observed: preservePairedObservation ? null : (best.res.qual_observed || null),
+    left_x: preservePairedObservation ? 0 : best.res.left_x!,
+    right_x: preservePairedObservation ? 0 : best.res.right_x!,
     is_rc: best.isRc,
   };
 
