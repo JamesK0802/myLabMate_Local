@@ -66,7 +66,7 @@ export function alignReadToRef(refSeq: string, readSeq: string): AlignmentToken[
   // characters it treats frequent symbols as noise; with DNA that removes
   // all four nucleotides and turns the sequence after the first edit into one
   // giant replacement. DNA bases are evidence, never junk.
-  const matcher = new SequenceMatcher(null, refSeq, readSeq, false);
+  const matcher = new SequenceMatcher(null, refSeq, readSeq, readSeq.length < 200);
   const opcodes = matcher.getOpcodes();
 
   if (opcodes.length === 0) return [];
@@ -138,26 +138,50 @@ export function alignReadToRefXaware(
       // SequenceMatcher autojunk heuristic marks every nucleotide as
       // "popular", yielding no matching blocks at all. Placement is a short,
       // reference-guided operation, so disable that text-oriented heuristic.
-      const blocks = new SequenceMatcher(null, coreRef, observed, false)
+      // Put the shorter reference window on SequenceMatcher's indexed side.
+      // Below 200 bp this keeps the original fast path; at 200+ bp we disable
+      // autojunk because DNA's four-letter alphabet must never be discarded.
+      const blocks = new SequenceMatcher(null, observed, coreRef, coreRef.length < 200)
         .getMatchingBlocks()
-        .filter(block => block[2] > 0);
+        .filter(block => block[2] > 0)
+        .map(([obsStart, refStart, length]) => [refStart, obsStart, length] as [number, number, number]);
       // A remote mate can share a few incidental bases with the window. It is
       // not positioned evidence unless it contains at least the same 10-bp
       // exact seed used by paired-read overlap detection.
-      if (!blocks.length || Math.max(...blocks.map(block => block[2])) < 10) return [];
-      const first = blocks[0];
-      const last = blocks[blocks.length - 1];
+      const anchorBlocks = blocks.filter(block => block[2] >= 10);
+      if (!anchorBlocks.length) return [];
+      // Short incidental matches are common in a four-letter alphabet and
+      // must not expand the observed envelope into primer/amplicon overhang.
+      // Only substantive placement anchors define the usable boundaries.
+      const first = anchorBlocks[0];
+      const last = anchorBlocks[anchorBlocks.length - 1];
       return [{
         refStart: first[0],
         refEnd: last[0] + last[2],
         observed,
         obsStart: first[1],
         obsEnd: last[1] + last[2],
+        anchorSupport: anchorBlocks.reduce((sum, block) => sum + block[2], 0),
       }];
     }).sort((a, b) => a.refStart - b.refStart);
 
-    let refCursor = 0;
+    // Failed-overlap mates must not both contribute to the same reference
+    // coordinates. Concatenating their overlapping alignments creates a
+    // cascade of small insertions/deletions from two competing observations.
+    // Keep the placement with stronger exact-anchor support; retain both only
+    // when their reference intervals are genuinely disjoint.
+    const resolvedPlacements: typeof placements = [];
     for (const placement of placements) {
+      const previous = resolvedPlacements[resolvedPlacements.length - 1];
+      if (!previous || placement.refStart >= previous.refEnd) {
+        resolvedPlacements.push(placement);
+      } else if (placement.anchorSupport > previous.anchorSupport) {
+        resolvedPlacements[resolvedPlacements.length - 1] = placement;
+      }
+    }
+
+    let refCursor = 0;
+    for (const placement of resolvedPlacements) {
       let { refStart, refEnd, obsStart, obsEnd } = placement;
       if (refEnd <= refCursor) continue;
       if (refStart < refCursor) {

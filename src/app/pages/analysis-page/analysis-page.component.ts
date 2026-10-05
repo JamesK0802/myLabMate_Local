@@ -438,7 +438,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     const seq2 = t2.sequence;
     const similarity = this.similarityMatrix[rIdx]?.[cIdx] ?? 0;
 
-    const matcher = new SequenceMatcher(null, seq1, seq2, false);
+    const matcher = new SequenceMatcher(null, seq1, seq2, seq2.length < 200);
     const opcodes = matcher.getOpcodes();
 
     const tokens1: AlignmentCharToken[] = [];
@@ -647,8 +647,8 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
       return Math.round((matchCount / seq1.length) * 1000) / 10;
     }
 
-    const m1 = new SequenceMatcher(null, seq1, seq2, false).ratio();
-    const m2 = new SequenceMatcher(null, seq2, seq1, false).ratio();
+    const m1 = new SequenceMatcher(null, seq1, seq2, seq2.length < 200).ratio();
+    const m2 = new SequenceMatcher(null, seq2, seq1, seq1.length < 200).ratio();
     return Math.round(((m1 + m2) / 2.0) * 1000) / 10;
   }
 

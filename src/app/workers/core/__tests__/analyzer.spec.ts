@@ -110,6 +110,20 @@ describe('Analyzer Alignment Core', () => {
       .reduce((sum, token) => sum + token.val.length, 0)).toBe(1);
   });
 
+  it('does not concatenate competing overlap-failed mates into compound indels', () => {
+    const ref = 'TGCACTACCTCCGGCGTCGACATGCCTGGTGCTGACTACCAGCTCACCAAGCTTCTTGGTCTCCGTCCTTCCGTCAAGCGTCTCATGATGTACCAGCAAGGTTGCTTCGCCGGCGGTACTGTCCTCCGTATCGCTAAGGATCTCGCCGAGAACAATCGTGGAGCACGTGTCCTCGTTGTCTGAGA';
+    const strongerMate = 'PRIMER'.replace(/[^ACGT]/g, 'A') + ref.substring(0, 125);
+    const weakerOverlappingMate = ref.substring(100, 160) + 'ACACACACACACACACACACACACACACAC';
+    const result = classifyMutationWithAlignment(
+      ref,
+      strongerMate + 'X'.repeat(190) + weakerOverlappingMate,
+    );
+
+    expect(result.net_indel).toBe(0);
+    expect(result.tokens.every(token => token.type !== 'insert' && token.type !== 'delete')).toBe(true);
+    expect(result.tokens.some(token => token.type === 'unobserved')).toBe(true);
+  });
+
   it('should classify mutations correctly', () => {
     // No indel (pure substitution)
     const resNoIndel = classifyMutationWithAlignment('ACTG', 'ACAG');
