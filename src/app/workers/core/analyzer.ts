@@ -68,14 +68,13 @@ export function alignReadToRef(refSeq: string, readSeq: string, minMatchLength: 
   // giant replacement. DNA bases are evidence, never junk.
   const matcher = new SequenceMatcher(null, refSeq, readSeq, readSeq.length < 200);
   let opcodes = matcher.getOpcodes();
-  // The strict X-padding path must not chain short chance matches into a
+  // Strict annotation must not chain short chance matches into a
   // deletion/insertion mosaic. Keep the requested 10-bp floor for normal
-  // windows, while allowing genuinely shorter test/terminal slices to align.
-  const effectiveMinMatchLength = Math.min(
-    Math.max(1, minMatchLength),
-    refSeq.length,
-    readSeq.length,
-  );
+  // windows, while allowing genuinely shorter terminal slices to align.
+  const shortestSequenceLength = Math.min(refSeq.length, readSeq.length);
+  const effectiveMinMatchLength = shortestSequenceLength < minMatchLength
+    ? 1
+    : Math.max(1, minMatchLength);
   if (effectiveMinMatchLength > 1) {
     const anchors = matcher.getMatchingBlocks()
       .filter(([, , length]) => length >= effectiveMinMatchLength);
@@ -133,7 +132,10 @@ export function alignReadToRefXaware(
   leftX: number = 0,
   rightX: number = 0
 ): AlignmentToken[] {
-  if (!readSeq.includes('X') && leftX <= 0 && rightX <= 0) return alignReadToRef(refSeq, readSeq);
+  // Use the same stringent annotation alignment for every sequencing/input
+  // mode. X-padding changes which bases are observed, not how observed bases
+  // are aligned and annotated around the cut site.
+  if (!readSeq.includes('X') && leftX <= 0 && rightX <= 0) return alignReadToRef(refSeq, readSeq, 10);
 
   const leadingRun = readSeq.match(/^X+/)?.[0].length || 0;
   const trailingRun = readSeq.match(/X+$/)?.[0].length || 0;
