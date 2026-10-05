@@ -375,7 +375,7 @@ function alignReadToWindow(
         readWindow = observedRead + 'X'.repeat(rightX);
         qualObserved = qual ? qual.slice(bestLeft) : null;
       } else {
-      const matcher = new SequenceMatcher(null, refUp, candidateObs);
+      const matcher = new SequenceMatcher(null, refUp, candidateObs, false);
       const blocks = matcher.getMatchingBlocks();
       let lastRefEnd = 0;
       let lastObsEnd = 0;
@@ -432,7 +432,7 @@ function alignReadToWindow(
         readWindow = 'X'.repeat(leftX) + observedRead;
         qualObserved = qual ? qual.slice(0, endPos) : null;
       } else {
-      const matcher = new SequenceMatcher(null, refUp, candidateObs);
+      const matcher = new SequenceMatcher(null, refUp, candidateObs, false);
       const blocks = matcher.getMatchingBlocks();
       let firstRefStart = winLen;
       let firstObsStart = candidateObs.length;
@@ -723,7 +723,7 @@ function computeAlignmentScoreWithDynamicExclusion(
   const cleanRef = refUp.replace(/X/g, '');
   if (!cleanStrand || !cleanRef) return 0.0;
 
-  const sm = new SequenceMatcher(null, cleanStrand, cleanRef);
+  const sm = new SequenceMatcher(null, cleanStrand, cleanRef, false);
   const opcodes = sm.getOpcodes();
   const excludedRefIndices = new Set<number>();
 

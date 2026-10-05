@@ -62,7 +62,11 @@ export function classifyMutationWithAlignment(
 }
 
 export function alignReadToRef(refSeq: string, readSeq: string): AlignmentToken[] {
-  const matcher = new SequenceMatcher(null, refSeq, readSeq);
+  // SequenceMatcher's default autojunk mode is designed for prose. At 200+
+  // characters it treats frequent symbols as noise; with DNA that removes
+  // all four nucleotides and turns the sequence after the first edit into one
+  // giant replacement. DNA bases are evidence, never junk.
+  const matcher = new SequenceMatcher(null, refSeq, readSeq, false);
   const opcodes = matcher.getOpcodes();
 
   if (opcodes.length === 0) return [];

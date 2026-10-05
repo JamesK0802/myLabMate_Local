@@ -92,6 +92,24 @@ describe('Analyzer Alignment Core', () => {
     expect(result.tokens.some(token => token.type === 'equal')).toBe(true);
   });
 
+  it('does not turn the remainder of a 216-bp DNA window into substitutions after one edit', () => {
+    const ref = 'TCATGTCGTCTTCTGCACTACCTCCGGCGTCGACATGCCTGGTGCTGACTACCAGCTCACCAAGCTTCTTGGTCTCCGTCCTTCCGTCAAGCGTCTCATGATGTACCAGCAAGGTTGCTTCGCCGGCGGTACTGTCCTCCGTATCGCTAAGGATCTCGCCGAGAACAATCGTGGAGCACGTGTCCTCGTTGTCTGCTCTGAGATCACAGCCGTTAC';
+    const deletion = ref.substring(0, 108) + ref.substring(109);
+    const insertion = ref.substring(0, 108) + 'A' + ref.substring(108);
+
+    const deletionResult = classifyMutationWithAlignment(ref, deletion);
+    expect(deletionResult.net_indel).toBe(-1);
+    expect(deletionResult.has_sub).toBe(false);
+    expect(deletionResult.tokens.filter(token => token.type === 'delete')
+      .reduce((sum, token) => sum + token.val.length, 0)).toBe(1);
+
+    const insertionResult = classifyMutationWithAlignment(ref, insertion);
+    expect(insertionResult.net_indel).toBe(1);
+    expect(insertionResult.has_sub).toBe(false);
+    expect(insertionResult.tokens.filter(token => token.type === 'insert')
+      .reduce((sum, token) => sum + token.val.length, 0)).toBe(1);
+  });
+
   it('should classify mutations correctly', () => {
     // No indel (pure substitution)
     const resNoIndel = classifyMutationWithAlignment('ACTG', 'ACAG');
