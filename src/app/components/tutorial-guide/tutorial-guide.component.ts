@@ -1,47 +1,20 @@
 import { Component, EventEmitter, Output, OnDestroy, OnInit, ChangeDetectorRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
-export interface GuideCalloutItem {
-  id: string;
-  targetSelector: string;
-  tag: string;
+export interface GuidePoint {
   title: string;
-  highlight: string;
-  details: string;
-  subnote?: string;
-  accentColor: string;
-  placement: 'top' | 'bottom' | 'left' | 'right' | 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
-  offsetX?: number;
-  offsetY?: number;
-
-  // Computed layout state
-  targetRect?: DOMRect;
-  cardRect?: { top: number; left: number; width: number; height: number };
-  startX?: number;
-  startY?: number;
-  endX?: number;
-  endY?: number;
-  pathD?: string;
-  arrowMarkerId?: string;
+  text: string;
 }
 
 export interface GuideStep {
   id: string;
-  stepNum: string;
-  stepCategory: string;
+  stepTitle: string;
   headline: string;
-  hint: string;
-  primaryScrollTarget?: string;
+  summary: string;
+  points: GuidePoint[];
+  tip?: string;
+  targetSelector?: string;
   isIntro?: boolean;
-  introPillars?: Array<{
-    tag: string;
-    title: string;
-    highlight: string;
-    details: string;
-    subnote?: string;
-    color: string;
-  }>;
-  callouts?: GuideCalloutItem[];
 }
 
 @Component({
@@ -49,210 +22,118 @@ export interface GuideStep {
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="tutorial-overlay" (keydown.escape)="closeGuide()" tabindex="0">
+    <div class="guide-overlay" [class.intro-mode]="currentStep.isIntro" (keydown.escape)="closeGuide()" tabindex="0">
 
-      <!-- ── SVG Curved Dashed Arrows Layer ── -->
-      <svg class="arrows-svg-layer" *ngIf="!currentStep.isIntro">
+      <!-- ── SVG Curved Dashed Arrow Layer ── -->
+      <svg class="guide-svg-layer" *ngIf="!currentStep.isIntro && pathD">
         <defs>
-          <ng-container *ngFor="let item of activeCallouts; let i = index">
-            <marker [id]="'arrow-marker-' + i"
-                    viewBox="0 0 12 12"
-                    refX="10"
-                    refY="6"
-                    markerWidth="8"
-                    markerHeight="8"
-                    orient="auto-start-reverse">
-              <polygon points="0 1, 10 6, 0 11" [attr.fill]="item.accentColor" />
-            </marker>
-          </ng-container>
+          <marker id="guide-arrow-marker"
+                  viewBox="0 0 10 10"
+                  refX="8"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto-start-reverse">
+            <polygon points="0 1, 9 5, 0 9" fill="#f59e0b" />
+          </marker>
         </defs>
 
-        <!-- Dynamic Curved Paths & Anchors -->
-        <ng-container *ngFor="let item of activeCallouts; let i = index">
-          <g *ngIf="item.pathD">
-            <!-- Pulsing Origin Anchor Dot on the UI Element -->
-            <circle [attr.cx]="item.startX" [attr.cy]="item.startY" r="10"
-                    fill="none" [attr.stroke]="item.accentColor" stroke-width="1.5" class="pulse-ring" />
-            <circle [attr.cx]="item.startX" [attr.cy]="item.startY" r="4.5"
-                    [attr.fill]="item.accentColor" />
+        <!-- Pulse dot at origin on the target UI element -->
+        <circle [attr.cx]="arrowStartX" [attr.cy]="arrowStartY" r="8"
+                fill="none" stroke="#f59e0b" stroke-width="1.5" class="origin-pulse" />
+        <circle [attr.cx]="arrowStartX" [attr.cy]="arrowStartY" r="4" fill="#f59e0b" />
 
-            <!-- Curved Dashed Connector Arrow -->
-            <path [attr.d]="item.pathD"
-                  [attr.stroke]="item.accentColor"
-                  stroke-width="2.5"
-                  stroke-dasharray="7,5"
-                  fill="none"
-                  class="curved-dashed-arrow"
-                  [attr.marker-end]="'url(#arrow-marker-' + i + ')'" />
-          </g>
-        </ng-container>
+        <!-- Curved Dashed Arrow from element to speech bubble -->
+        <path [attr.d]="pathD"
+              stroke="#f59e0b"
+              stroke-width="2.5"
+              stroke-dasharray="6,4"
+              fill="none"
+              class="dashed-arrow"
+              marker-end="url(#guide-arrow-marker)" />
       </svg>
 
-      <!-- ── Highlight Frames over Real UI Elements ── -->
-      <ng-container *ngIf="!currentStep.isIntro">
-        <div class="element-spotlight"
-             *ngFor="let item of activeCallouts"
-             [style.display]="item.targetRect ? 'block' : 'none'"
-             [style.top.px]="(item.targetRect?.top || 0) - 5"
-             [style.left.px]="(item.targetRect?.left || 0) - 5"
-             [style.width.px]="(item.targetRect?.width || 0) + 10"
-             [style.height.px]="(item.targetRect?.height || 0) + 10"
-             [style.borderColor]="item.accentColor"
-             [style.boxShadow]="'0 0 18px ' + item.accentColor + '88'">
-          <span class="spotlight-badge" [style.background]="item.accentColor">
-            {{ item.tag }}
-          </span>
-        </div>
-      </ng-container>
+      <!-- ── Spotlight Frame on Target Element ── -->
+      <div class="guide-target-spotlight"
+           *ngIf="!currentStep.isIntro && targetRect"
+           [style.top.px]="targetRect.top - 4"
+           [style.left.px]="targetRect.left - 4"
+           [style.width.px]="targetRect.width + 8"
+           [style.height.px]="targetRect.height + 8">
+        <span class="spotlight-name">{{ currentStep.stepTitle }}</span>
+      </div>
 
-      <!-- ── Direct Annotation Callout Popups ── -->
-      <ng-container *ngIf="!currentStep.isIntro">
-        <div class="callout-card"
-             *ngFor="let item of activeCallouts; let ci = index"
-             [style.display]="item.cardRect ? 'flex' : 'none'"
-             [style.top.px]="item.cardRect?.top"
-             [style.left.px]="item.cardRect?.left"
-             [style.width.px]="item.cardRect?.width"
-             [style.borderTopColor]="item.accentColor"
-             (click)="nextStep()">
-          <div class="callout-accent-bar" [style.background]="item.accentColor"></div>
+      <!-- ── Speech Bubble Card (Bright Theme) ── -->
+      <div class="guide-card"
+           [class.is-intro-card]="currentStep.isIntro"
+           [ngStyle]="currentStep.isIntro ? {} : cardStyle">
 
-          <div class="callout-header">
-            <span class="callout-tag" [style.color]="item.accentColor" [style.borderColor]="item.accentColor">
-              {{ item.tag }}
-            </span>
-            <span class="callout-target-label">CONNECTED UI</span>
-          </div>
+        <!-- Top Accent Bar -->
+        <div class="card-accent-bar"></div>
 
-          <h3 class="callout-title">{{ item.title }}</h3>
-          <div class="callout-highlight" [style.color]="item.accentColor">{{ item.highlight }}</div>
-
-          <div class="callout-divider"></div>
-
-          <p class="callout-details">{{ item.details }}</p>
-
-          <div class="callout-subnote" *ngIf="item.subnote">
-            <span class="subnote-bullet" [style.color]="item.accentColor">›</span>
-            <span class="subnote-text">{{ item.subnote }}</span>
-          </div>
-
-          <div class="callout-footer-action">
-            <span>CLICK TO ADVANCE</span>
-            <span class="action-arrow">→</span>
-          </div>
-        </div>
-      </ng-container>
-
-      <!-- ── Intro / Welcome Briefing Card (Centered) ── -->
-      <div class="intro-modal-card" *ngIf="currentStep.isIntro">
-        <div class="intro-header">
-          <div class="intro-mascot-pill">
-            <img src="casmango-logo.jpg" alt="CasMANGO" class="intro-logo-thumb" />
-            <div class="intro-mascot-meta">
-              <span class="intro-mascot-badge">SYSTEM INITIALIZATION</span>
-              <strong class="intro-mascot-title">CasMANGO CRISPR Engine</strong>
+        <!-- Header: Mascot & Step Progress -->
+        <div class="card-header">
+          <div class="mascot-group">
+            <img src="casmango-logo.jpg" alt="CasMANGO" class="mascot-thumb" />
+            <div class="mascot-meta">
+              <strong class="mascot-name">CasMANGO</strong>
+              <span class="step-indicator" *ngIf="!currentStep.isIntro">
+                Step {{ currentStepIndex }} / {{ steps.length - 1 }} · {{ currentStep.stepTitle }}
+              </span>
+              <span class="step-indicator" *ngIf="currentStep.isIntro">Interactive Guide</span>
             </div>
           </div>
-          <button type="button" class="btn-intro-close" (click)="closeGuide()" title="Close Tutorial">✕</button>
+
+          <button type="button" class="btn-card-close" (click)="closeGuide()" title="Close Tutorial (Esc)">
+            ✕
+          </button>
         </div>
 
-        <h1 class="intro-headline">{{ currentStep.headline }}</h1>
-        <p class="intro-subhead">
-          High-precision, client-side amplicon analysis built specifically for polyploid crops and modern CRISPR workflows.
-        </p>
+        <!-- Headline -->
+        <h2 class="card-headline">{{ currentStep.headline }}</h2>
 
-        <div class="intro-pillars-grid">
-          <div class="pillar-card" *ngFor="let pillar of currentStep.introPillars">
-            <div class="pillar-top" [style.borderColor]="pillar.color">
-              <span class="pillar-tag" [style.color]="pillar.color">{{ pillar.tag }}</span>
-            </div>
-            <h4 class="pillar-title">{{ pillar.title }}</h4>
-            <p class="pillar-highlight" [style.color]="pillar.color">{{ pillar.highlight }}</p>
-            <p class="pillar-details">{{ pillar.details }}</p>
-            <div class="pillar-subnote" *ngIf="pillar.subnote">
-              <span>› {{ pillar.subnote }}</span>
-            </div>
+        <!-- Main Summary -->
+        <p class="card-summary">{{ currentStep.summary }}</p>
+
+        <!-- Core Bullet Points -->
+        <div class="points-container">
+          <div class="point-row" *ngFor="let pt of currentStep.points">
+            <span class="point-badge">{{ pt.title }}</span>
+            <span class="point-desc">{{ pt.text }}</span>
           </div>
         </div>
 
-        <div class="intro-actions">
-          <div class="intro-prereq-note">
-            <span class="prereq-label">REQUIRED INPUTS:</span>
-            <span class="prereq-items">FASTQ Reads (.fq / .gz) · Wild-Type Reference Sequence · gRNA Spacer Target</span>
+        <!-- Optional Tip Box -->
+        <div class="card-tip-box" *ngIf="currentStep.tip">
+          <strong class="tip-tag">TIP</strong>
+          <span class="tip-desc">{{ currentStep.tip }}</span>
+        </div>
+
+        <!-- Footer Navigation -->
+        <div class="card-footer">
+          <button type="button"
+                  class="btn-nav btn-prev"
+                  *ngIf="!currentStep.isIntro"
+                  (click)="prevStep()">
+            ◀ Back
+          </button>
+
+          <!-- Step Dots -->
+          <div class="step-dots-row">
+            <span *ngFor="let s of steps; let i = index"
+                  class="dot-pill"
+                  [class.active]="i === currentStepIndex"
+                  (click)="goToStep(i)"
+                  [title]="s.stepTitle"></span>
           </div>
-          <button type="button" class="btn-start-tour" (click)="nextStep()">
-            <span>START INTERACTIVE TOUR</span>
-            <span class="btn-tour-arrow">▶</span>
+
+          <button type="button"
+                  class="btn-nav btn-next"
+                  (click)="nextStep()">
+            {{ isLastStep ? 'Finish Guide ✕' : (currentStep.isIntro ? 'Start Guide ▶' : 'Next ▶') }}
           </button>
         </div>
       </div>
-
-      <!-- ── Top Stage Bar ── -->
-      <header class="top-stage-bar" *ngIf="!currentStep.isIntro">
-        <div class="stage-info">
-          <span class="stage-number">{{ currentStep.stepNum }}</span>
-          <span class="stage-divider">/</span>
-          <span class="stage-total">STAGE 6</span>
-          <span class="stage-category">{{ currentStep.stepCategory }}</span>
-        </div>
-
-        <h2 class="stage-headline">{{ currentStep.headline }}</h2>
-
-        <button type="button" class="btn-stage-exit" (click)="closeGuide()" title="Exit Guide (Esc)">
-          EXIT ✕
-        </button>
-      </header>
-
-      <!-- ── Bottom HUD Controller Bar ── -->
-      <footer class="bottom-hud-bar">
-        <!-- Left: Mascot Identity -->
-        <div class="hud-mascot-section">
-          <div class="hud-mascot-avatar">
-            <img src="casmango-logo.jpg" alt="CasMANGO" class="hud-avatar-img" />
-            <span class="hud-online-dot"></span>
-          </div>
-          <div class="hud-mascot-info">
-            <span class="hud-mascot-role">INTERACTIVE TOUR</span>
-            <strong class="hud-mascot-name">CasMANGO Walkthrough</strong>
-          </div>
-        </div>
-
-        <!-- Center: Step Progress Pills & Operation Hint -->
-        <div class="hud-center-section">
-          <div class="hud-step-pills">
-            <button type="button"
-                    *ngFor="let s of steps; let i = index"
-                    class="hud-pill"
-                    [class.active]="i === currentStepIndex"
-                    [class.completed]="i < currentStepIndex"
-                    [title]="s.headline"
-                    (click)="goToStep(i)">
-              <span class="pill-number">{{ i }}</span>
-            </button>
-          </div>
-          <div class="hud-hint-text">
-            <span class="hint-bullet">●</span>
-            <span>{{ currentStep.hint }}</span>
-          </div>
-        </div>
-
-        <!-- Right: Prev / Next Navigation Buttons -->
-        <div class="hud-actions-section">
-          <button type="button"
-                  class="btn-hud-nav btn-hud-prev"
-                  [disabled]="currentStepIndex === 0"
-                  (click)="prevStep()">
-            ◀ PREV
-          </button>
-
-          <button type="button"
-                  class="btn-hud-nav btn-hud-next"
-                  (click)="nextStep()">
-            <span>{{ isLastStep ? 'FINISH TOUR ⚔️' : 'NEXT STAGE ▶' }}</span>
-            <span class="hud-key-pill" *ngIf="!isLastStep">ENTER</span>
-          </button>
-        </div>
-      </footer>
     </div>
   `,
   styles: [`
@@ -260,26 +141,32 @@ export interface GuideStep {
       display: block;
     }
 
-    /* ── Main Fullscreen Overlay (NO BLUR, Crisp Transparency) ── */
-    .tutorial-overlay {
+    /* ── Overlay: Clean, bright-friendly dark-tint (NO BLUR) ── */
+    .guide-overlay {
       position: fixed;
       inset: 0;
       z-index: 10000;
-      background: rgba(8, 14, 26, 0.68);
-      backdrop-filter: none; /* No blur! Target UI is completely sharp */
+      background: rgba(15, 23, 42, 0.45);
+      backdrop-filter: none; /* Completely sharp UI underneath */
       outline: none;
       pointer-events: auto;
       user-select: none;
-      animation: overlayFade 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      animation: fadeIn 0.2s ease forwards;
     }
 
-    @keyframes overlayFade {
+    .guide-overlay.intro-mode {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    @keyframes fadeIn {
       from { opacity: 0; }
       to { opacity: 1; }
     }
 
-    /* ── SVG Curved Dashed Arrows Layer ── */
-    .arrows-svg-layer {
+    /* ── SVG Curved Dashed Arrow ── */
+    .guide-svg-layer {
       position: fixed;
       inset: 0;
       width: 100vw;
@@ -288,673 +175,288 @@ export interface GuideStep {
       z-index: 10002;
     }
 
-    .curved-dashed-arrow {
-      animation: dashFlow 1.2s linear infinite;
-      filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.7));
+    .dashed-arrow {
+      animation: arrowDash 1.2s linear infinite;
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
     }
 
-    @keyframes dashFlow {
+    @keyframes arrowDash {
       from { stroke-dashoffset: 0; }
-      to { stroke-dashoffset: -24; }
+      to { stroke-dashoffset: -20; }
     }
 
-    .pulse-ring {
-      animation: pulseRipple 1.6s ease-out infinite;
+    .origin-pulse {
+      animation: pulseRipple 1.5s ease-out infinite;
       transform-origin: center;
     }
 
     @keyframes pulseRipple {
       0% { r: 4; opacity: 1; }
-      100% { r: 16; opacity: 0; }
+      100% { r: 14; opacity: 0; }
     }
 
-    /* ── Spotlight Box around Actual UI Elements ── */
-    .element-spotlight {
+    /* ── Target Spotlight Frame on Real UI ── */
+    .guide-target-spotlight {
       position: fixed;
       z-index: 10001;
-      border: 2.5px solid #38bdf8;
-      border-radius: 10px;
+      border: 2.5px solid #f59e0b;
+      box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.25), 0 4px 14px rgba(0, 0, 0, 0.15);
+      border-radius: 8px;
       pointer-events: none;
-      transition: all 0.25s cubic-bezier(0.2, 0.9, 0.3, 1);
+      transition: all 0.2s ease;
     }
 
-    .spotlight-badge {
+    .spotlight-name {
       position: absolute;
-      top: -12px;
-      left: 12px;
-      color: #0f172a;
+      top: -11px;
+      left: 10px;
+      background: #f59e0b;
+      color: #ffffff;
       font-size: 10px;
-      font-weight: 900;
-      letter-spacing: 0.08em;
-      padding: 2px 10px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      padding: 1px 8px;
       border-radius: 999px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
     }
 
-    /* ── Connected Callout Popups (Sleek HUD Cards) ── */
-    .callout-card {
+    /* ── Bright Speech Bubble Card ── */
+    .guide-card {
       position: fixed;
       z-index: 10005;
-      background: #0f172a;
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      border-radius: 12px;
-      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65), 0 0 20px rgba(0, 0, 0, 0.4);
-      padding: 16px 18px 14px 18px;
+      background: #ffffff;
+      color: #1e293b;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.06);
+      padding: 22px 24px 18px 24px;
       display: flex;
       flex-direction: column;
-      cursor: pointer;
       pointer-events: auto;
-      transition: transform 0.18s ease, box-shadow 0.18s ease;
-      animation: calloutPop 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      max-width: 480px;
+      width: calc(100vw - 32px);
+      animation: cardPop 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
 
-    .callout-card:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 20px 44px rgba(0, 0, 0, 0.8), 0 0 25px rgba(56, 189, 248, 0.25);
-      border-color: rgba(255, 255, 255, 0.3);
+    .guide-card.is-intro-card {
+      position: relative;
+      max-width: 540px;
+      margin: auto;
     }
 
-    @keyframes calloutPop {
-      from { transform: scale(0.92) translateY(10px); opacity: 0; }
-      to { transform: scale(1) translateY(0); opacity: 1; }
+    @keyframes cardPop {
+      from { transform: scale(0.96); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
     }
 
-    .callout-accent-bar {
+    .card-accent-bar {
       position: absolute;
       top: 0;
       left: 0;
       right: 0;
-      height: 3px;
-      border-radius: 12px 12px 0 0;
+      height: 4px;
+      background: linear-gradient(90deg, #f59e0b, #ea580c);
+      border-radius: 16px 16px 0 0;
     }
 
-    .callout-header {
+    /* ── Header ── */
+    .card-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 8px;
+      margin-bottom: 12px;
     }
 
-    .callout-tag {
-      font-size: 10px;
-      font-weight: 900;
-      letter-spacing: 0.08em;
-      border: 1px solid;
-      padding: 2px 8px;
-      border-radius: 6px;
-      background: rgba(255, 255, 255, 0.04);
-    }
-
-    .callout-target-label {
-      font-size: 10px;
-      font-weight: 800;
-      color: #64748b;
-      letter-spacing: 0.06em;
-    }
-
-    .callout-title {
-      margin: 0 0 3px 0;
-      font-size: 16px;
-      font-weight: 800;
-      color: #ffffff;
-      letter-spacing: -0.01em;
-    }
-
-    .callout-highlight {
-      font-size: 12.5px;
-      font-weight: 700;
-      margin-bottom: 8px;
-    }
-
-    .callout-divider {
-      height: 1px;
-      background: rgba(255, 255, 255, 0.08);
-      margin-bottom: 8px;
-    }
-
-    .callout-details {
-      margin: 0 0 8px 0;
-      font-size: 12px;
-      color: #cbd5e1;
-      line-height: 1.5;
-    }
-
-    .callout-subnote {
-      display: flex;
-      align-items: baseline;
-      gap: 6px;
-      font-size: 11px;
-      color: #94a3b8;
-      border-top: 1px dashed rgba(255, 255, 255, 0.08);
-      padding-top: 6px;
-      margin-bottom: 6px;
-    }
-
-    .subnote-bullet {
-      font-weight: 900;
-      font-size: 13px;
-    }
-
-    .subnote-text {
-      line-height: 1.4;
-    }
-
-    .callout-footer-action {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 5px;
-      font-size: 10.5px;
-      font-weight: 800;
-      color: #64748b;
-      letter-spacing: 0.05em;
-      margin-top: 2px;
-    }
-
-    .callout-card:hover .callout-footer-action {
-      color: #38bdf8;
-    }
-
-    /* ── Top Stage Bar ── */
-    .top-stage-bar {
-      position: fixed;
-      top: 16px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 10006;
-      background: #0f172a;
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      border-radius: 999px;
-      padding: 8px 24px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
-      pointer-events: auto;
-    }
-
-    .stage-info {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .stage-number {
-      font-size: 13px;
-      font-weight: 900;
-      color: #f59e0b;
-    }
-
-    .stage-divider {
-      color: #475569;
-      font-size: 12px;
-    }
-
-    .stage-total {
-      color: #64748b;
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    .stage-category {
-      background: rgba(255, 255, 255, 0.08);
-      color: #94a3b8;
-      font-size: 10.5px;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-      padding: 2px 10px;
-      border-radius: 999px;
-      margin-left: 6px;
-    }
-
-    .stage-headline {
-      margin: 0;
-      font-size: 15px;
-      font-weight: 800;
-      color: #ffffff;
-      letter-spacing: -0.01em;
-    }
-
-    .btn-stage-exit {
-      background: rgba(239, 68, 68, 0.15);
-      border: 1px solid rgba(239, 68, 68, 0.4);
-      color: #fca5a5;
-      font-size: 11px;
-      font-weight: 800;
-      padding: 4px 12px;
-      border-radius: 999px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .btn-stage-exit:hover {
-      background: #ef4444;
-      color: #ffffff;
-    }
-
-    /* ── Intro Modal Card (Centered) ── */
-    .intro-modal-card {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      z-index: 10006;
-      width: calc(100vw - 64px);
-      max-width: 1080px;
-      background: #0f172a;
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      border-radius: 20px;
-      padding: 36px 40px;
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), 0 0 35px rgba(245, 158, 11, 0.15);
-      pointer-events: auto;
-      animation: calloutPop 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    }
-
-    .intro-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 18px;
-    }
-
-    .intro-mascot-pill {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-
-    .intro-logo-thumb {
-      width: 48px;
-      height: 48px;
-      border-radius: 12px;
-      border: 2px solid #f59e0b;
-      object-fit: cover;
-    }
-
-    .intro-mascot-meta {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .intro-mascot-badge {
-      font-size: 11px;
-      font-weight: 800;
-      color: #f59e0b;
-      letter-spacing: 0.08em;
-    }
-
-    .intro-mascot-title {
-      font-size: 17px;
-      font-weight: 900;
-      color: #ffffff;
-    }
-
-    .btn-intro-close {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      color: #cbd5e1;
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 800;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.15s ease;
-    }
-
-    .btn-intro-close:hover {
-      background: #ef4444;
-      color: #ffffff;
-      border-color: #ef4444;
-    }
-
-    .intro-headline {
-      margin: 0 0 8px 0;
-      font-size: 28px;
-      font-weight: 900;
-      color: #ffffff;
-      letter-spacing: -0.02em;
-    }
-
-    .intro-subhead {
-      margin: 0 0 24px 0;
-      font-size: 14.5px;
-      color: #94a3b8;
-      line-height: 1.5;
-    }
-
-    .intro-pillars-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-
-    .pillar-card {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.09);
-      border-radius: 12px;
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .pillar-top {
-      border-left: 3px solid;
-      padding-left: 8px;
-      margin-bottom: 8px;
-    }
-
-    .pillar-tag {
-      font-size: 10px;
-      font-weight: 900;
-      letter-spacing: 0.08em;
-    }
-
-    .pillar-title {
-      margin: 0 0 4px 0;
-      font-size: 15px;
-      font-weight: 800;
-      color: #ffffff;
-    }
-
-    .pillar-highlight {
-      margin: 0 0 8px 0;
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    .pillar-details {
-      margin: 0 0 10px 0;
-      font-size: 11.5px;
-      color: #cbd5e1;
-      line-height: 1.45;
-      flex: 1;
-    }
-
-    .pillar-subnote {
-      font-size: 10.5px;
-      color: #64748b;
-      border-top: 1px dashed rgba(255, 255, 255, 0.08);
-      padding-top: 6px;
-    }
-
-    .intro-actions {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
-      padding-top: 18px;
-    }
-
-    .intro-prereq-note {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .prereq-label {
-      font-size: 10.5px;
-      font-weight: 900;
-      color: #10b981;
-      letter-spacing: 0.06em;
-    }
-
-    .prereq-items {
-      font-size: 12px;
-      color: #cbd5e1;
-      font-weight: 500;
-    }
-
-    .btn-start-tour {
-      background: linear-gradient(135deg, #f59e0b, #d97706);
-      color: #0f172a;
-      border: none;
-      padding: 12px 28px;
-      border-radius: 12px;
-      font-size: 14px;
-      font-weight: 900;
-      letter-spacing: 0.04em;
-      cursor: pointer;
+    .mascot-group {
       display: flex;
       align-items: center;
       gap: 10px;
-      box-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
-      transition: all 0.18s ease;
     }
 
-    .btn-start-tour:hover {
-      background: linear-gradient(135deg, #fbbf24, #f59e0b);
-      transform: translateY(-2px);
-      box-shadow: 0 0 28px rgba(245, 158, 11, 0.6);
-    }
-
-    .btn-tour-arrow {
-      font-size: 12px;
-    }
-
-    /* ── Bottom HUD Controller Bar ── */
-    .bottom-hud-bar {
-      position: fixed;
-      bottom: 16px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: calc(100vw - 48px);
-      max-width: 1280px;
-      z-index: 10006;
-      background: #0f172a;
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      border-radius: 16px;
-      padding: 10px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 20px;
-      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
-      pointer-events: auto;
-    }
-
-    .hud-mascot-section {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex-shrink: 0;
-    }
-
-    .hud-mascot-avatar {
-      position: relative;
-      width: 36px;
-      height: 36px;
-    }
-
-    .hud-avatar-img {
-      width: 100%;
-      height: 100%;
-      border-radius: 10px;
+    .mascot-thumb {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
       border: 1.5px solid #f59e0b;
       object-fit: cover;
     }
 
-    .hud-online-dot {
-      position: absolute;
-      bottom: -2px;
-      right: -2px;
-      width: 10px;
-      height: 10px;
-      border-radius: 999px;
-      background: #10b981;
-      border: 2px solid #0f172a;
-    }
-
-    .hud-mascot-info {
+    .mascot-meta {
       display: flex;
       flex-direction: column;
     }
 
-    .hud-mascot-role {
-      font-size: 10px;
+    .mascot-name {
+      font-size: 13.5px;
       font-weight: 800;
-      color: #f59e0b;
-      letter-spacing: 0.08em;
+      color: #0f172a;
     }
 
-    .hud-mascot-name {
+    .step-indicator {
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    .btn-card-close {
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      color: #64748b;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
       font-size: 13px;
-      font-weight: 800;
-      color: #ffffff;
-    }
-
-    .hud-center-section {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 4px;
-      flex: 1;
-      min-width: 0;
-    }
-
-    .hud-step-pills {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .hud-pill {
-      width: 22px;
-      height: 22px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      color: #94a3b8;
-      font-size: 10.5px;
-      font-weight: 800;
+      font-weight: 700;
+      cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      cursor: pointer;
       transition: all 0.15s ease;
-      padding: 0;
     }
 
-    .hud-pill.active {
-      width: 38px;
-      background: #f59e0b;
-      border-color: #f59e0b;
+    .btn-card-close:hover {
+      background: #fee2e2;
+      color: #ef4444;
+      border-color: #fca5a5;
+    }
+
+    /* ── Typography & Points ── */
+    .card-headline {
+      margin: 0 0 6px 0;
+      font-size: 18px;
+      font-weight: 800;
       color: #0f172a;
-      box-shadow: 0 0 14px rgba(245, 158, 11, 0.6);
+      letter-spacing: -0.01em;
     }
 
-    .hud-pill.completed {
-      background: rgba(16, 185, 129, 0.2);
-      border-color: #10b981;
-      color: #34d399;
+    .card-summary {
+      margin: 0 0 12px 0;
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.5;
     }
 
-    .hud-hint-text {
+    .points-container {
       display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      color: #cbd5e1;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 100%;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 12px;
     }
 
-    .hint-bullet {
-      color: #10b981;
-      font-size: 8px;
-    }
-
-    .hud-actions-section {
+    .point-row {
       display: flex;
-      align-items: center;
-      gap: 10px;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+
+    .point-badge {
+      font-size: 10.5px;
+      font-weight: 800;
+      color: #0369a1;
+      background: #e0f2fe;
+      padding: 1px 7px;
+      border-radius: 4px;
       flex-shrink: 0;
     }
 
-    .btn-hud-nav {
-      padding: 8px 18px;
-      border-radius: 10px;
+    .point-desc {
+      color: #334155;
+    }
+
+    /* ── Tip Box ── */
+    .card-tip-box {
+      background: #fffbeb;
+      border: 1px solid #fef3c7;
+      border-radius: 8px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 11.5px;
+      color: #92400e;
+      margin-bottom: 14px;
+    }
+
+    .tip-tag {
+      font-size: 10px;
+      font-weight: 900;
+      background: #f59e0b;
+      color: #ffffff;
+      padding: 1px 5px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .tip-desc {
+      line-height: 1.4;
+    }
+
+    /* ── Footer & Navigation ── */
+    .card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid #f1f5f9;
+      padding-top: 12px;
+    }
+
+    .step-dots-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .dot-pill {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: #cbd5e1;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .dot-pill.active {
+      width: 18px;
+      background: #f59e0b;
+      box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+    }
+
+    .btn-nav {
+      padding: 7px 16px;
+      border-radius: 8px;
       font-size: 12px;
       font-weight: 800;
-      letter-spacing: 0.04em;
       cursor: pointer;
+      transition: all 0.15s ease;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      transition: all 0.15s ease;
     }
 
-    .btn-hud-prev {
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      color: #cbd5e1;
+    .btn-prev {
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      color: #475569;
     }
 
-    .btn-hud-prev:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.12);
+    .btn-prev:hover {
+      background: #e2e8f0;
+      color: #1e293b;
+    }
+
+    .btn-next {
+      background: #f59e0b;
+      border: 1px solid #d97706;
       color: #ffffff;
+      margin-left: auto;
+      box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
     }
 
-    .btn-hud-prev:disabled {
-      opacity: 0.25;
-      cursor: not-allowed;
-    }
-
-    .btn-hud-next {
-      background: linear-gradient(135deg, #f59e0b, #d97706);
-      border: none;
-      color: #0f172a;
-      box-shadow: 0 0 16px rgba(245, 158, 11, 0.4);
-    }
-
-    .btn-hud-next:hover {
-      background: linear-gradient(135deg, #fbbf24, #f59e0b);
-      transform: translateY(-1px);
-      box-shadow: 0 0 22px rgba(245, 158, 11, 0.6);
-    }
-
-    .hud-key-pill {
-      font-size: 9px;
-      font-weight: 800;
-      background: rgba(15, 23, 42, 0.3);
-      padding: 1px 5px;
-      border-radius: 4px;
-    }
-
-    /* ── Responsive Adjustments ── */
-    @media (max-width: 1024px) {
-      .intro-pillars-grid {
-        grid-template-columns: 1fr;
-      }
-      .intro-modal-card {
-        padding: 24px;
-        max-height: 85vh;
-        overflow-y: auto;
-      }
-      .top-stage-bar {
-        width: calc(100vw - 32px);
-        justify-content: space-between;
-      }
-      .stage-headline {
-        display: none;
-      }
-    }
-
-    @media (max-width: 768px) {
-      .bottom-hud-bar {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 12px;
-      }
-      .hud-actions-section {
-        justify-content: flex-end;
-      }
+    .btn-next:hover {
+      background: #d97706;
+      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
     }
   `]
 })
@@ -964,282 +466,170 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
 
   currentStepIndex = 0;
 
+  targetRect: DOMRect | null = null;
+  cardStyle: { [key: string]: string } = {};
+
+  arrowStartX = 0;
+  arrowStartY = 0;
+  arrowEndX = 0;
+  arrowEndY = 0;
+  pathD = '';
+
   steps: GuideStep[] = [
-    // ── Stage 0: System Initialization & Intro ──
+    // ── Step 0: Intro (Centered) ──
     {
       id: 'intro',
-      stepNum: 'STAGE 0',
-      stepCategory: 'INITIALIZATION',
-      headline: 'CasMANGO: High-Precision Client-Side CRISPR Engine',
-      hint: 'Click "Start Interactive Tour" or press Enter to begin the guided walkthrough.',
-      isIntro: true,
-      introPillars: [
+      stepTitle: 'Overview',
+      headline: 'Welcome to CasMANGO!',
+      summary: 'CasMANGO is a high-precision, 100% client-side CRISPR amplicon analysis tool engineered for polyploids (wheat, canola) and single-locus targets.',
+      points: [
         {
-          tag: '100% LOCAL PRIVACY',
-          title: 'Client-Side Execution',
-          highlight: 'Zero Cloud Transmission',
-          details: 'All sequencing FASTQ data is parsed and evaluated entirely inside Web Workers on your device. Private genetic files never touch an external server.',
-          subnote: 'Clinical & proprietary genetic datasets remain strictly confidential.',
-          color: '#38bdf8'
+          title: '100% Private',
+          text: 'FASTQ files are parsed in local browser memory and never uploaded to any server.'
         },
         {
-          tag: 'PLATFORM AGNOSTIC',
-          title: 'Illumina & Nanopore',
-          highlight: 'Short & Long Read Engines',
-          details: 'Seamlessly handles short-read Illumina paired ends (with mate linking & gap X-padding) as well as Oxford Nanopore long-read amplicons.',
-          subnote: 'Supports raw (.fastq) and compressed (.fastq.gz / .fq.gz) archives.',
-          color: '#10b981'
+          title: 'Platforms',
+          text: 'Supports Illumina paired-end short reads and Oxford Nanopore long reads.'
         },
         {
-          tag: 'POLYPLOID SPECIALTY',
-          title: 'Zero-Misassignment Demux',
-          highlight: 'Engineered for Polyploids',
-          details: 'Alignment models and similarity margins reliably segregate nearly-identical homoeologs (e.g. 4A/4B/4D) with verified 0% cross-assignment error.',
-          subnote: 'Benchmark-proven accuracy against CRISPRessoPooled and CRISPResso2.',
-          color: '#f59e0b'
+          title: 'Prerequisites',
+          text: '1) FASTQ files (.fq / .gz), 2) Wild-Type Reference Amplicon, 3) gRNA Spacer Sequence.'
         }
-      ]
+      ],
+      tip: 'Click "Start Guide ▶" to take a step-by-step interactive walkthrough of the tool.',
+      isIntro: true
     },
 
-    // ── Stage 1: Sequencing Platform & Reference Mode ──
+    // ── Step 1: Platform & Mode ──
     {
       id: 'platform-mode',
-      stepNum: 'STAGE 1',
-      stepCategory: 'SEQUENCING ARCHITECTURE',
-      headline: 'Select Sequencing Technology & Reference Mode',
-      hint: 'Look at the highlighted toggles above. Curved arrows point to each platform mode.',
-      primaryScrollTarget: '#guide-platform-choice',
-      callouts: [
+      stepTitle: 'Platform & Mode',
+      headline: 'Platform & Homoeolog Mode',
+      summary: 'Choose your sequencing chemistry and reference classification mode.',
+      points: [
         {
-          id: 'platform-chemistry',
-          targetSelector: '#guide-platform-choice',
-          tag: '01 · PLATFORM CHEMISTRY',
-          title: 'Illumina vs. Nanopore',
-          highlight: 'Short-Read Pairing vs. Long-Read Alignment',
-          details: 'Illumina mode auto-pairs R1/R2 and applies gap X-padding for non-overlapping reads. Nanopore mode activates long-read amplicon alignment with terminal anchor checks.',
-          subnote: 'Both chemistries support raw and compressed (.gz) FASTQ files.',
-          accentColor: '#38bdf8',
-          placement: 'bottom-left',
-          offsetX: -10,
-          offsetY: 20
+          title: 'Platform',
+          text: 'Illumina auto-pairs R1/R2 and applies gap X-padding; Nanopore aligns long amplicons with terminal anchor checks. Both accept .fastq.gz.'
         },
         {
-          id: 'reference-mode',
-          targetSelector: '#guide-mode-choice',
-          tag: '02 · GENOME COMPLEXITY',
-          title: 'Standard vs. Homoeolog',
-          highlight: 'Single Locus vs. Polyploid Disambiguation',
-          details: 'Standard mode processes individual genes independently. Homoeolog mode computes cross-subgenome competition (e.g. 4A/4B/4D) to eliminate cross-misassignments.',
-          subnote: 'Always choose Homoeolog mode for allopolyploid crops (wheat, canola).',
-          accentColor: '#f59e0b',
-          placement: 'bottom-right',
-          offsetX: 10,
-          offsetY: 20
+          title: 'Reference Mode',
+          text: 'Use Standard for independent loci. Use Homoeolog for polyploid crops (wheat, canola) to analyze inter-subgenome competition with 0% misassignment.'
         }
-      ]
+      ],
+      tip: 'Polyploid samples (e.g. 4A/4B/4D) should always be analyzed in Homoeolog mode.',
+      targetSelector: '#guide-platform-choice'
     },
 
-    // ── Stage 2: FASTQ File Ingestion ──
+    // ── Step 2: File Upload ──
     {
       id: 'file-upload',
-      stepNum: 'STAGE 2',
-      stepCategory: 'DATA INGESTION',
-      headline: 'Direct File Drag & Drop with Automated Pairing',
-      hint: 'Drag your FASTQ / GZ files directly into the central drop zone.',
-      primaryScrollTarget: '#guide-upload-zone',
-      callouts: [
+      stepTitle: 'File Upload',
+      headline: 'FASTQ File Ingestion',
+      summary: 'Drag and drop your raw or gzip-compressed sequencing files directly into the central dropzone.',
+      points: [
         {
-          id: 'dropzone',
-          targetSelector: '#guide-upload-zone',
-          tag: '01 · UNIVERSAL DROPZONE',
-          title: 'Zero-Upload Browser Stream',
-          highlight: '.fastq / .fq / .fastq.gz / .fq.gz',
-          details: 'Drop any number of sequencing files directly into the central area. Files are parsed in browser memory without sending a single byte to an external server.',
-          subnote: 'Decompression of gzip archives occurs on-the-fly in local memory.',
-          accentColor: '#10b981',
-          placement: 'bottom-left',
-          offsetX: 40,
-          offsetY: -30
+          title: 'Formats',
+          text: 'Accepts .fastq, .fq, and compressed .fastq.gz / .fq.gz directly.'
         },
         {
-          id: 'pairing-workers',
-          targetSelector: '#guide-upload-zone',
-          tag: '02 · CONCURRENCY & MATES',
-          title: 'Automated Illumina Mate Linking',
-          highlight: 'Parallel Multi-Threaded Workers',
-          details: 'Illumina R1 and R2 pairs are automatically matched from filenames into paired slots. Each sample is analyzed in parallel by an independent browser Web Worker.',
-          subnote: 'Mismatched mates can also be manually dragged between slots.',
-          accentColor: '#8b5cf6',
-          placement: 'bottom-right',
-          offsetX: -40,
-          offsetY: -30
+          title: 'Auto-Pairing',
+          text: 'Illumina paired-end R1 and R2 files are matched automatically based on file name patterns.'
+        },
+        {
+          title: 'Multi-Core',
+          text: 'Each sample runs in parallel on an independent browser Web Worker thread.'
         }
-      ]
+      ],
+      tip: 'Files stay strictly on your computer and are decompressed in browser RAM.',
+      targetSelector: '#guide-upload-zone'
     },
 
-    // ── Stage 3: Reference & Target Configuration ──
+    // ── Step 3: Reference & Targets ──
     {
       id: 'ref-config',
-      stepNum: 'STAGE 3',
-      stepCategory: 'SEQUENCE CONFIGURATION',
-      headline: 'Reference Amplicon & Target (gRNA) Setup',
-      hint: 'Configure wild-type references and gRNA targets, or load dozens at once via Excel.',
-      primaryScrollTarget: '#guide-targets-section',
-      callouts: [
+      stepTitle: 'Ref & Targets',
+      headline: 'Reference Amplicon & gRNA Spacers',
+      summary: 'Enter your wild-type genomic sequence and guide target(s), or batch-load with Excel.',
+      points: [
         {
-          id: 'ref-inputs',
-          targetSelector: '#guide-targets-section',
-          tag: '01 · AMPLICON & gRNA',
-          title: 'Wild-Type Sequence & Guide Spacer',
-          highlight: 'Full Template & 19–25 bp Spacer',
-          details: 'Enter the wild-type amplicon sequence and target guide(s). CasMANGO automatically locates PAM sites and determines exact double-strand cut coordinates.',
-          subnote: 'Supports multiple guide RNA targets within the same reference amplicon.',
-          accentColor: '#38bdf8',
-          placement: 'bottom-left',
-          offsetX: 30,
-          offsetY: -50
+          title: 'Sequence Input',
+          text: 'Paste the WT reference sequence and 19-25 bp guide. Cut sites and PAM locations are detected automatically.'
         },
         {
-          id: 'autofill-btn',
-          targetSelector: '#guide-autofill-btn',
-          tag: '02 · BATCH AUTOMATION',
-          title: '1-Click Excel Auto Fill',
-          highlight: 'Download Template · Fill · Upload',
-          details: 'Use "Download Template" to get an Excel sheet formatted for your project, fill in dozens of targets, and upload it back to populate everything in 1 second.',
-          subnote: 'Export your current configuration anytime with "Download Current Config".',
-          accentColor: '#f59e0b',
-          placement: 'top-right',
-          offsetX: -20,
-          offsetY: -10
+          title: 'Auto Fill',
+          text: 'Click "Auto Fill" to download an Excel template, fill in dozens of targets, and upload in 1 second.'
         },
         {
-          id: 'scope-btn',
-          targetSelector: '#guide-scope-btn',
-          tag: '03 · MULTIPLEXING',
-          title: 'Config per File Override',
-          highlight: 'Sample-Specific Reference Mapping',
-          details: 'When different FASTQ files target distinct gene amplicons, enable "Config per File" to assign specific reference sets and gRNAs to each library.',
-          subnote: 'Files without overrides inherit the Default reference configuration.',
-          accentColor: '#ec4899',
-          placement: 'top-left',
-          offsetX: 20,
-          offsetY: -10
+          title: 'Config per File',
+          text: 'Enable when multiplexed FASTQ libraries require different reference sequences.'
         }
-      ]
+      ],
+      tip: 'You can add multiple guide RNA targets within the same reference amplicon.',
+      targetSelector: '#guide-targets-section'
     },
 
-    // ── Stage 4: Window Check (Visual Locus & Similarity Metric) ──
+    // ── Step 4: Window Check ──
     {
       id: 'window-check',
-      stepNum: 'STAGE 4',
-      stepCategory: 'PRECISION TUNING',
-      headline: 'Window Check: Visual Locus & Pairwise Similarity Matrix',
-      hint: 'The Window Check tool guides your choice of Assignment Margin and window boundaries.',
-      primaryScrollTarget: '#guide-window-check-btn',
-      callouts: [
+      stepTitle: 'Window Check',
+      headline: 'Window Check & Similarity Indicator',
+      summary: 'Preview the sequence cleavage span and check homoeolog sequence similarity.',
+      points: [
         {
-          id: 'window-check-tool',
-          targetSelector: '#guide-window-check-btn',
-          tag: '01 · VISUAL INSPECTOR',
-          title: 'Cleavage Span Preview',
-          highlight: 'Interactive 30–180 bp Sequence Span',
-          details: 'Inspect the nucleotide sequence surrounding the cut site. Verify visually whether your chosen window width encompasses all expected editing events and deletions.',
-          subnote: 'Prevents truncated measurements on large resection alleles.',
-          accentColor: '#10b981',
-          placement: 'bottom-left',
-          offsetX: 30,
-          offsetY: 20
+          title: 'Visual Locus',
+          text: 'Inspect the sequence centered around the cut site to ensure expected deletions stay within window bounds.'
         },
         {
-          id: 'similarity-matrix',
-          targetSelector: '#guide-window-check-btn',
-          tag: '02 · DECISION METRIC',
-          title: 'Pairwise Similarity Matrix',
-          highlight: 'Indicator for Assignment Margin (%)',
-          details: 'In Homoeolog mode, CasMANGO calculates pairwise similarity percentages between all references. High similarity (e.g. >98%) indicates you should raise Assignment Margin.',
-          subnote: 'Guarantees robust discrimination between paralogs with 0% misassignment.',
-          accentColor: '#f59e0b',
-          placement: 'bottom-right',
-          offsetX: 220,
-          offsetY: 20
+          title: 'Similarity Metric',
+          text: 'Calculates pairwise sequence identity between homoeologs.'
         }
-      ]
+      ],
+      tip: 'High similarity (e.g. >98%) is a direct indicator to increase your Assignment Margin parameter!',
+      targetSelector: '#guide-window-check-btn'
     },
 
-    // ── Stage 5: Algorithm Parameters & Advanced Settings ──
+    // ── Step 5: Parameters ──
     {
       id: 'parameters',
-      stepNum: 'STAGE 5',
-      stepCategory: 'ALGORITHM CONTROLS',
-      headline: 'Fine-Tune Window, Noise Gate, & Mutation Weights',
-      hint: 'Set core parameters, and use Advanced settings to protect against large deletion skew.',
-      primaryScrollTarget: '#guide-controls-grid',
-      callouts: [
+      stepTitle: 'Parameters',
+      headline: 'Parameters & Advanced Settings',
+      summary: 'Fine-tune analysis window boundaries, noise thresholds, and mutation weights.',
+      points: [
         {
-          id: 'core-params',
-          targetSelector: '#guide-controls-grid',
-          tag: '01 · CORE PARAMETERS',
-          title: 'Window, Quality & Assignment Margin',
-          highlight: 'Noise Filter & Demux Thresholds',
-          details: 'Window Size defines the analyzed span around the cut site (default 30 bp). Assignment Margin enforces a score advantage to prevent cross-assignment. Indel Threshold filters noise.',
-          subnote: 'Phred filtering automatically discards low-quality sequencing reads.',
-          accentColor: '#38bdf8',
-          placement: 'top-left',
-          offsetX: 40,
-          offsetY: -20
+          title: 'Core Controls',
+          text: 'Set Window Size (bp around cut site), Assignment Margin (% score difference for demux), and Indel Threshold (% noise filter).'
         },
         {
-          id: 'advanced-tuning',
-          targetSelector: '#guide-advanced-btn',
-          tag: '02 · MUTATION RESILIENCE',
-          title: 'Cut-Site Exclusion & Distance Weight',
-          highlight: 'Prevent Large Deletions from Skewing Demux',
-          details: 'Open "Advanced" to exclude mutations starting within cut site ±N bp from similarity scores, or apply distance weights to distant SNVs so large indels do not distort assignment.',
-          subnote: 'Also supports custom asymmetrical Left / Right window flank boundaries.',
-          accentColor: '#8b5cf6',
-          placement: 'bottom-right',
-          offsetX: -40,
-          offsetY: 20
+          title: 'Advanced',
+          text: 'Open "Advanced" to use Cut Site Exclusion and Distance Weight so large deletions do not skew classification.'
         }
-      ]
+      ],
+      tip: 'Phred threshold automatically filters out low-quality sequencing reads.',
+      targetSelector: '#guide-controls-grid'
     },
 
-    // ── Stage 6: Execution & Post-Run Viewers ──
+    // ── Step 6: Run & Viewers ──
     {
       id: 'run-and-view',
-      stepNum: 'STAGE 6',
-      stepCategory: 'MISSION COMMENCE',
-      headline: 'Launch Analysis, Inspect Dashboards, & Compare Benchmarks',
-      hint: 'Ready! Start analysis or use Result Viewer & Benchmark from the top navigation.',
-      primaryScrollTarget: '#guide-run-btn',
-      callouts: [
+      stepTitle: 'Run & Viewers',
+      headline: 'Run Analysis & Explore Dashboards',
+      summary: 'Start local multi-worker processing and explore interactive result viewers.',
+      points: [
         {
-          id: 'run-analysis-btn',
-          targetSelector: '#guide-run-btn',
-          tag: '01 · EXECUTION',
-          title: 'Start Local Analysis',
-          highlight: 'Multi-Threaded In-Browser Engine',
-          details: 'Spawns parallel Web Workers to process your reads in seconds. Live progress bars track per-file completion in real time without any server latency.',
-          subnote: 'Interactive dashboards display indel distributions, size histograms, and alleles.',
-          accentColor: '#f59e0b',
-          placement: 'top-left',
-          offsetX: 40,
-          offsetY: -30
+          title: 'Local Analysis',
+          text: 'Click "Start Local Analysis" to run. Real-time progress bars track each file on dedicated threads.'
         },
         {
-          id: 'nav-viewers',
-          targetSelector: '#guide-nav-links',
-          tag: '02 · WORKFLOW ECOSYSTEM',
-          title: 'Result Viewer & Benchmark Suite',
-          highlight: 'Excel Archive & Tool Comparison',
-          details: 'Export comprehensive analysis results to Excel (.xlsx) and reload them into the Result Viewer anytime with zero re-computation. Validate accuracy in the Benchmark tab.',
-          subnote: 'Share Excel results with collaborators for immediate inspection in CasMANGO.',
-          accentColor: '#10b981',
-          placement: 'bottom-left',
-          offsetX: 60,
-          offsetY: 25
+          title: 'Result Viewer',
+          text: 'Export comprehensive Excel (.xlsx) files and reload them into the Result Viewer anytime.'
+        },
+        {
+          title: 'Benchmark',
+          text: 'Compare assignment yield and accuracy head-to-head against CRISPResso2.'
         }
-      ]
+      ],
+      tip: 'You are all set! Click "Finish Guide" to begin analyzing your CRISPR data.',
+      targetSelector: '#guide-run-btn'
     }
   ];
 
@@ -1253,17 +643,11 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     return this.currentStepIndex === this.steps.length - 1;
   }
 
-  get activeCallouts(): GuideCalloutItem[] {
-    return this.currentStep.callouts || [];
-  }
-
   ngOnInit() {
     this.updateLayout();
   }
 
-  ngOnDestroy() {
-    // cleanup
-  }
+  ngOnDestroy() {}
 
   @HostListener('window:resize')
   onResize() {
@@ -1314,159 +698,91 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   }
 
   private scrollAndRefresh() {
-    const targetSel = this.currentStep.primaryScrollTarget;
-    if (targetSel) {
-      const el = document.querySelector(targetSel);
+    const sel = this.currentStep.targetSelector;
+    if (sel) {
+      const el = document.querySelector(sel);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }
-    setTimeout(() => {
-      this.updateLayout();
-    }, 180);
-    setTimeout(() => {
-      this.updateLayout();
-    }, 380);
+    setTimeout(() => this.updateLayout(), 160);
+    setTimeout(() => this.updateLayout(), 350);
   }
 
   private updateLayout() {
-    if (this.currentStep.isIntro || !this.currentStep.callouts) {
+    if (this.currentStep.isIntro || !this.currentStep.targetSelector) {
+      this.targetRect = null;
+      this.pathD = '';
       this.cdr.detectChanges();
       return;
     }
 
+    const el = document.querySelector(this.currentStep.targetSelector);
+    if (!el) {
+      this.targetRect = null;
+      this.pathD = '';
+      this.cdr.detectChanges();
+      return;
+    }
+
+    const rect = el.getBoundingClientRect();
+    this.targetRect = rect;
+
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const cardWidth = Math.min(350, Math.max(290, vw - 48));
-    const cardHeight = 175;
+    const cardWidth = Math.min(460, Math.max(300, vw - 36));
+    const cardHeight = 290;
 
-    this.currentStep.callouts.forEach((item, index) => {
-      item.arrowMarkerId = 'arrow-marker-' + index;
-      const el = document.querySelector(item.targetSelector);
-      if (!el) {
-        item.targetRect = undefined;
-        item.cardRect = undefined;
-        item.pathD = undefined;
-        return;
-      }
+    // Calculate whether card should be below or above target
+    const spaceBelow = vh - rect.bottom;
+    const spaceAbove = rect.top;
 
-      const rect = el.getBoundingClientRect();
-      item.targetRect = rect;
+    let cTop = 0;
+    let cLeft = rect.left + (rect.width - cardWidth) / 2;
 
-      // Calculate desired card top / left based on placement
-      let cLeft = rect.left;
-      let cTop = rect.bottom + 35;
+    // Arrow coordinates
+    let sX = rect.left + rect.width / 2;
+    let sY = 0;
+    let eX = 0;
+    let eY = 0;
 
-      switch (item.placement) {
-        case 'bottom':
-          cLeft = rect.left + (rect.width - cardWidth) / 2;
-          cTop = rect.bottom + 35;
-          break;
-        case 'bottom-left':
-          cLeft = rect.left - 30;
-          cTop = rect.bottom + 35;
-          break;
-        case 'bottom-right':
-          cLeft = rect.right - cardWidth + 30;
-          cTop = rect.bottom + 35;
-          break;
-        case 'top':
-          cLeft = rect.left + (rect.width - cardWidth) / 2;
-          cTop = rect.top - cardHeight - 35;
-          break;
-        case 'top-left':
-          cLeft = rect.left - 30;
-          cTop = rect.top - cardHeight - 35;
-          break;
-        case 'top-right':
-          cLeft = rect.right - cardWidth + 30;
-          cTop = rect.top - cardHeight - 35;
-          break;
-        case 'left':
-          cLeft = rect.left - cardWidth - 35;
-          cTop = rect.top + (rect.height - cardHeight) / 2;
-          break;
-        case 'right':
-          cLeft = rect.right + 35;
-          cTop = rect.top + (rect.height - cardHeight) / 2;
-          break;
-      }
+    if (spaceBelow >= cardHeight + 35 || spaceBelow >= spaceAbove) {
+      // Place card below target
+      cTop = rect.bottom + 35;
+      sY = rect.bottom + 4;
+      eY = cTop;
+    } else {
+      // Place card above target
+      cTop = rect.top - cardHeight - 35;
+      sY = rect.top - 4;
+      eY = cTop + cardHeight;
+    }
 
-      // Add custom offsets
-      if (item.offsetX) cLeft += item.offsetX;
-      if (item.offsetY) cTop += item.offsetY;
+    // Clamp coordinates to viewport
+    cLeft = Math.max(18, Math.min(vw - cardWidth - 18, cLeft));
+    cTop = Math.max(18, Math.min(vh - cardHeight - 18, cTop));
 
-      // Clamping to visible viewport (accounting for top bar and bottom HUD)
-      cLeft = Math.max(18, Math.min(vw - cardWidth - 18, cLeft));
-      cTop = Math.max(76, Math.min(vh - cardHeight - 90, cTop));
+    eX = Math.max(cLeft + 30, Math.min(cLeft + cardWidth - 30, sX));
 
-      item.cardRect = {
-        left: Math.round(cLeft),
-        top: Math.round(cTop),
-        width: Math.round(cardWidth),
-        height: Math.round(cardHeight)
-      };
+    this.cardStyle = {
+      top: `${Math.round(cTop)}px`,
+      left: `${Math.round(cLeft)}px`,
+      width: `${Math.round(cardWidth)}px`
+    };
 
-      // Determine Arrow Start (on element border) and Arrow End (on card border)
-      let startX = rect.left + rect.width / 2;
-      let startY = rect.bottom;
-      let endX = cLeft + cardWidth / 2;
-      let endY = cTop;
+    this.arrowStartX = Math.round(sX);
+    this.arrowStartY = Math.round(sY);
+    this.arrowEndX = Math.round(eX);
+    this.arrowEndY = Math.round(eY);
 
-      if (cTop >= rect.bottom) {
-        // Card is below element
-        startY = rect.bottom + 4;
-        startX = Math.max(rect.left + 10, Math.min(rect.right - 10, cLeft + cardWidth / 2));
-        endY = cTop;
-        endX = Math.max(cLeft + 20, Math.min(cLeft + cardWidth - 20, startX));
-      } else if (cTop + cardHeight <= rect.top) {
-        // Card is above element
-        startY = rect.top - 4;
-        startX = Math.max(rect.left + 10, Math.min(rect.right - 10, cLeft + cardWidth / 2));
-        endY = cTop + cardHeight;
-        endX = Math.max(cLeft + 20, Math.min(cLeft + cardWidth - 20, startX));
-      } else if (cLeft >= rect.right) {
-        // Card is to the right of element
-        startX = rect.right + 4;
-        startY = Math.max(rect.top + 10, Math.min(rect.bottom - 10, cTop + cardHeight / 2));
-        endX = cLeft;
-        endY = Math.max(cTop + 20, Math.min(cTop + cardHeight - 20, startY));
-      } else {
-        // Card is to the left of element
-        startX = rect.left - 4;
-        startY = Math.max(rect.top + 10, Math.min(rect.bottom - 10, cTop + cardHeight / 2));
-        endX = cLeft + cardWidth;
-        endY = Math.max(cTop + 20, Math.min(cTop + cardHeight - 20, startY));
-      }
+    // Smooth cubic bezier curve
+    const dy = this.arrowEndY - this.arrowStartY;
+    const cp1X = this.arrowStartX;
+    const cp1Y = Math.round(this.arrowStartY + dy * 0.55);
+    const cp2X = this.arrowEndX;
+    const cp2Y = Math.round(this.arrowEndY - dy * 0.15);
 
-      item.startX = Math.round(startX);
-      item.startY = Math.round(startY);
-      item.endX = Math.round(endX);
-      item.endY = Math.round(endY);
-
-      // Generate smooth cubic bezier curve
-      const dx = endX - startX;
-      const dy = endY - startY;
-
-      let cp1X = startX;
-      let cp1Y = startY;
-      let cp2X = endX;
-      let cp2Y = endY;
-
-      if (Math.abs(dy) >= Math.abs(dx)) {
-        // Vertical dominant curve
-        cp1Y = startY + dy * 0.55;
-        cp2Y = endY - dy * 0.15;
-        cp2X = endX;
-      } else {
-        // Horizontal dominant curve
-        cp1X = startX + dx * 0.55;
-        cp2X = endX - dx * 0.15;
-        cp2Y = endY;
-      }
-
-      item.pathD = `M ${Math.round(startX)} ${Math.round(startY)} C ${Math.round(cp1X)} ${Math.round(cp1Y)}, ${Math.round(cp2X)} ${Math.round(cp2Y)}, ${Math.round(endX)} ${Math.round(endY)}`;
-    });
+    this.pathD = `M ${this.arrowStartX} ${this.arrowStartY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${this.arrowEndX} ${this.arrowEndY}`;
 
     this.cdr.detectChanges();
   }
