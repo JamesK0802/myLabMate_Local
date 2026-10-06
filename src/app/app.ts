@@ -5,11 +5,12 @@ import { AnalysisPageComponent } from './pages/analysis-page/analysis-page.compo
 import { ResultViewerPageComponent } from './pages/result-viewer-page/result-viewer-page.component';
 import { BenchmarkPageComponent } from './pages/benchmark-page/benchmark-page.component';
 import { SequenceWorkspacePageComponent } from './pages/sequence-workspace-page/sequence-workspace-page.component';
+import { TutorialGuideComponent } from './components/tutorial-guide/tutorial-guide.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, AnalysisPageComponent, ResultViewerPageComponent, BenchmarkPageComponent, SequenceWorkspacePageComponent],
+  imports: [CommonModule, AnalysisPageComponent, ResultViewerPageComponent, BenchmarkPageComponent, SequenceWorkspacePageComponent, TutorialGuideComponent],
   template: `
     <div class="app-shell">
       <!-- ── Top Navigation ── -->
@@ -36,6 +37,10 @@ import { SequenceWorkspacePageComponent } from './pages/sequence-workspace-page/
         </div>
 
         <div class="nav-right">
+          <button type="button" class="btn-guide-trigger" (click)="openGuide()" title="Interactive Tutorial Guide">
+            <span class="guide-btn-icon">🥭</span>
+            <span class="guide-btn-text">Guide</span>
+          </button>
           <span class="version-tag">v1.0.0</span>
         </div>
 
@@ -65,6 +70,7 @@ import { SequenceWorkspacePageComponent } from './pages/sequence-workspace-page/
           <button type="button" class="drawer-link" [class.active]="activeTab === 'viewer'" [disabled]="state.isAnalysisRunning" (click)="switchTab('viewer')">Result Viewer</button>
           <button type="button" class="drawer-link" [class.active]="activeTab === 'benchmark'" [disabled]="state.isAnalysisRunning" (click)="switchTab('benchmark')">Benchmark</button>
           <button type="button" class="drawer-link" [class.active]="activeTab === 'workspace'" [disabled]="state.isAnalysisRunning" (click)="switchTab('workspace')">Sequence Viewer</button>
+          <button type="button" class="drawer-link drawer-guide-btn" (click)="openGuide()">🥭 Interactive Guide</button>
         </div>
         <div class="drawer-footer">All analysis stays on this device.</div>
       </aside>
@@ -88,6 +94,9 @@ import { SequenceWorkspacePageComponent } from './pages/sequence-workspace-page/
               <p>CasMango runs CRISPR analysis entirely in your browser. Sequencing files remain on this device and are never uploaded to a server.</p>
             </div>
           </footer>
+
+          <!-- ── Interactive Mascot Tutorial Guide ── -->
+          <app-tutorial-guide *ngIf="isGuideOpen" (close)="isGuideOpen = false" (requestTab)="switchTab($event)"></app-tutorial-guide>
       <!-- ── Global Export Loading Overlay ── -->
       <div class="global-export-overlay" *ngIf="state.exportStatus$ | async as status">
         <div class="export-loading-card">
@@ -173,8 +182,15 @@ styles: [`
 export class App implements OnInit {
   activeTab: 'analysis' | 'viewer' | 'benchmark' | 'workspace' = 'analysis';
   mobileMenuOpen = false;
+  isGuideOpen = false;
 
   constructor(public state: AppStateService) {}
+
+  openGuide() {
+    this.switchTab('analysis');
+    this.isGuideOpen = true;
+    this.mobileMenuOpen = false;
+  }
 
   switchTab(tab: 'analysis' | 'viewer' | 'benchmark' | 'workspace') {
     if (this.state.isAnalysisRunning && tab !== this.activeTab) return;

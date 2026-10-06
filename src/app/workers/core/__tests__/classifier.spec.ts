@@ -7,7 +7,8 @@ import {
   cutIndexInWindow,
   extractWindow,
   scoreReadAgainstWindow,
-  isReadUsable
+  isReadUsable,
+  clearClassifierCache
 } from '../classifier';
 
 describe('Classifier Core Utilities', () => {
@@ -108,6 +109,20 @@ describe('Classifier Core Utilities', () => {
     expect(usable).toBe(true);
     expect(reason).toBe('ok');
     expect(result?.read_window).toBe(target);
+  });
+
+  it('does not reuse a usability decision across different FASTQ qualities', () => {
+    clearClassifierCache();
+    const reference = 'ACGTTGCACTGATCG' + 'CCGTA'.repeat(8) + 'TGCATGACCTAGTCA';
+    const guide = reference.substring(25, 45);
+    const cutIndex = 35;
+    const highQuality = new Array(reference.length).fill(40);
+    const lowQuality = new Array(reference.length).fill(5);
+
+    expect(isReadUsable(reference, highQuality, reference, 20, guide, cutIndex)[0]).toBe(true);
+    const [usable, reason] = isReadUsable(reference, lowQuality, reference, 20, guide, cutIndex);
+    expect(usable).toBe(false);
+    expect(reason).toBe('quality');
   });
 
   it('accepts up to four alignment errors in a 15 bp terminal anchor', () => {

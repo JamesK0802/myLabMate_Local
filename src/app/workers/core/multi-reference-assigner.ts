@@ -106,6 +106,19 @@ export function assignReadsToReferences(
   const assignedCounts: Record<string, number> = {};
   for (const g of genePayloads) assignedCounts[g.gene] = 0;
   const outcomeCounts: Record<string, number> = {};
+  // Exact duplicate molecules are common in amplicon FASTQ data. Reuse only
+  // when both sequence and quality are identical, while still emitting one
+  // ReadObj per original read so exports and counts remain unchanged.
+  const assignmentCache = new Map<string, ReturnType<typeof applyGeneClassification>>();
+  const maxAssignmentCacheEntries = 16384;
+
+  const exactReadKey = (seq: string, qual: QualityScores | null): string => {
+    let quality = '';
+    if (qual) {
+      for (let q = 0; q < qual.length; q++) quality += String.fromCharCode(qual[q] + 33);
+    }
+    return `${seq}\u0000${quality}`;
+  };
 
   // 2. Iterate and classify
   for (let i = 0; i < readsData.length; i++) {
@@ -117,7 +130,16 @@ export function assignReadsToReferences(
       if (avgQ >= phredThreshold) phredPassedCount++;
     }
 
-    const res = applyGeneClassification(seq, qual, geneClasses, phredThreshold, marginThreshold, cutSiteDistanceWeight, cutSiteExclusionFlank);
+    const cacheKey = exactReadKey(seq, qual);
+    let res = assignmentCache.get(cacheKey);
+    if (!res) {
+      res = applyGeneClassification(seq, qual, geneClasses, phredThreshold, marginThreshold, cutSiteDistanceWeight, cutSiteExclusionFlank);
+      if (assignmentCache.size >= maxAssignmentCacheEntries) {
+        const oldest = assignmentCache.keys().next().value;
+        if (oldest !== undefined) assignmentCache.delete(oldest);
+      }
+      assignmentCache.set(cacheKey, res);
+    }
 
     // Track outcome distribution
     const dbg = res.debug || {};

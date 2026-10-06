@@ -545,6 +545,14 @@ function observedSegments(
 
 // Map-based memoization (replaces Python's lru_cache)
 const usabilityCache = new Map<string, [boolean, string, ReadResult | null]>();
+const MAX_USABILITY_CACHE_ENTRIES = 8192;
+
+function qualityCacheKey(qual: QualityScores | null): string {
+  if (!qual || qual.length === 0) return '';
+  let key = '';
+  for (let i = 0; i < qual.length; i++) key += String.fromCharCode(qual[i] + 33);
+  return key;
+}
 
 export interface ReadResult {
   fail: null;
@@ -659,7 +667,9 @@ export function isReadUsable(
   cutIdxInWin: number = -1
 ): [boolean, string, ReadResult | null] {
   // Use cache for repeated reads
-  const cacheKey = `${seq}|${refWindow}|${phredThreshold}|${sgrnaSeq}|${cutIdxInWin}`;
+  // Quality participates in usability. Omitting it made equal sequences with
+  // different FASTQ qualities reuse whichever result happened to run first.
+  const cacheKey = `${seq}|${qualityCacheKey(qual)}|${refWindow}|${phredThreshold}|${sgrnaSeq}|${cutIdxInWin}`;
   const cached = usabilityCache.get(cacheKey);
   if (cached) return [cached[0], cached[1], cached[2] ? { ...cached[2] } : null];
 
@@ -669,9 +679,11 @@ export function isReadUsable(
   // multi-file run into an accidental in-memory FASTQ copy, especially on
   // Safari. This still captures common duplicate reads without risking a tab
   // reload.
-  if (usabilityCache.size < 8192) {
-    usabilityCache.set(cacheKey, result);
+  if (usabilityCache.size >= MAX_USABILITY_CACHE_ENTRIES) {
+    const oldest = usabilityCache.keys().next().value;
+    if (oldest !== undefined) usabilityCache.delete(oldest);
   }
+  usabilityCache.set(cacheKey, result);
   return [result[0], result[1], result[2] ? { ...result[2] } : null];
 }
 

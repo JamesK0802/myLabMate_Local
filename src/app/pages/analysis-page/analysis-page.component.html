@@ -51,7 +51,7 @@
         (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (click)="fileInput.click()">
         <input type="file" #fileInput (change)="onFileSelected($event)" multiple hidden accept=".fastq,.fq,.fastq.gz,.fq.gz" />
         <p><strong>{{ sequencingPlatform === 'illumina' ? 'Upload paired-end files' : 'Upload files' }}</strong></p>
-        <span class="hint" *ngIf="sequencingPlatform === 'nanopore'">FASTQ / FQ · Multiple files allowed</span>
+        <span class="hint" *ngIf="sequencingPlatform === 'nanopore'">FASTQ / FQ / GZ · Multiple files allowed</span>
         <span class="hint" *ngIf="sequencingPlatform === 'illumina'">FASTQ / FQ / GZ · R1 and R2 names are paired automatically</span>
       </div>
 

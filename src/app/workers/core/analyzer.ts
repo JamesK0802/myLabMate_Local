@@ -29,12 +29,27 @@ export interface MutationResult {
   tokens: AlignmentToken[];
 }
 
+const mutationCache = new Map<string, MutationResult>();
+const MAX_MUTATION_CACHE_ENTRIES = 8192;
+
+function cloneMutationResult(result: MutationResult): MutationResult {
+  return { ...result, tokens: result.tokens.map(token => ({ ...token })) };
+}
+
+export function clearAnalyzerCache(): void {
+  mutationCache.clear();
+}
+
 export function classifyMutationWithAlignment(
   refSeq: string,
   readSeq: string,
   leftX: number = 0,
   rightX: number = 0
 ): MutationResult {
+  const cacheKey = `${refSeq}\u0000${readSeq}\u0000${leftX}\u0000${rightX}`;
+  const cached = mutationCache.get(cacheKey);
+  if (cached) return cloneMutationResult(cached);
+
   // Every X run is unobserved sequence. Align the observed segments on either
   // side independently so an internal paired-read gap cannot become a giant
   // substitution or erase a real indel seen in either mate.
@@ -58,7 +73,13 @@ export function classifyMutationWithAlignment(
     category = netIndel % 3 === 0 ? 'in_frame' : 'out_of_frame';
   }
 
-  return { category, has_sub: hasSub, net_indel: netIndel, tokens };
+  const result = { category, has_sub: hasSub, net_indel: netIndel, tokens };
+  if (mutationCache.size >= MAX_MUTATION_CACHE_ENTRIES) {
+    const oldest = mutationCache.keys().next().value;
+    if (oldest !== undefined) mutationCache.delete(oldest);
+  }
+  mutationCache.set(cacheKey, result);
+  return cloneMutationResult(result);
 }
 
 export function alignReadToRef(refSeq: string, readSeq: string, minMatchLength: number = 1): AlignmentToken[] {

@@ -20,7 +20,7 @@ import {
   clearClassifierCache,
   ClassInfo,
 } from './classifier';
-import { classifyMutationWithAlignment, alignReadToRef, materializeTokensAgainstReference, AlignmentToken } from './analyzer';
+import { classifyMutationWithAlignment, alignReadToRef, materializeTokensAgainstReference, clearAnalyzerCache, AlignmentToken } from './analyzer';
 import { assignReadsToReferences, GenePayload, DemuxResult } from './multi-reference-assigner';
 import { FastqRead, QualityScores } from './fastq-parser';
 import { SequencingPlatform } from '../../models/illumina.model';
@@ -291,7 +291,11 @@ function runAnalysisOnReads(
       if (leftX > 0 || rightX > 0 || groupKey.includes('X')) {
         const refUpper = refWindow.toUpperCase();
         groupKey = materializeTokensAgainstReference(refUpper, readTokens);
-        groupTokens = alignReadToRef(refUpper, groupKey);
+        // Annotation must use the same 10-bp evidence floor as classification.
+        // Falling back to 1-bp matches here could display one biological event
+        // as a fragmented deletion/insertion mosaic even when its numeric call
+        // had already been classified stringently.
+        groupTokens = alignReadToRef(refUpper, groupKey, 10);
       }
 
       const key = groupKey;
@@ -755,6 +759,7 @@ export function processFile(
   params: AnalysisParams
 ): FileResult {
   clearClassifierCache();
+  clearAnalyzerCache();
 
   const data: Array<[string, QualityScores | null]> = reads.map(r => [r.seq, r.qual]);
 
