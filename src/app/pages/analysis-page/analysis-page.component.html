@@ -1,6 +1,6 @@
 <div class="analysis-page">
   <!-- ══════════════ ANALYSIS TAB BAR ══════════════ -->
-  <div class="analysis-tabs-bar">
+  <div class="analysis-tabs-bar" id="guide-tabs-bar">
     <div class="tabs-scroll-container">
       <div *ngFor="let tab of state.tabs"
            class="analysis-tab-item"
@@ -19,7 +19,7 @@
         <button type="button" class="tab-close-btn" *ngIf="state.tabs.length > 1" (click)="closeTab($event, tab.id)" [disabled]="state.isAnalysisRunning" [title]="state.isAnalysisRunning ? 'Finish or cancel the current analysis first' : 'Close tab'">&times;</button>
       </div>
     </div>
-    <button type="button" class="btn-add-tab" (click)="state.addTab()" [disabled]="state.isAnalysisRunning" [title]="state.isAnalysisRunning ? 'Finish or cancel the current analysis first' : 'New Analysis Tab'">+</button>
+    <button type="button" class="btn-add-tab" id="guide-add-tab-btn" (click)="state.addTab()" [disabled]="state.isAnalysisRunning" [title]="state.isAnalysisRunning ? 'Finish or cancel the current analysis first' : 'New Analysis Tab'">+</button>
   </div>
 
   <app-result-dashboard *ngIf="state.genes.length > 0"></app-result-dashboard>

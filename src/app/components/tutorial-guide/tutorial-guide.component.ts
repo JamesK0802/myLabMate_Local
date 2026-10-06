@@ -14,14 +14,20 @@ export interface GuideStep {
   stageName: string;
   headline: string;
   introLine?: string;
+  acronymBreakdown?: Array<{ letter: string; word: string }>;
   cards?: AdvantageCard[];
+  comparisonColumns?: Array<{
+    colTitle: string;
+    items: Array<{ label: string; desc: string }>;
+  }>;
+  paramItems?: Array<{ name: string; desc: string }>;
   textLines?: string[];
   targetSelector?: string;
   isIntro?: boolean;
   isPrereq?: boolean;
   isFinal?: boolean;
   nextButtonText?: string;
-  interactiveAction?: 'load_demo_files' | 'load_demo_targets';
+  interactiveAction?: 'create_guide_tab' | 'load_demo_files' | 'load_demo_targets' | 'open_window_check';
 }
 
 @Component({
@@ -30,6 +36,15 @@ export interface GuideStep {
   imports: [CommonModule],
   template: `
     <div class="guide-root" [class.no-target]="!targetRect" (keydown.escape)="closeGuide()" tabindex="0">
+
+      <!-- ── Top-Left Fixed Previous Button ── -->
+      <button type="button"
+              class="btn-top-prev"
+              *ngIf="currentStepIndex > 0"
+              (click)="prevStep()"
+              title="Previous Step (←)">
+        ◀ Previous
+      </button>
 
       <!-- ── Top-Right Fixed Exit Guide Button ── -->
       <button type="button" class="btn-top-exit" (click)="closeGuide()" title="Exit Guide (Esc)">
@@ -83,8 +98,9 @@ export interface GuideStep {
         <!-- Character Column (Left) -->
         <div class="mascot-col">
           <div class="mascot-avatar-frame">
-            <img src="casmango-logo.jpg" alt="CasMANGO" class="mascot-avatar-img" />
-            <span class="mascot-live-indicator"></span>
+            <img [src]="currentStepIndex === 0 ? 'casmango-mascot-wave.png' : 'casmango-mascot-idle.png'"
+                 alt="CasMANGO Mascot"
+                 class="mascot-avatar-img" />
           </div>
           <span class="mascot-tag">CasMANGO</span>
         </div>
@@ -92,6 +108,13 @@ export interface GuideStep {
         <!-- Speech Bubble (Right) -->
         <div class="bubble-content">
           <h2 class="bubble-headline">{{ currentStep.headline }}</h2>
+
+          <!-- Acronym Breakdown (Step 0) -->
+          <div class="acronym-box" *ngIf="currentStep.acronymBreakdown">
+            <span class="acronym-chip" *ngFor="let item of currentStep.acronymBreakdown">
+              <strong class="letter">{{ item.letter }}</strong>{{ item.word }}
+            </span>
+          </div>
 
           <!-- 1-line tool explanation -->
           <p class="bubble-intro-line" *ngIf="currentStep.introLine">
@@ -107,7 +130,26 @@ export interface GuideStep {
             </div>
           </div>
 
-          <!-- Minimal 1-2 lines text explanation (Tour Steps) -->
+          <!-- Side-by-Side Comparison Columns (Platform / Mode) -->
+          <div class="comparison-grid" *ngIf="currentStep.comparisonColumns">
+            <div class="comp-col" *ngFor="let col of currentStep.comparisonColumns">
+              <h4 class="comp-col-title">{{ col.colTitle }}</h4>
+              <div class="comp-item" *ngFor="let item of col.items">
+                <span class="comp-item-label">{{ item.label }}</span>
+                <p class="comp-item-desc">{{ item.desc }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Parameter Specific Items List (Clean, not bulky) -->
+          <div class="params-list" *ngIf="currentStep.paramItems">
+            <div class="param-row" *ngFor="let p of currentStep.paramItems">
+              <strong class="param-name">{{ p.name }}:</strong>
+              <span class="param-desc">{{ p.desc }}</span>
+            </div>
+          </div>
+
+          <!-- Minimal text lines -->
           <div class="text-lines-block" *ngIf="currentStep.textLines && currentStep.textLines.length > 0">
             <p class="text-line" *ngFor="let line of currentStep.textLines">{{ line }}</p>
           </div>
@@ -116,9 +158,17 @@ export interface GuideStep {
           <div class="interactive-action-row" *ngIf="currentStep.interactiveAction">
             <button type="button"
                     class="btn-demo-action"
+                    *ngIf="currentStep.interactiveAction === 'create_guide_tab'"
+                    (click)="createOrSwitchToGuideTab()">
+              <span>📑 Click to Open Dedicated "Guide Analysis" Tab</span>
+              <span class="demo-badge" *ngIf="guideTabCreated">✓ Active</span>
+            </button>
+
+            <button type="button"
+                    class="btn-demo-action"
                     *ngIf="currentStep.interactiveAction === 'load_demo_files'"
                     (click)="loadDemoFiles()">
-              <span>📁 Click to Load Demo Files (CPC, TRY, Pooled)</span>
+              <span>📁 Click to Load Demo Files (cpc, try, cpc/try pooled)</span>
               <span class="demo-badge" *ngIf="demoFilesLoaded">✓ Loaded</span>
             </button>
 
@@ -126,8 +176,15 @@ export interface GuideStep {
                     class="btn-demo-action"
                     *ngIf="currentStep.interactiveAction === 'load_demo_targets'"
                     (click)="loadDemoTargets()">
-              <span>🧬 Click to Auto-Fill Demo References (CPC & TRY)</span>
+              <span>🧬 Click to Auto-Fill CPC & TRY Demo References</span>
               <span class="demo-badge" *ngIf="demoTargetsLoaded">✓ Applied</span>
+            </button>
+
+            <button type="button"
+                    class="btn-demo-action"
+                    *ngIf="currentStep.interactiveAction === 'open_window_check'"
+                    (click)="triggerWindowCheck()">
+              <span>🔍 Click to Open Window Check Comparison</span>
             </button>
           </div>
 
@@ -136,6 +193,7 @@ export interface GuideStep {
             <ng-container *ngIf="!currentStep.isFinal">
               <button type="button"
                       class="btn-guide-next"
+                      [disabled]="currentStep.id === 'file-upload' && !demoFilesLoaded && state.selectedFiles.length === 0 && state.illuminaPairs.length === 0"
                       (click)="nextStep()">
                 {{ currentStep.nextButtonText || 'Next ▶' }}
               </button>
@@ -189,13 +247,13 @@ export interface GuideStep {
       justify-content: center;
     }
 
-    /* ── Top-Right Fixed Exit Guide Button ── */
-    .btn-top-exit {
+    /* ── Top-Left Fixed Previous Button ── */
+    .btn-top-prev {
       position: fixed;
       top: 18px;
-      right: 24px;
+      left: 24px;
       z-index: 10010;
-      background: rgba(15, 23, 42, 0.78);
+      background: rgba(15, 23, 42, 0.85);
       border: 1px solid rgba(255, 255, 255, 0.25);
       color: #ffffff;
       padding: 8px 18px;
@@ -209,93 +267,130 @@ export interface GuideStep {
       gap: 6px;
       backdrop-filter: blur(4px);
       box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-      transition: all 0.15s ease;
+      transition: all 0.2s ease;
+    }
+
+    .btn-top-prev:hover {
+      background: #f59e0b;
+      color: #0f172a;
+      border-color: #f59e0b;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(245, 158, 11, 0.4);
+    }
+
+    /* ── Top-Right Fixed Exit Guide Button ── */
+    .btn-top-exit {
+      position: fixed;
+      top: 18px;
+      right: 24px;
+      z-index: 10010;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      padding: 8px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+      transition: all 0.2s ease;
     }
 
     .btn-top-exit:hover {
-      background: rgba(239, 68, 68, 0.9);
+      background: #ef4444;
       border-color: #ef4444;
       transform: translateY(-1px);
       box-shadow: 0 6px 18px rgba(239, 68, 68, 0.4);
     }
 
-    /* ── Spotlight Hole: 0% Tint Inside, Massive Box Shadow Darkens Outside ── */
+    /* ── Spotlight Cutout with 0% Tint Inside ── */
     .spotlight-hole {
       position: fixed;
-      z-index: 10001;
-      border: 3px solid #f59e0b;
-      border-radius: 10px;
-      box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.55), 0 0 20px rgba(245, 158, 11, 0.4);
+      border-radius: 12px;
+      box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.52);
+      border: 2px solid #f59e0b;
       pointer-events: none;
-      transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 10001;
+      animation: pulseBorder 2.5s infinite ease-in-out;
+      background: transparent !important;
+    }
+
+    @keyframes pulseBorder {
+      0%, 100% { border-color: #f59e0b; box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.52), 0 0 15px rgba(245, 158, 11, 0.45); }
+      50% { border-color: #fbbf24; box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.52), 0 0 25px rgba(251, 191, 36, 0.65); }
     }
 
     .spotlight-label {
       position: absolute;
-      top: -13px;
-      left: 14px;
+      top: -28px;
+      left: 0;
       background: #f59e0b;
       color: #0f172a;
       font-size: 11px;
       font-weight: 900;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.05em;
       padding: 2px 10px;
-      border-radius: 999px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+      border-radius: 6px;
       text-transform: uppercase;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     }
 
     /* ── SVG Arrow Layer ── */
     .arrow-svg-layer {
       position: fixed;
       inset: 0;
-      width: 100vw;
-      height: 100vh;
+      width: 100%;
+      height: 100%;
       pointer-events: none;
-      z-index: 10003;
+      z-index: 10002;
     }
 
     .animated-dashed-arrow {
-      animation: dashMove 1.1s linear infinite;
-      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+      animation: dashFlow 1.2s linear infinite;
     }
 
-    @keyframes dashMove {
-      from { stroke-dashoffset: 0; }
-      to { stroke-dashoffset: -20; }
+    @keyframes dashFlow {
+      from { stroke-dashoffset: 20; }
+      to { stroke-dashoffset: 0; }
     }
 
     .pulse-ring {
-      animation: pulseAnim 1.4s ease-out infinite;
+      animation: ringExpand 2s infinite ease-out;
       transform-origin: center;
     }
 
-    @keyframes pulseAnim {
-      0% { r: 4.5; opacity: 1; }
-      100% { r: 14; opacity: 0; }
+    @keyframes ringExpand {
+      0% { r: 5; opacity: 1; }
+      100% { r: 12; opacity: 0; }
     }
 
-    /* ── Dialog Wrapper: Character Left + Bubble Right ── */
+    /* ── Dialog Wrapper: Character on Left + Speech Bubble on Right ── */
     .guide-dialog-wrapper {
       position: fixed;
       z-index: 10005;
       display: flex;
+      flex-direction: row;
       align-items: flex-start;
-      gap: 20px;
-      max-width: 780px;
-      width: calc(100vw - 40px);
+      gap: 18px;
       pointer-events: auto;
-      transition: top 0.15s cubic-bezier(0.16, 1, 0.3, 1), left 0.15s cubic-bezier(0.16, 1, 0.3, 1);
-      animation: dialogPop 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      max-width: 90vw;
+      animation: dialogPop 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .guide-dialog-wrapper.is-centered {
       position: relative;
       margin: auto;
+      max-width: 820px;
+      width: 90%;
     }
 
     .guide-dialog-wrapper.is-large-dialog {
-      max-width: 940px;
+      max-width: 860px;
     }
 
     @keyframes dialogPop {
@@ -310,38 +405,33 @@ export interface GuideStep {
       align-items: center;
       gap: 8px;
       flex-shrink: 0;
-      margin-top: 12px;
+      margin-top: 4px;
     }
 
     .mascot-avatar-frame {
       position: relative;
-      width: 76px;
-      height: 76px;
+      width: 100px;
+      height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .mascot-avatar-img {
       width: 100%;
       height: 100%;
-      border-radius: 18px;
-      border: 3px solid #f59e0b;
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
-      object-fit: cover;
-      background: #ffffff;
+      object-fit: contain;
+      filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.22));
+      animation: mascotFloat 3s ease-in-out infinite;
     }
 
-    .mascot-live-indicator {
-      position: absolute;
-      bottom: -2px;
-      right: -2px;
-      width: 14px;
-      height: 14px;
-      border-radius: 999px;
-      background: #10b981;
-      border: 2.5px solid #ffffff;
+    @keyframes mascotFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-4px); }
     }
 
     .mascot-tag {
-      font-size: 11.5px;
+      font-size: 11px;
       font-weight: 800;
       color: #ffffff;
       background: rgba(15, 23, 42, 0.85);
@@ -358,34 +448,45 @@ export interface GuideStep {
       border: 1px solid #e2e8f0;
       border-radius: 20px;
       box-shadow: 0 20px 45px -8px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.06);
-      padding: 26px 30px 22px 30px;
+      padding: 24px 28px 20px 28px;
       flex: 1;
       min-width: 0;
     }
 
-    .bubble-content::before {
-      content: '';
-      position: absolute;
-      top: 36px;
-      left: -11px;
-      width: 0;
-      height: 0;
-      border-top: 10px solid transparent;
-      border-bottom: 10px solid transparent;
-      border-right: 11px solid #ffffff;
-    }
-
     .bubble-headline {
-      margin: 0 0 8px 0;
-      font-size: 21px;
+      margin: 0 0 6px 0;
+      font-size: 20px;
       font-weight: 900;
       color: #0f172a;
       letter-spacing: -0.02em;
     }
 
+    /* ── Acronym Box ── */
+    .acronym-box {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .acronym-chip {
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 11.5px;
+      color: #475569;
+    }
+
+    .acronym-chip .letter {
+      color: #ea580c;
+      font-weight: 900;
+      margin-right: 1px;
+    }
+
     .bubble-intro-line {
-      margin: 0 0 18px 0;
-      font-size: 14.5px;
+      margin: 0 0 16px 0;
+      font-size: 14px;
       color: #475569;
       line-height: 1.55;
     }
@@ -395,23 +496,16 @@ export interface GuideStep {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 14px;
-      margin-bottom: 18px;
+      margin-bottom: 16px;
     }
 
     .grid-card {
       background: #f8fafc;
       border: 1px solid #e2e8f0;
       border-radius: 12px;
-      padding: 16px 16px 14px 16px;
+      padding: 14px 14px 12px 14px;
       display: flex;
       flex-direction: column;
-      transition: all 0.15s ease;
-    }
-
-    .grid-card:hover {
-      background: #ffffff;
-      border-color: #cbd5e1;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
     }
 
     .grid-card-badge {
@@ -420,12 +514,12 @@ export interface GuideStep {
       color: #ea580c;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
 
     .grid-card-title {
-      margin: 0 0 6px 0;
-      font-size: 15px;
+      margin: 0 0 4px 0;
+      font-size: 14.5px;
       font-weight: 800;
       color: #0f172a;
       line-height: 1.35;
@@ -435,27 +529,101 @@ export interface GuideStep {
       margin: 0;
       font-size: 12px;
       color: #475569;
-      line-height: 1.5;
+      line-height: 1.45;
     }
 
-    /* ── Minimal 1-2 Lines Text (Tour Steps) ── */
+    /* ── Comparison Columns (Platform / Mode) ── */
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .comp-col {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .comp-col-title {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 900;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1.5px solid #e2e8f0;
+      padding-bottom: 6px;
+    }
+
+    .comp-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .comp-item-label {
+      font-size: 12.5px;
+      font-weight: 800;
+      color: #ea580c;
+    }
+
+    .comp-item-desc {
+      margin: 0;
+      font-size: 12px;
+      color: #475569;
+      line-height: 1.4;
+    }
+
+    /* ── Parameters Clean List ── */
+    .params-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+
+    .param-row {
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+
+    .param-name {
+      color: #0f172a;
+      margin-right: 6px;
+    }
+
+    .param-desc {
+      color: #475569;
+    }
+
+    /* ── Text lines ── */
     .text-lines-block {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      margin-bottom: 18px;
+      gap: 6px;
+      margin-bottom: 14px;
     }
 
     .text-line {
       margin: 0;
-      font-size: 14.5px;
+      font-size: 13.5px;
       color: #334155;
-      line-height: 1.55;
+      line-height: 1.5;
     }
 
     /* ── Interactive Demo Action Button ── */
     .interactive-action-row {
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
 
     .btn-demo-action {
@@ -464,7 +632,7 @@ export interface GuideStep {
       color: #15803d;
       padding: 9px 16px;
       border-radius: 10px;
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 800;
       cursor: pointer;
       display: inline-flex;
@@ -475,16 +643,15 @@ export interface GuideStep {
 
     .btn-demo-action:hover {
       background: #dcfce7;
-      border-color: #16a34a;
       transform: translateY(-1px);
     }
 
     .demo-badge {
       background: #22c55e;
       color: #ffffff;
-      font-size: 10px;
-      font-weight: 900;
-      padding: 1px 7px;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 2px 7px;
       border-radius: 999px;
     }
 
@@ -493,50 +660,58 @@ export interface GuideStep {
       display: flex;
       align-items: center;
       justify-content: flex-end;
+      gap: 12px;
+      margin-top: 10px;
       border-top: 1px solid #f1f5f9;
       padding-top: 14px;
+    }
+
+    .btn-guide-next {
+      background: linear-gradient(135deg, #f59e0b, #ea580c);
+      color: #ffffff;
+      border: none;
+      padding: 9px 22px;
+      border-radius: 10px;
+      font-size: 13.5px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(234, 88, 12, 0.35);
+      transition: all 0.15s ease;
+    }
+
+    .btn-guide-next:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(234, 88, 12, 0.45);
     }
 
     .final-actions-group {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
 
     .btn-secondary-action {
       background: #f1f5f9;
-      border: 1px solid #cbd5e1;
       color: #475569;
-      padding: 10px 20px;
+      border: 1px solid #cbd5e1;
+      padding: 9px 18px;
       border-radius: 10px;
-      font-size: 13.5px;
-      font-weight: 800;
+      font-size: 13px;
+      font-weight: 700;
       cursor: pointer;
       transition: all 0.15s ease;
     }
 
     .btn-secondary-action:hover {
       background: #e2e8f0;
-      color: #1e293b;
+      color: #0f172a;
     }
 
-    .btn-guide-next {
-      background: linear-gradient(135deg, #f59e0b, #d97706);
-      border: none;
-      color: #ffffff;
-      padding: 10px 24px;
-      border-radius: 10px;
-      font-size: 13.5px;
-      font-weight: 800;
-      cursor: pointer;
-      box-shadow: 0 3px 10px rgba(245, 158, 11, 0.35);
-      transition: all 0.15s ease;
-    }
-
-    .btn-guide-next:hover {
-      background: linear-gradient(135deg, #fbbf24, #f59e0b);
-      box-shadow: 0 6px 16px rgba(245, 158, 11, 0.5);
-      transform: translateY(-1px);
+    .btn-guide-next:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      box-shadow: none;
     }
 
     /* ── Bottom Progress Bar ── */
@@ -558,7 +733,7 @@ export interface GuideStep {
     }
 
     @media (max-width: 768px) {
-      .cards-grid {
+      .cards-grid, .comparison-grid {
         grid-template-columns: 1fr;
       }
       .guide-dialog-wrapper {
@@ -569,11 +744,8 @@ export interface GuideStep {
         flex-direction: row;
         align-items: center;
       }
-      .bubble-content::before {
-        display: none;
-      }
       .bubble-content {
-        padding: 20px;
+        padding: 18px;
       }
     }
   `]
@@ -593,40 +765,51 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   arrowEndY = 0;
   pathD = '';
 
+  guideTabId: string | null = null;
+  guideTabCreated = false;
   demoFilesLoaded = false;
   demoTargetsLoaded = false;
 
   private rafId: number | null = null;
 
   steps: GuideStep[] = [
-    // ── 0. Intro (Overview) ──
+    // ── 0. Intro (Overview with Acronym) ──
     {
       id: 'intro',
       stageName: 'Introduction',
-      headline: 'Welcome to CasMANGO',
-      introLine: 'CasMANGO is a client-side tool for pooled, multiplexed CRISPR amplicon sequencing using ambiguity-aware reference assignment.',
+      headline: "Hi! I'm CasMANGO 👋",
+      acronymBreakdown: [
+        { letter: 'C', word: 'RISPR' },
+        { letter: 'A', word: 'mplicon' },
+        { letter: 'S', word: 'equencing with' },
+        { letter: 'M', word: 'ultiplexed' },
+        { letter: 'A', word: 'ssignment of' },
+        { letter: 'NG', word: 'S reads for Genotyping and' },
+        { letter: 'O', word: 'utcome analysis' }
+      ],
+      introLine: "Hi, I'm CasMANGO! I stand for CRISPR Amplicon Sequencing with Multiplexed Assignment of NGS reads for Genotyping and Outcome analysis. I'm a client-side tool built to accurately assign reads and analyze multiplexed CRISPR editing outcomes directly in your browser with zero server uploads!",
       cards: [
         {
           badge: 'Security & Privacy',
           title: '100% Client-Side Engine',
-          desc: 'All sequencing FASTQ data is processed directly in your browser Web Workers—zero files uploaded to external servers.'
+          desc: 'All sequencing reads are processed locally in your browser via Web Workers—zero files uploaded to external servers.'
         },
         {
           badge: 'Platform Agnostic',
           title: 'Illumina & Nanopore',
-          desc: 'Supports short-read Illumina paired ends (with mate linking and gap X-padding) and long-read Oxford Nanopore amplicons (.gz supported).'
+          desc: 'Supports short-read Illumina paired ends (with mate linking & gap padding) and long-read Oxford Nanopore amplicons.'
         },
         {
-          badge: 'Polyploid Demux',
-          title: 'Minimizing Misassignment',
-          desc: 'Ambiguity-aware assignment separates near-identical homeologs (e.g. wheat, canola) while retaining uncertain reads to prevent miscalling.'
+          badge: 'Polyploid Specialty',
+          title: 'Ambiguity-Aware Assignment',
+          desc: 'Retains uncertain reads in an explicit ambiguous group to prevent cross-misassignment among near-identical homeologs.'
         }
       ],
       nextButtonText: 'Next ▶',
       isIntro: true
     },
 
-    // ── 1. Prerequisites (Inputs) ──
+    // ── 1. Prerequisites (Inputs without artificial 19-25 limit) ──
     {
       id: 'prerequisites',
       stageName: 'Prerequisites',
@@ -646,119 +829,159 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         {
           badge: 'Input 3',
           title: 'gRNA Target Sequence(s)',
-          desc: '19–25 bp guide spacer sequence(s) used to define double-strand cut sites and editing target loci.'
+          desc: 'Guide spacer sequence(s) used to define double-strand cleavage cut sites and target loci.'
         }
       ],
       nextButtonText: 'Start Interactive Tour ▶',
       isPrereq: true
     },
 
-    // ── 2. Platform & Reference Mode ──
+    // ── 2. Analysis Tabs ──
+    {
+      id: 'analysis-tabs',
+      stageName: 'Analysis Tabs',
+      headline: 'Multi-Tab Workspaces',
+      introLine: 'CasMANGO allows you to create and manage multiple analysis sessions at once.',
+      textLines: [
+        '• Work on different experiments simultaneously without losing your configuration or progress.',
+        '• Click below to open a dedicated "Guide Analysis" tab. All tutorial datasets run safely inside this tab and will be closed automatically when you exit.'
+      ],
+      targetSelector: '#guide-tabs-bar',
+      interactiveAction: 'create_guide_tab',
+      nextButtonText: 'Next: Platform & Mode ▶'
+    },
+
+    // ── 3. Platform & Reference Mode (Side-by-Side A & B layout) ──
     {
       id: 'platform-mode',
       stageName: 'Platform & Mode',
       headline: 'Platform & Reference Mode',
-      textLines: [
-        '• Platform: Choose Illumina (short-read with auto R1/R2 mate pairing) or Nanopore (long-read amplicon alignment). Both support .fastq.gz.',
-        '• Reference Mode: Select Standard for independent gene loci, or Homeolog for polyploid crops (wheat, canola) to analyze inter-subgenome competition and minimize cross-misassignments.'
+      comparisonColumns: [
+        {
+          colTitle: 'Sequencing Platform',
+          items: [
+            { label: 'A · Nanopore', desc: 'Long-read amplicon alignment with terminal anchor checks.' },
+            { label: 'B · Illumina', desc: 'Short-read pairing with automated R1/R2 linking and gap X-padding.' }
+          ]
+        },
+        {
+          colTitle: 'Reference Mode',
+          items: [
+            { label: 'A · Standard', desc: 'Independent locus analysis (default for single-gene experiments).' },
+            { label: 'B · Homeolog', desc: 'Same core analysis, plus additionally computes inter-subgenome relationships in the result dashboard.' }
+          ]
+        }
       ],
       targetSelector: '#guide-platform-section',
       nextButtonText: 'Next ▶'
     },
 
-    // ── 3. File Upload (with Demo Files action) ──
+    // ── 4. File Upload (Interactive: dropzone click loads demo files) ──
     {
       id: 'file-upload',
       stageName: 'File Upload',
       headline: 'Upload FASTQ Sequencing Files',
       textLines: [
-        '• Drag and drop .fastq, .fq, or .gz compressed files directly into the central dropzone.',
-        '• Illumina paired-end files are automatically paired by filename (R1 & R2). All parsing runs locally in parallel Web Workers.',
-        '• Click the button below to load synthetic benchmark samples (CPC, TRY, and pooled) for testing:'
+        '• Drag and drop .fastq or .gz files into the dropzone (Illumina pairs link automatically by name).',
+        '• Click the upload zone directly (or the button below) to load demo datasets (cpc, try, cpc/try pooled) to unlock the next step:'
       ],
       targetSelector: '#guide-upload-zone',
       interactiveAction: 'load_demo_files',
       nextButtonText: 'Next ▶'
     },
 
-    // ── 4. Reference Sequence(s) & Target(s) (with Demo Config action) ──
+    // ── 5. Reference Sequence(s) & Target(s) ──
     {
       id: 'ref-config',
       stageName: 'Ref & Targets',
       headline: 'Reference Sequence(s) & Target(s)',
       textLines: [
         '• Enter wild-type amplicon sequence(s) and gRNA spacer(s). Cut sites and PAM coordinates are determined automatically.',
-        '• Click below to auto-fill synthetic reference amplicons and gRNAs for the CPC & TRY loci:'
+        '• Supports multiple guide RNAs per amplicon as well as separate gene loci.'
       ],
-      targetSelector: '#guide-targets-section',
-      interactiveAction: 'load_demo_targets',
+      targetSelector: '#guide-targets-section .section-header',
       nextButtonText: 'Next ▶'
     },
 
-    // ── 5. Auto Fill & Batch Management (4 Buttons) ──
+    // ── 6. Reference Configuration Actions ──
+    {
+      id: 'ref-configuration-actions',
+      stageName: 'Config Options',
+      headline: 'Batch Setup & Per-File Mapping',
+      textLines: [
+        '• Config per File: Assign different reference sets to individual FASTQ libraries when sequencing multiplexed pools.',
+        '• Auto Fill: Click to open the batch Excel toolset for template download and 1-click importing.'
+      ],
+      targetSelector: '#guide-targets-section .header-actions',
+      nextButtonText: 'Next: Auto Fill Tools ▶'
+    },
+
+    // ── 7. Auto Fill Toolset (4 Buttons) & Load Demo CPC/TRY ──
     {
       id: 'autofill-panel',
       stageName: 'Auto Fill (Excel)',
       headline: 'Batch Configuration via Excel',
-      textLines: [
-        '• Download Template: Get an empty pre-formatted Excel template for batch target entry.',
-        '• Download Current Config: Export your currently active gene & guide setups to an Excel workbook.',
-        '• Upload Sequence (Excel): Batch-import references and gRNAs to configure all defaults at once.',
-        '• Apply to Current File: Apply an Excel sheet override only to the currently selected FASTQ library.'
+      paramItems: [
+        { name: '1. Download Template', desc: 'Get an empty pre-formatted Excel template for batch target entry.' },
+        { name: '2. Download Current Config', desc: 'Export your currently active gene & guide setups to an Excel workbook.' },
+        { name: '3. Upload Sequence (Excel)', desc: 'Batch-import references and gRNAs to configure all defaults at once.' },
+        { name: '4. Apply to Current File', desc: 'Apply an Excel sheet override only to the currently selected FASTQ library.' }
       ],
       targetSelector: '#guide-autofill-panel',
+      interactiveAction: 'load_demo_targets',
       nextButtonText: 'Next ▶'
     },
 
-    // ── 6. Window Check ──
+    // ── 8. Window Check ──
     {
       id: 'window-check',
       stageName: 'Window Check',
-      headline: 'Window Check & Similarity Indicator',
+      headline: 'Window Check: Live CPC vs. TRY Locus',
       textLines: [
-        '• Visually inspect the nucleotide sequence around the cut site to verify that expected editing events fall within the analyzed window.',
-        '• In Homeolog mode, review the pairwise similarity matrix—high sequence similarity (e.g. >98%) indicates you should raise the Assignment Margin (%).'
+        '• Click below to open Window Check and inspect the extracted cut-site windows of CPC and TRY.',
+        '• The pairwise sequence similarity matrix directly guides how high you should set the Assignment Margin (%).'
       ],
       targetSelector: '#guide-window-check-btn',
+      interactiveAction: 'open_window_check',
       nextButtonText: 'Next ▶'
     },
 
-    // ── 7. Core Parameter Settings ──
+    // ── 9. Core Parameters ──
     {
       id: 'core-parameters',
       stageName: 'Core Parameters',
-      headline: 'Core Alignment & Filter Thresholds',
-      textLines: [
-        '• Window Size: Total analyzed sequence width centered around the cleavage site (default: 30 bp).',
-        '• Data Filtering (Phred): Minimum Phred base-calling score to filter out low-confidence reads.',
-        '• Assignment Margin (%): Alignment score advantage required to assign a read and eliminate cross-calling.',
-        '• Indel Threshold (%): Noise floor filter to exclude background sequencing errors.'
+      headline: 'Core Alignment Thresholds',
+      paramItems: [
+        { name: 'Window Size (bp)', desc: 'Total analyzed sequence width centered around the cleavage site (default: 30 bp).' },
+        { name: 'Data Filtering (Phred)', desc: 'Minimum Phred base-calling score to filter out low-confidence reads.' },
+        { name: 'Assignment Margin (%)', desc: 'Score advantage required to assign a read and eliminate cross-calling.' },
+        { name: 'Indel Threshold (%)', desc: 'Noise floor filter to exclude background sequencing errors.' }
       ],
       targetSelector: '#guide-controls-grid',
       nextButtonText: 'Next: Advanced ▶'
     },
 
-    // ── 8. Advanced Parameters ──
+    // ── 10. Advanced Parameters (Auto-expanded) ──
     {
       id: 'advanced-parameters',
       stageName: 'Advanced Settings',
       headline: 'Mutation Resilience & Custom Window',
-      textLines: [
-        '• Cut Site Exclusion Window: Excludes mutations within cut site ±N bp from similarity calculations to prevent large deletions from distorting reference assignment.',
-        '• Distance Weight: Assigns higher weight to sequence differences (e.g. SNVs) located further from the cut site.',
-        '• Custom Window: Configures independent asymmetric Left and Right flank window boundaries around the cut site.'
+      paramItems: [
+        { name: 'Cut Site Exclusion Window', desc: 'Excludes mutations within cut site ±N bp from similarity calculations to prevent large deletions from distorting reference assignment.' },
+        { name: 'Distance Weight', desc: 'Assigns higher weight to sequence differences (e.g. SNVs) located further from the cut site.' },
+        { name: 'Custom Window', desc: 'Configures independent asymmetric Left and Right flank window boundaries around the cut site.' }
       ],
       targetSelector: '#guide-advanced-panel',
       nextButtonText: 'Next ▶'
     },
 
-    // ── 9. Run Analysis & Viewers ──
+    // ── 11. Run Analysis & Viewers ──
     {
       id: 'run-and-view',
-      stageName: 'Run & Viewers',
+      stageName: 'Execution',
       headline: 'Start Analysis & View Outcomes',
       textLines: [
-        '• Click Start Local Analysis to run. Dedicated browser Web Workers process your files in parallel with live progress updates.',
+        '• Click Start Local Analysis to run hardware-accelerated Web Workers with live progress bars.',
         '• Export comprehensive results to Excel (.xlsx) and drop them into Result Viewer anytime, or inspect accuracy in the Benchmark tab.',
         '• You can now exit the guide or explore the upcoming results dashboard walkthrough below.'
       ],
@@ -793,6 +1016,73 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     if (this.rafId) {
       cancelAnimationFrame(this.rafId);
     }
+    this.removeGuideTab();
+  }
+
+  createOrSwitchToGuideTab() {
+    if (this.guideTabId && this.state.tabs.some(t => t.id === this.guideTabId)) {
+      this.state.selectTab(this.guideTabId);
+      this.guideTabCreated = true;
+      this.cdr.detectChanges();
+      return;
+    }
+
+    this.state.addTab('Guide Analysis');
+    this.guideTabId = this.state.activeTabId;
+    this.guideTabCreated = true;
+
+    // Reset settings in the fresh guide tab
+    this.state.selectedFiles = [];
+    this.state.illuminaPairs = [];
+    if (this.state.analysisForm) {
+      this.state.analysisForm.patchValue({
+        sequencingPlatform: 'nanopore',
+        homoeologMode: false,
+        interestRegion: 90,
+        phredThreshold: 20,
+        rescueThreshold: 20,
+        marginPercent: 10,
+        indelPercent: 2,
+        cutSiteDistanceWeight: 0,
+        cutSiteExclusionFlank: 0,
+        customWindowEnabled: false,
+        customWindowLeft: 45,
+        customWindowRight: 45,
+        analyzeAmbiguous: false,
+        rescueAmbiguous: false
+      }, { emitEvent: false });
+    }
+
+    // Initialize 1 blank gene block in guide tab
+    while (this.state.geneBlocks.length > 0) {
+      this.state.geneBlocks.removeAt(0);
+    }
+    this.state.addGene();
+    this.state.referenceConfigs = { default: this.state.geneBlocks.getRawValue() };
+    this.state.activeReferenceKey = 'default';
+
+    this.cdr.detectChanges();
+  }
+
+  private removeGuideTab() {
+    if (this.guideTabId) {
+      const exists = this.state.tabs.some(t => t.id === this.guideTabId);
+      if (exists) {
+        this.state.closeTab(this.guideTabId);
+      }
+      this.guideTabId = null;
+      this.guideTabCreated = false;
+    }
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocClick(event: MouseEvent) {
+    if (this.currentStep.id === 'file-upload' && !this.demoFilesLoaded) {
+      const target = event.target as HTMLElement;
+      if (target && target.closest('#guide-upload-zone')) {
+        this.loadDemoFiles();
+      }
+    }
   }
 
   @HostListener('window:resize')
@@ -811,8 +1101,23 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       this.closeGuide();
     } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
       if (!this.currentStep.isFinal) {
+        if (this.currentStep.id === 'file-upload' && !this.demoFilesLoaded && this.state.selectedFiles.length === 0 && this.state.illuminaPairs.length === 0) {
+          return;
+        }
         this.nextStep();
       }
+    } else if (e.key === 'ArrowLeft') {
+      if (this.currentStepIndex > 0) {
+        this.prevStep();
+      }
+    }
+  }
+
+  prevStep() {
+    if (this.currentStepIndex > 0) {
+      this.currentStepIndex--;
+      this.handleStepSideEffects();
+      this.onStepChanged();
     }
   }
 
@@ -821,12 +1126,19 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       this.closeGuide();
       return;
     }
+
+    // If moving from Tabs step and guide tab wasn't explicitly created, create it automatically
+    if (this.currentStep.id === 'analysis-tabs' && !this.guideTabCreated) {
+      this.createOrSwitchToGuideTab();
+    }
+
     this.currentStepIndex++;
     this.handleStepSideEffects();
     this.onStepChanged();
   }
 
   closeGuide() {
+    this.removeGuideTab();
     this.close.emit();
   }
 
@@ -841,7 +1153,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   private handleStepSideEffects() {
     const step = this.currentStep;
 
-    // Step 5: Auto Fill - ensure Auto Fill panel is opened
+    // Step: Auto Fill - ensure Auto Fill panel is opened
     if (step.id === 'autofill-panel') {
       const autofillPanel = document.querySelector('#guide-autofill-panel');
       if (!autofillPanel) {
@@ -850,7 +1162,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       }
     }
 
-    // Step 8: Advanced Parameters - ensure Advanced panel is expanded
+    // Step: Advanced Parameters - ensure Advanced panel is expanded
     if (step.id === 'advanced-parameters') {
       const advPanel = document.querySelector('#guide-advanced-panel');
       if (!advPanel) {
@@ -922,6 +1234,16 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Interactive Demo Action: Open live Window Check tool.
+   */
+  triggerWindowCheck() {
+    const winCheckBtn = document.querySelector('#guide-window-check-btn') as HTMLElement;
+    if (winCheckBtn) {
+      winCheckBtn.click();
+    }
+  }
+
+  /**
    * Instantly switch target and scroll smoothly without lag.
    */
   private onStepChanged() {
@@ -946,7 +1268,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Calculate coordinates synchronously without delays.
+   * Calculate coordinates synchronously without delays and prevent overlapping on tall targets.
    */
   private updateLayoutInstant() {
     const sel = this.currentStep.targetSelector;
@@ -972,8 +1294,8 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
 
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const cardWidth = Math.min(780, Math.max(340, vw - 40));
-    const cardEstimatedHeight = 260;
+    const cardWidth = Math.min(800, Math.max(340, vw - 48));
+    const cardEstimatedHeight = 250;
 
     const spaceBelow = vh - rect.bottom;
     const spaceAbove = rect.top;
@@ -986,20 +1308,26 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     let eX = 0;
     let eY = 0;
 
-    if (spaceBelow >= cardEstimatedHeight + 40 || spaceBelow >= spaceAbove) {
-      cTop = rect.bottom + 36;
-      sY = rect.bottom + 6;
+    // Smart placement: if target is tall (e.g. > 240px) or space below is tight
+    if (rect.height > 240 && spaceAbove >= 200) {
+      cTop = Math.max(20, rect.top - cardEstimatedHeight - 25);
+      sY = rect.top - 4;
+      eY = cTop + cardEstimatedHeight;
+    } else if (spaceBelow >= cardEstimatedHeight + 35 || spaceBelow >= spaceAbove) {
+      cTop = rect.bottom + 25;
+      sY = rect.bottom + 4;
       eY = cTop;
     } else {
-      cTop = rect.top - cardEstimatedHeight - 36;
-      sY = rect.top - 6;
+      cTop = Math.max(20, rect.top - cardEstimatedHeight - 25);
+      sY = rect.top - 4;
       eY = cTop + cardEstimatedHeight;
     }
 
-    cLeft = Math.max(20, Math.min(vw - cardWidth - 20, cLeft));
+    // Clamp inside viewport
+    cLeft = Math.max(24, Math.min(vw - cardWidth - 24, cLeft));
     cTop = Math.max(24, Math.min(vh - cardEstimatedHeight - 24, cTop));
 
-    eX = Math.max(cLeft + 50, Math.min(cLeft + cardWidth - 50, sX));
+    eX = Math.max(cLeft + 60, Math.min(cLeft + cardWidth - 60, sX));
 
     this.cardStyle = {
       top: `${Math.round(cTop)}px`,

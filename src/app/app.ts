@@ -38,7 +38,6 @@ import { TutorialGuideComponent } from './components/tutorial-guide/tutorial-gui
 
         <div class="nav-right">
           <button type="button" class="btn-guide-trigger" (click)="openGuide()" title="Interactive Tutorial Guide">
-            <span class="guide-btn-icon">🥭</span>
             <span class="guide-btn-text">Guide</span>
           </button>
           <span class="version-tag">v1.0.0</span>
@@ -70,7 +69,7 @@ import { TutorialGuideComponent } from './components/tutorial-guide/tutorial-gui
           <button type="button" class="drawer-link" [class.active]="activeTab === 'viewer'" [disabled]="state.isAnalysisRunning" (click)="switchTab('viewer')">Result Viewer</button>
           <button type="button" class="drawer-link" [class.active]="activeTab === 'benchmark'" [disabled]="state.isAnalysisRunning" (click)="switchTab('benchmark')">Benchmark</button>
           <button type="button" class="drawer-link" [class.active]="activeTab === 'workspace'" [disabled]="state.isAnalysisRunning" (click)="switchTab('workspace')">Sequence Viewer</button>
-          <button type="button" class="drawer-link drawer-guide-btn" (click)="openGuide()">🥭 Interactive Guide</button>
+          <button type="button" class="drawer-link drawer-guide-btn" (click)="openGuide()">Interactive Guide</button>
         </div>
         <div class="drawer-footer">All analysis stays on this device.</div>
       </aside>
