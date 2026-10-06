@@ -148,8 +148,12 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     this.editingTabId = null;
   }
 
+  private lastActiveTabId = '';
+
   closeTab(event: MouseEvent, tabId: string) {
     event.stopPropagation();
+    this.showWindowCheck = false;
+    this.clearPairComparison();
     this.state.closeTab(tabId);
   }
 
@@ -183,8 +187,14 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.state.activateSlot('analysis');
+    this.lastActiveTabId = this.state.activeTabId;
     if (this.homoeologMode) this.materializeHomoeologGroups(true);
     this.resultsUpdateSub = this.state.resultsUpdated$.subscribe(() => {
+      if (this.lastActiveTabId !== this.state.activeTabId) {
+        this.lastActiveTabId = this.state.activeTabId;
+        this.showWindowCheck = false;
+        this.clearPairComparison();
+      }
       this.cdr.detectChanges();
     });
     this.windowCheckFormSub = this.state.geneBlocks.valueChanges.pipe(debounceTime(120)).subscribe(() => {

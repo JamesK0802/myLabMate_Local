@@ -1108,6 +1108,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   }
 
   private removeGuideTab() {
+    this.closeWindowCheckPanel();
     if (this.guideTabId) {
       const exists = this.state.tabs.some(t => t.id === this.guideTabId);
       if (exists) {
@@ -1116,6 +1117,14 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       this.guideTabId = null;
       this.guideTabCreated = false;
     }
+  }
+
+  private closeWindowCheckPanel() {
+    const winCloseBtn = document.querySelector('.btn-close-window-check') as HTMLElement;
+    if (winCloseBtn) {
+      winCloseBtn.click();
+    }
+    this.windowCheckOpened = false;
   }
 
   @HostListener('window:resize')
@@ -1167,6 +1176,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   }
 
   closeGuide() {
+    this.closeWindowCheckPanel();
     this.removeGuideTab();
     this.close.emit();
   }
