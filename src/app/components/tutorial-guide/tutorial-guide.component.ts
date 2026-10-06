@@ -27,6 +27,8 @@ export interface GuideStep {
   isFinal?: boolean;
   nextButtonText?: string;
   interactiveAction?: 'create_guide_tab' | 'load_demo_files' | 'open_autofill' | 'load_demo_targets' | 'open_window_check';
+  actionPromptText?: string;
+  actionSuccessText?: string;
 }
 
 @Component({
@@ -155,6 +157,18 @@ export interface GuideStep {
           <!-- Minimal text lines -->
           <div class="text-lines-block" *ngIf="currentStep.textLines && currentStep.textLines.length > 0">
             <p class="text-line" *ngFor="let line of currentStep.textLines">{{ line }}</p>
+          </div>
+
+          <!-- Interactive Action Status Prompt (Clean yellow box without emojis) -->
+          <div class="interactive-status-row" *ngIf="currentStep.interactiveAction">
+            <div class="status-pill status-prompt" *ngIf="!isCurrentActionCompleted">
+              <span class="pulse-indicator"></span>
+              <span>{{ currentStep.actionPromptText }}</span>
+            </div>
+            <div class="status-pill status-success" *ngIf="isCurrentActionCompleted">
+              <span class="check-mark">✓</span>
+              <span>{{ currentStep.actionSuccessText }}</span>
+            </div>
           </div>
 
           <!-- Footer Actions -->
@@ -575,6 +589,55 @@ export interface GuideStep {
       line-height: 1.5;
     }
 
+    /* ── Interactive Action Status Prompt (Yellow / Amber Highlight Box) ── */
+    .interactive-status-row {
+      margin-top: 12px;
+      margin-bottom: 6px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .status-pill.status-prompt {
+      background: #fef3c7;
+      border: 1px solid #fde68a;
+      color: #92400e;
+    }
+
+    .pulse-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #d97706;
+      box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.7);
+      animation: pulseDot 1.5s infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes pulseDot {
+      0% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.7); }
+      70% { box-shadow: 0 0 0 8px rgba(217, 119, 6, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0); }
+    }
+
+    .status-pill.status-success {
+      background: #dcfce7;
+      border: 1px solid #bbf7d0;
+      color: #15803d;
+    }
+
+    .check-mark {
+      font-weight: 900;
+    }
+
     /* ── Footer Actions ── */
     .bubble-footer {
       display: flex;
@@ -756,11 +819,12 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       stageName: 'Analysis Tabs',
       headline: 'Open a Guide Analysis Tab',
       textLines: [
-        '• CasMANGO allows managing multiple independent analysis sessions at once.',
-        '• Click the (+) button on the tabs bar to create a dedicated tab for this tutorial.'
+        '• CasMANGO allows managing multiple independent analysis sessions simultaneously in your browser.'
       ],
       targetSelector: '#guide-tabs-bar',
       interactiveAction: 'create_guide_tab',
+      actionPromptText: 'Click the (+) button on the tabs bar to create a tab and proceed',
+      actionSuccessText: 'Guide Analysis tab created! Click Next to continue.',
       nextButtonText: 'Next: Platform & Mode ▶'
     },
 
@@ -795,11 +859,12 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       stageName: 'File Upload',
       headline: 'Upload FASTQ Sequencing Files',
       textLines: [
-        '• Supports .fastq and .gz files (Illumina pairs link automatically by name).',
-        '• Click the upload zone to load the demo dataset (CPC, TRY, Pooled).'
+        '• Supports .fastq and .gz files (Illumina pairs link automatically by name).'
       ],
       targetSelector: '#guide-upload-zone',
       interactiveAction: 'load_demo_files',
+      actionPromptText: 'Click the upload zone to load the demo dataset (CPC, TRY, Pooled)',
+      actionSuccessText: 'Demo files loaded (CPC, TRY, Pooled)! Click Next to continue.',
       nextButtonText: 'Next: Targets ▶'
     },
 
@@ -822,11 +887,12 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       stageName: 'Config Options',
       headline: 'Batch Setup & Auto Fill',
       textLines: [
-        '• Config per File assigns distinct reference amplicons to individual FASTQ libraries in pooled runs.',
-        '• Click Auto Fill to expand the batch Excel configuration toolset.'
+        '• Config per File assigns distinct reference amplicons to individual FASTQ libraries in pooled runs.'
       ],
       targetSelector: '#guide-autofill-btn',
       interactiveAction: 'open_autofill',
+      actionPromptText: 'Click Auto Fill to expand the batch Excel configuration toolset',
+      actionSuccessText: 'Auto Fill toolset opened! Click Next to view tools.',
       nextButtonText: 'Next: Auto Fill Tools ▶'
     },
 
@@ -841,11 +907,10 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         { name: '3. Upload Sequence (Excel)', desc: 'Batch-import references and gRNAs to configure all defaults at once.' },
         { name: '4. Apply to Current File', desc: 'Apply an Excel sheet override only to the currently selected FASTQ library.' }
       ],
-      textLines: [
-        '• Click Upload Sequence (Excel) to load the demo CPC & TRY locus configurations.'
-      ],
       targetSelector: '#guide-autofill-upload-btn',
       interactiveAction: 'load_demo_targets',
+      actionPromptText: 'Click Upload Sequence (Excel) to load demo references and proceed',
+      actionSuccessText: 'Demo CPC & TRY references loaded! Click Next to continue.',
       nextButtonText: 'Next ▶'
     },
 
@@ -855,11 +920,12 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       stageName: 'Window Check',
       headline: 'Window Check: Compare Locus Windows',
       textLines: [
-        '• Window Check compares extracted cut-site windows across amplicons to measure sequence similarity.',
-        '• Click Window Check to view the live comparison between CPC and TRY.'
+        '• Window Check compares extracted cut-site windows across amplicons to measure sequence similarity.'
       ],
       targetSelector: '#guide-window-check-btn',
       interactiveAction: 'open_window_check',
+      actionPromptText: 'Click Window Check to view comparison and proceed',
+      actionSuccessText: 'Window Check opened! Click Next to continue.',
       nextButtonText: 'Next ▶'
     },
 
