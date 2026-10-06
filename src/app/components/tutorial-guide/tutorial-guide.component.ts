@@ -27,8 +27,6 @@ export interface GuideStep {
   isFinal?: boolean;
   nextButtonText?: string;
   interactiveAction?: 'create_guide_tab' | 'load_demo_files' | 'open_autofill' | 'load_demo_targets' | 'open_window_check';
-  actionPromptText?: string;
-  actionSuccessText?: string;
 }
 
 @Component({
@@ -52,14 +50,13 @@ export interface GuideStep {
         Exit Guide ✕
       </button>
 
-      <!-- ── Spotlight Cutout with 0% Tint Inside ── -->
+      <!-- ── Spotlight Cutout with 0% Tint Inside (Clean border without text label) ── -->
       <div class="spotlight-hole"
            *ngIf="targetRect"
            [style.top.px]="targetRect.top - 6"
            [style.left.px]="targetRect.left - 6"
            [style.width.px]="targetRect.width + 12"
            [style.height.px]="targetRect.height + 12">
-        <span class="spotlight-label">{{ currentStep.stageName }}</span>
       </div>
 
       <!-- ── SVG Curved Dashed Arrow from Target to Speech Bubble ── -->
@@ -160,18 +157,6 @@ export interface GuideStep {
             <p class="text-line" *ngFor="let line of currentStep.textLines">{{ line }}</p>
           </div>
 
-          <!-- Interactive Action Status Prompt (No fake buttons, guides real UI interaction) -->
-          <div class="interactive-status-row" *ngIf="currentStep.interactiveAction">
-            <div class="status-pill status-prompt" *ngIf="!isCurrentActionCompleted">
-              <span class="pulse-indicator"></span>
-              <span>{{ currentStep.actionPromptText }}</span>
-            </div>
-            <div class="status-pill status-success" *ngIf="isCurrentActionCompleted">
-              <span class="check-mark">✓</span>
-              <span>{{ currentStep.actionSuccessText }}</span>
-            </div>
-          </div>
-
           <!-- Footer Actions -->
           <div class="bubble-footer">
             <ng-container *ngIf="!currentStep.isFinal">
@@ -213,11 +198,11 @@ export interface GuideStep {
       display: block;
     }
 
-    /* ── Fullscreen Overlay ── */
+    /* ── Fullscreen Overlay (Higher than all page elements, lets clicks pass through) ── */
     .guide-root {
       position: fixed;
       inset: 0;
-      z-index: 10000;
+      z-index: 99990;
       outline: none;
       pointer-events: none;
       user-select: none;
@@ -237,7 +222,7 @@ export interface GuideStep {
       position: fixed;
       top: 18px;
       left: 24px;
-      z-index: 10010;
+      z-index: 100010;
       pointer-events: auto;
       background: rgba(15, 23, 42, 0.85);
       border: 1px solid rgba(255, 255, 255, 0.25);
@@ -269,7 +254,7 @@ export interface GuideStep {
       position: fixed;
       top: 18px;
       right: 24px;
-      z-index: 10010;
+      z-index: 100010;
       pointer-events: auto;
       background: rgba(15, 23, 42, 0.85);
       border: 1px solid rgba(255, 255, 255, 0.25);
@@ -295,14 +280,14 @@ export interface GuideStep {
       box-shadow: 0 6px 18px rgba(239, 68, 68, 0.4);
     }
 
-    /* ── Spotlight Cutout with 0% Tint Inside ── */
+    /* ── Spotlight Cutout with 0% Tint Inside (Clean border without label) ── */
     .spotlight-hole {
       position: fixed;
       border-radius: 12px;
       box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.52);
       border: 2px solid #f59e0b;
       pointer-events: none;
-      z-index: 10001;
+      z-index: 99995;
       animation: pulseBorder 2.5s infinite ease-in-out;
       background: transparent !important;
     }
@@ -312,21 +297,6 @@ export interface GuideStep {
       50% { border-color: #fbbf24; box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.52), 0 0 25px rgba(251, 191, 36, 0.65); }
     }
 
-    .spotlight-label {
-      position: absolute;
-      top: -28px;
-      left: 0;
-      background: #f59e0b;
-      color: #0f172a;
-      font-size: 11px;
-      font-weight: 900;
-      letter-spacing: 0.05em;
-      padding: 2px 10px;
-      border-radius: 6px;
-      text-transform: uppercase;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-    }
-
     /* ── SVG Arrow Layer ── */
     .arrow-svg-layer {
       position: fixed;
@@ -334,7 +304,7 @@ export interface GuideStep {
       width: 100%;
       height: 100%;
       pointer-events: none;
-      z-index: 10002;
+      z-index: 99997;
     }
 
     .animated-dashed-arrow {
@@ -356,10 +326,10 @@ export interface GuideStep {
       100% { r: 12; opacity: 0; }
     }
 
-    /* ── Dialog Wrapper: Character on Left + Speech Bubble on Right ── */
+    /* ── Dialog Wrapper: Highest z-index on page, always on top ── */
     .guide-dialog-wrapper {
       position: fixed;
-      z-index: 10005;
+      z-index: 100000;
       display: flex;
       flex-direction: row;
       align-items: flex-start;
@@ -605,53 +575,6 @@ export interface GuideStep {
       line-height: 1.5;
     }
 
-    /* ── Interactive Action Status Banner ── */
-    .interactive-status-row {
-      margin-top: 14px;
-      margin-bottom: 6px;
-    }
-
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 16px;
-      border-radius: 999px;
-      font-size: 12.5px;
-      font-weight: 700;
-    }
-
-    .status-pill.status-prompt {
-      background: #fef3c7;
-      border: 1px solid #fde68a;
-      color: #b45309;
-    }
-
-    .pulse-indicator {
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      background: #f59e0b;
-      box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
-      animation: pulseDot 1.5s infinite;
-    }
-
-    @keyframes pulseDot {
-      0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
-      70% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
-    }
-
-    .status-pill.status-success {
-      background: #dcfce7;
-      border: 1px solid #bbf7d0;
-      color: #15803d;
-    }
-
-    .check-mark {
-      font-weight: 900;
-    }
-
     /* ── Footer Actions ── */
     .bubble-footer {
       display: flex;
@@ -719,7 +642,7 @@ export interface GuideStep {
       right: 0;
       height: 5px;
       background: rgba(255, 255, 255, 0.15);
-      z-index: 10009;
+      z-index: 100009;
     }
 
     .screen-progress-fill {
@@ -788,7 +711,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         {
           badge: 'Platform Agnostic',
           title: 'Illumina & Nanopore',
-          desc: 'Supports short-read Illumina paired ends (with mate linking & gap padding) and long-read Oxford Nanopore amplicons.'
+          desc: 'Supports short-read Illumina single/paired-end (with automated mate linking & gap X-padding) and long-read Oxford Nanopore amplicons.'
         },
         {
           badge: 'Polyploid Specialty',
@@ -810,7 +733,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         {
           badge: 'Input 1',
           title: 'FASTQ File(s)',
-          desc: 'Supported formats: .fastq, .fq, .fastq.gz, .fq.gz (from Illumina paired/single-end or Oxford Nanopore).'
+          desc: 'Supported formats: .fastq, .fq, .fastq.gz, .fq.gz (from Illumina single/paired-end or Oxford Nanopore).'
         },
         {
           badge: 'Input 2',
@@ -833,13 +756,11 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       stageName: 'Analysis Tabs',
       headline: 'Open a Guide Analysis Tab',
       textLines: [
-        '• CasMANGO allows you to create and manage multiple analysis sessions at once.',
-        '• Click the (+) button highlighted above to open a new analysis tab. All tutorial experiments run safely inside this tab and will be cleanly closed when you exit.'
+        '• CasMANGO allows managing multiple independent analysis sessions at once.',
+        '• Click the (+) button on the tabs bar to create a dedicated tab for this tutorial.'
       ],
-      targetSelector: '#guide-add-tab-btn',
+      targetSelector: '#guide-tabs-bar',
       interactiveAction: 'create_guide_tab',
-      actionPromptText: '👉 Click the (+) button above to create a tab and proceed',
-      actionSuccessText: 'Guide Analysis tab created! Click Next to continue.',
       nextButtonText: 'Next: Platform & Mode ▶'
     },
 
@@ -853,7 +774,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
           colTitle: 'Sequencing Platform',
           items: [
             { label: 'Nanopore', desc: 'Long-read amplicon alignment with terminal anchor checks.' },
-            { label: 'Illumina', desc: 'Short-read pairing with automated R1/R2 linking and gap X-padding.' }
+            { label: 'Illumina', desc: 'Short-read single & paired-end sequencing with automated R1/R2 linking and gap X-padding.' }
           ]
         },
         {
@@ -874,13 +795,11 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       stageName: 'File Upload',
       headline: 'Upload FASTQ Sequencing Files',
       textLines: [
-        '• Drag and drop .fastq or .gz files into the dropzone (Illumina pairs link automatically by name).',
-        '• Click the upload dropzone above to load the demo dataset (CPC, TRY, and Pooled samples):'
+        '• Supports .fastq and .gz files (Illumina pairs link automatically by name).',
+        '• Click the upload zone to load the demo dataset (CPC, TRY, Pooled).'
       ],
       targetSelector: '#guide-upload-zone',
       interactiveAction: 'load_demo_files',
-      actionPromptText: '👉 Click the upload dropzone above to load demo files and proceed',
-      actionSuccessText: 'Demo files loaded (CPC, TRY, Pooled)! Click Next to continue.',
       nextButtonText: 'Next: Targets ▶'
     },
 
@@ -904,12 +823,10 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       headline: 'Batch Setup & Auto Fill',
       textLines: [
         '• Config per File assigns distinct reference amplicons to individual FASTQ libraries in pooled runs.',
-        '• Click the Auto Fill button above to expand the batch Excel configuration toolset.'
+        '• Click Auto Fill to expand the batch Excel configuration toolset.'
       ],
       targetSelector: '#guide-autofill-btn',
       interactiveAction: 'open_autofill',
-      actionPromptText: '👉 Click the Auto Fill button above to expand the toolset and proceed',
-      actionSuccessText: 'Auto Fill toolset opened! Click Next to view tools.',
       nextButtonText: 'Next: Auto Fill Tools ▶'
     },
 
@@ -925,12 +842,10 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         { name: '4. Apply to Current File', desc: 'Apply an Excel sheet override only to the currently selected FASTQ library.' }
       ],
       textLines: [
-        '• Click anywhere on the Auto Fill panel above (or click Upload Sequence) to load the demo CPC & TRY locus configurations.'
+        '• Click Upload Sequence (Excel) to load the demo CPC & TRY locus configurations.'
       ],
-      targetSelector: '#guide-autofill-panel',
+      targetSelector: '#guide-autofill-upload-btn',
       interactiveAction: 'load_demo_targets',
-      actionPromptText: '👉 Click anywhere on the Auto Fill panel above to load demo references and proceed',
-      actionSuccessText: 'Demo CPC & TRY references loaded! Click Next to continue.',
       nextButtonText: 'Next ▶'
     },
 
@@ -941,12 +856,10 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       headline: 'Window Check: Compare Locus Windows',
       textLines: [
         '• Window Check compares extracted cut-site windows across amplicons to measure sequence similarity.',
-        '• Click the Window Check button above to view the live comparison between CPC and TRY.'
+        '• Click Window Check to view the live comparison between CPC and TRY.'
       ],
       targetSelector: '#guide-window-check-btn',
       interactiveAction: 'open_window_check',
-      actionPromptText: '👉 Click the Window Check button above to open comparison and proceed',
-      actionSuccessText: 'Window Check opened! Click Next to continue.',
       nextButtonText: 'Next ▶'
     },
 
@@ -1061,9 +974,6 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     if (this.rafId) {
       cancelAnimationFrame(this.rafId);
     }
-    document.querySelectorAll('.guide-highlight-active').forEach(el => {
-      el.classList.remove('guide-highlight-active');
-    });
     this.removeGuideTab();
   }
 
@@ -1100,9 +1010,9 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       }
     }
 
-    // 4. Step: Auto Fill Panel - user clicks Auto Fill panel or upload sequence
+    // 4. Step: Auto Fill Panel - user clicks specifically Upload Sequence (Excel)
     if (this.currentStep.id === 'autofill-panel') {
-      if (target.closest('#guide-autofill-panel')) {
+      if (target.closest('#guide-autofill-upload-btn') || target.closest('.btn-template-upload')) {
         event.preventDefault();
         event.stopPropagation();
         this.loadDemoTargets();
@@ -1230,14 +1140,17 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
    * Interactive Demo Action: Load synthetic FASTQ files (cpc, try, pooled).
    */
   loadDemoFiles() {
-    const dummyContent = "@SEQ_CPC_DEMO\nACTCCAAGGAGCTTGATTGGGTTTTCCAGTTGCCTTGTGGGAAGAGCAAG\n+\nIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII\n";
-    const file1 = new File([dummyContent], 'cpc_sample.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
-    const file2 = new File([dummyContent], 'try_sample.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
-    const file3 = new File([dummyContent], 'cpc_try_pooled.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
+    const cpcRead = "@cpc_sample_1\nAAATTTGAAATTCCTAAGCAATTTTTTCTTCTTATATATATAGATAATTATACATTCCAAAATAGTAATTCAAGGACAGGTACATTTCCTTTTTTTCTTGTCTTGTGAATTAAGGAGAGGAAAATTTTCTTTTAATCCAAACAAAAAAAATCATTTCCTAAAAAAGTCTCTTCGTCTGTTGGCAAAAACGACGCCGTGTTTCATAAGCCAATATCTCTCTATCTCCTCCGGCGTCCGTCCCGGGATCCTTCCGGCGATCAACTCCCACCTACGCGCCACGTAGGATAGGCTAACAGTCAGTGTTGAGGAACTTACACTTAACCAAATACCTTTTATTCCGATAAAAACCGCATAAAGTTTGTAATTCGGTTAAAATTCTATGGAACCGAACCAAAATCGTAATTTACACTTTGACTTCATACAAACATGCTGTAATCAAAATTGAACCAA\n+\nBEEECACEBEFGDEC@CEGDEFDDBDBDEEEEDEAEEDFEEE?FDEDFEFDEGCFCFDGECEFEDHECEEEED@EEGGBDFGCFCCDAGEFDCBCDFABDECCECGGF@FCCAEAEFDDBDEDFCDECF@BFCCFADEFEBCCDEE?BDDBDDGDFCCEDDDFCCGCFFADCGDE?ADFEBBCBECGFGEDCEACEFFFCCFHEECDCDFEIBBCEEFDFEEEDDCEGEGDCEEF@CC@@CDCEBF?HECBDBEDCAECIEEFDABDEG@DBBEE?FCEEBFDAHHDHEBFFEGDD>CCCCGEGDCHEGDEGEDBGEBDEFBFDACCIEAADBCCDGGFCCBGBFDFEFDAGEFDDD@EAFECCBHEFGFBDHDFDCGDDBFDCICBBCFGBCGDGADGDFFAEECBFEHC=AFFDEFDFBCGBEEBGCDIE@FDFCD?FDCGGDFDEFE\n";
+    const tryRead = "@try_sample_1\nGTCTACACAAAGGGTAAGAGGTCAACAAGACCACACAACACTTCTTACTATTAGTTTTGCAAAGGCCGTTCGTTGGACATTTCCTTCTCTCTCCTCCCCTCTTCTTCTTCTTGTTCGCTCTATAAACTCTCATCTCTCACGTCTTTTTTTCCTTACATTCTCCAAACTCAAAATTTCATCACATTAATTTCTCTCTATTTTTCTTTTCTTACTTCAATAGTAATGGATAACACTGACCGTCGTCGCCGTCGTAAGCAACACAAAATCGCCCTCCATGACTCTGAAGAAGTGAGCAGTATCGAATGGGAGTTTATCAACATGACTGAACAAGAAGAAGATCTCATCTTTCGAATGTACAGACTTGTCGGTGATAGGTGGGATTTGATAGCAGGAAGAGTTCCTGGAAGACAACCAGAGGAGATAGAGAGATATTGGATAATGAG\n+\nIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII\n";
+    const pooledRead = cpcRead + tryRead;
+
+    const file1 = new File([cpcRead], 'cpc_sample.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
+    const file2 = new File([tryRead], 'try_sample.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
+    const file3 = new File([pooledRead], 'cpc_try_pooled.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
 
     if (this.state.analysisForm.get('sequencingPlatform')?.value === 'illumina') {
-      const r1 = new File([dummyContent], 'cpc_sample_R1.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
-      const r2 = new File([dummyContent], 'cpc_sample_R2.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
+      const r1 = new File([cpcRead], 'cpc_sample_R1.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
+      const r2 = new File([cpcRead], 'cpc_sample_R2.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
       this.state.illuminaPairs = [
         { id: 'cpc_sample', name: 'cpc_sample', r1, r2 }
       ];
@@ -1252,12 +1165,12 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Interactive Demo Action: Auto-fill synthetic CPC and TRY reference amplicons & gRNAs.
+   * Interactive Demo Action: Auto-fill actual synthetic CPC and TRY reference amplicons & gRNAs.
    */
   loadDemoTargets() {
-    const cpcSeq = 'ATGTTTTCAATTCAGGAAAAGGCTTCAATTCCTCAAAAGTCAATCAAGGAGCAAAATGTTTTCGCTAGTGATGATGATGATGATGAAATGGACTCCAAGGAGCTTGATTGGGTTTTCCAGTTGCCTTGTGGGAAGAGCAAGAAACTCCCTCAGGTATCGTTTTGA';
-    const trySeq = 'ATGTTTTCCATTCAGGAAAAGGCCTCAATTCCTCAAAAGTCGATCAAGGAGCAAAATGTTTTCGCTAGTGATGATGATGATGATGAAATGGACTCCAAGGAGCTTGATTGGGTTTTCCAGTTACCTTGTGGGAAGAGCAAGAAACTCCCTCAGGTATCGTTTTGA';
-    const grna = 'ACTCCAAGGAGCTTGATTGG';
+    const cpcSeq = 'gctactattaatccttcccctcgtgaggaaatcatttcttcttgtttctcgagatttattctctttctctctctctttctctgtgtgtttcgtgtcttcagattagttcgATGTTTCGTTCAGACAAGGCGGAAAAAATGGATAAACGACGACGGAGACAGAGCAAAGCCAAGGCTTCTTGTTCCGAAGgtctgatttctctttgtttctctctatatctttttgatcggtttgagtctgattttgtatgtttgtttcgcagAGGTGAGTAGTATCGAATGGGAAGCTGTGAAGATGTCAGAAGAAGAAGAAGATCTCATTTCTCGGATGTATAAACTCGTTGGCGACAGgttagagactctttctctctcgatccatcttgttgctttctcttttttttggtctttcatgttttgtcgaatctgcttagattttgatctcaaagtcggtcgtttatttatgcattttcttggtttttctattatattattgggtctaacttaccgagctgtcaatgactgtgttcagcctgatttttgatcttgttattattctctgttttttgttttagttgttcaaatagcaaaacctaatcaagatttcgttttcagtttctttttttatatatgattctttagcaaaacatattcttaatttatgtcagaactcactttggctagtttggttcaattttgattacagcatgtttgtatgaagtcaaagtgtaaattacgattttggttcggttccatagaattttaaccgaattacaaactttatgcggtttttatcggaataaaaggtatttggttaagtgtaagttcctcaacactgactgttagcctatcctacgtggcgcgtagGTGGGAGTTGATCGCCGGAAGGATCCCGGGACGGACGCCGGAGGAGATAGAGAGATATTGGCTTATGAAACACGGCGTCGTTTTTGCCAACAGACGAAGAGACTTTTTTAGGAAATGAttttttttgtttggattaaaagaaaattttcctctccttaattcacaagacaagaaaaaaaggaaatgtacctgtccttgaattactattttggaatgtataattatctatatatataagaagaaaaaattgcttaggaatttcaaatttttaccagcctccatcgacacatgatatatc';
+    const trySeq = 'gtctacacaaagggtaagaggtcaacaagaccacacaacacttcttactattagttttgcaaaggccgttcgttggacatttccttctctctcctcccctcttcttcttcttgttcgctctataaactctcatctctcacgtctttttttccttacattctccaaactcaaaatttcatcacattaatttctctctatttttcttttcttacttcaatagtaATGGATAACACTGACCGTCGTCGCCGTCGTAAGCAACACAAAATCGCCCTCCATGACTCTGAAGgtacctctctattctctatatattttctatttcctaaatccaattttattaaacatcttgaaaataaatttagttcctagctaggatcatattctctttgtatatattcgttaaaacgagggatacgtttaattacttctaaattagttacacctcgtgctgactaaaagacttatcaagattagtttctagttttaacaaaaattaatatctttttaaaaagtttatatttgtctttttttgttagtttaatattgttttgagtttaattggtttaatattgttatttgcagAAGTGAGCAGTATCGAATGGGAGTTTATCAACATGACTGAACAAGAAGAAGATCTCATCTTTCGAATGTACAGACTTGTCGGTGATAGgtaacaatttcttcttcttctactttttctaagattatcccagcataaaataaattttatattttagacatgtctagctaaaacaatttaatatgcaggtatatacaattttacatacgttaatttaagcatatgtactttataacatatgtacagtgtaccatgttgtaggggaagcacatggtgtccactaattttctaaaaaaagacatttaattaaagctatcacgttcattaaattatatatgtacacacatatatatagagataaaaataagaacctaatttactattcttatcagtacgtactcatgtatataaatgcttggctggctcaaaaatggaaatttttgaactgacaaattatattttattatgaaaatataaatgctaatgcttgggataaaaatgtttttttttttcttttgaattagGTGGGATTTGATAGCAGGAAGAGTTCCTGGAAGACAACCAGAGGAGATAGAGAGATATTGGATAATGAGAAACAGTGAAGGCTTTGCTGATAAACGACGCCAGCTTCACTCATCTTCCCACAAACATACCAAGCCTCACCGTCCTCGCTTTTCTATCTATCCTTCCTAGtgtttttgtttttaagccaacgaaaaaagaaaataaaaaaattataatagatgtatagtagtggttcttgttagtttgaagaattcatcatctattgttttctttttgttgttatttcatttataatttttatagtataggtttcatttggtaatcaactttaatccatgc';
+    const grna = 'AATATCTCTCTATCTCCTC';
 
     // Clear existing genes
     while (this.state.geneBlocks.length > 0) {
@@ -1265,24 +1178,24 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     }
 
     // Add Gene 1: CPC
-    this.state.addGene('Homoeolog 1');
+    this.state.addGene('CPC');
     const gene0 = this.state.geneBlocks.at(0);
     gene0.get('gene_name')?.setValue('CPC');
     gene0.get('gene_reference')?.setValue(cpcSeq);
     const targets0 = gene0.get('geneTargets') as FormArray;
     if (targets0 && targets0.length > 0) {
-      targets0.at(0).get('target_id')?.setValue('CPC_gRNA1');
+      targets0.at(0).get('target_id')?.setValue('t1');
       targets0.at(0).get('gRNA')?.setValue(grna);
     }
 
     // Add Gene 2: TRY
-    this.state.addGene('Homoeolog 2');
+    this.state.addGene('TRY');
     const gene1 = this.state.geneBlocks.at(1);
     gene1.get('gene_name')?.setValue('TRY');
     gene1.get('gene_reference')?.setValue(trySeq);
     const targets1 = gene1.get('geneTargets') as FormArray;
     if (targets1 && targets1.length > 0) {
-      targets1.at(0).get('target_id')?.setValue('TRY_gRNA1');
+      targets1.at(0).get('target_id')?.setValue('t1');
       targets1.at(0).get('gRNA')?.setValue(grna);
     }
 
@@ -1299,16 +1212,10 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   private onStepChanged() {
     this.cdr.detectChanges();
 
-    document.querySelectorAll('.guide-highlight-active').forEach(el => {
-      el.classList.remove('guide-highlight-active');
-    });
-
     const sel = this.currentStepTargetSelector;
     if (sel) {
       const el = document.querySelector(sel) as HTMLElement;
       if (el) {
-        el.classList.add('guide-highlight-active');
-
         const dialogEl = document.querySelector('.guide-dialog-wrapper') as HTMLElement;
         const dialogHeight = dialogEl ? dialogEl.offsetHeight : 280;
         const rect = el.getBoundingClientRect();
