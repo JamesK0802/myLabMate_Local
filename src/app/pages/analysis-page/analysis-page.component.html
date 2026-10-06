@@ -35,7 +35,7 @@
         <span>All analysis is performed locally in your browser. FASTQ files are not uploaded to any server.</span>
       </div>
 
-      <div class="sequencing-platform-field">
+      <div class="sequencing-platform-field" id="guide-platform-section">
         <span class="platform-label">Platform</span>
         <div class="platform-segmented" role="group" aria-label="Sequencing platform" id="guide-platform-choice">
           <button type="button" [class.active]="sequencingPlatform === 'nanopore'" (click)="setSequencingPlatform('nanopore')">Nanopore</button>

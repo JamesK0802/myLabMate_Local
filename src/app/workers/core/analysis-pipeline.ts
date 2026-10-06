@@ -287,19 +287,24 @@ function runAnalysisOnReads(
 
       // Grouping for Annotation View (treat X as WT sequence so all lengths merge into 1 group)
       let groupKey = readWindow.toUpperCase();
-      let groupTokens = readTokens;
+      let groupTokens: AlignmentToken[] | null = readTokens;
       if (leftX > 0 || rightX > 0 || groupKey.includes('X')) {
         const refUpper = refWindow.toUpperCase();
         groupKey = materializeTokensAgainstReference(refUpper, readTokens);
-        // Annotation must use the same 10-bp evidence floor as classification.
-        // Falling back to 1-bp matches here could display one biological event
-        // as a fragmented deletion/insertion mosaic even when its numeric call
-        // had already been classified stringently.
-        groupTokens = alignReadToRef(refUpper, groupKey, 10);
+        // Re-alignment is needed only when a new annotation group is created.
+        // Repeating it for every duplicate read dominated large FASTQ runtime.
+        groupTokens = null;
       }
 
       const key = groupKey;
       if (!groupsDict[key]) {
+        if (groupTokens === null) {
+          // Annotation must use the same 10-bp evidence floor as classification.
+          // Falling back to 1-bp matches here could display one biological event
+          // as a fragmented deletion/insertion mosaic even when its numeric call
+          // had already been classified stringently.
+          groupTokens = alignReadToRef(refWindow.toUpperCase(), groupKey, 10);
+        }
         groupsDict[key] = {
           read_inner: key,
           read_count: 0,
