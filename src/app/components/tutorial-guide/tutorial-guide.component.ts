@@ -1,5 +1,7 @@
 import { Component, EventEmitter, Output, OnDestroy, OnInit, ChangeDetectorRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormArray } from '@angular/forms';
+import { AppStateService } from '../../services/app-state.service';
 
 export interface AdvantageCard {
   title: string;
@@ -17,7 +19,9 @@ export interface GuideStep {
   targetSelector?: string;
   isIntro?: boolean;
   isPrereq?: boolean;
+  isFinal?: boolean;
   nextButtonText?: string;
+  interactiveAction?: 'load_demo_files' | 'load_demo_targets';
 }
 
 @Component({
@@ -108,13 +112,50 @@ export interface GuideStep {
             <p class="text-line" *ngFor="let line of currentStep.textLines">{{ line }}</p>
           </div>
 
-          <!-- Footer Actions (Forward button only, no back button) -->
-          <div class="bubble-footer">
+          <!-- Interactive Demo Button Action if provided -->
+          <div class="interactive-action-row" *ngIf="currentStep.interactiveAction">
             <button type="button"
-                    class="btn-guide-next"
-                    (click)="nextStep()">
-              {{ currentStep.nextButtonText || 'Next ▶' }}
+                    class="btn-demo-action"
+                    *ngIf="currentStep.interactiveAction === 'load_demo_files'"
+                    (click)="loadDemoFiles()">
+              <span>📁 Click to Load Demo Files (CPC, TRY, Pooled)</span>
+              <span class="demo-badge" *ngIf="demoFilesLoaded">✓ Loaded</span>
             </button>
+
+            <button type="button"
+                    class="btn-demo-action"
+                    *ngIf="currentStep.interactiveAction === 'load_demo_targets'"
+                    (click)="loadDemoTargets()">
+              <span>🧬 Click to Auto-Fill Demo References (CPC & TRY)</span>
+              <span class="demo-badge" *ngIf="demoTargetsLoaded">✓ Applied</span>
+            </button>
+          </div>
+
+          <!-- Footer Actions -->
+          <div class="bubble-footer">
+            <ng-container *ngIf="!currentStep.isFinal">
+              <button type="button"
+                      class="btn-guide-next"
+                      (click)="nextStep()">
+                {{ currentStep.nextButtonText || 'Next ▶' }}
+              </button>
+            </ng-container>
+
+            <!-- Final Step: Exit or Explore Results Guide -->
+            <ng-container *ngIf="currentStep.isFinal">
+              <div class="final-actions-group">
+                <button type="button"
+                        class="btn-secondary-action"
+                        (click)="closeGuide()">
+                  Exit Guide ✕
+                </button>
+                <button type="button"
+                        class="btn-guide-next"
+                        (click)="openResultsGuideComingSoon()">
+                  Explore Results Guide ▶
+                </button>
+              </div>
+            </ng-container>
           </div>
         </div>
       </div>
@@ -154,7 +195,7 @@ export interface GuideStep {
       top: 18px;
       right: 24px;
       z-index: 10010;
-      background: rgba(15, 23, 42, 0.75);
+      background: rgba(15, 23, 42, 0.78);
       border: 1px solid rgba(255, 255, 255, 0.25);
       color: #ffffff;
       padding: 8px 18px;
@@ -241,7 +282,7 @@ export interface GuideStep {
       display: flex;
       align-items: flex-start;
       gap: 20px;
-      max-width: 760px;
+      max-width: 780px;
       width: calc(100vw - 40px);
       pointer-events: auto;
       transition: top 0.15s cubic-bezier(0.16, 1, 0.3, 1), left 0.15s cubic-bezier(0.16, 1, 0.3, 1);
@@ -322,7 +363,6 @@ export interface GuideStep {
       min-width: 0;
     }
 
-    /* Speech bubble arrow notch pointing toward the mascot */
     .bubble-content::before {
       content: '';
       position: absolute;
@@ -413,6 +453,41 @@ export interface GuideStep {
       line-height: 1.55;
     }
 
+    /* ── Interactive Demo Action Button ── */
+    .interactive-action-row {
+      margin-bottom: 16px;
+    }
+
+    .btn-demo-action {
+      background: #f0fdf4;
+      border: 1.5px dashed #22c55e;
+      color: #15803d;
+      padding: 9px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+    }
+
+    .btn-demo-action:hover {
+      background: #dcfce7;
+      border-color: #16a34a;
+      transform: translateY(-1px);
+    }
+
+    .demo-badge {
+      background: #22c55e;
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 900;
+      padding: 1px 7px;
+      border-radius: 999px;
+    }
+
     /* ── Footer Actions ── */
     .bubble-footer {
       display: flex;
@@ -420,6 +495,29 @@ export interface GuideStep {
       justify-content: flex-end;
       border-top: 1px solid #f1f5f9;
       padding-top: 14px;
+    }
+
+    .final-actions-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn-secondary-action {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      color: #475569;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-size: 13.5px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-secondary-action:hover {
+      background: #e2e8f0;
+      color: #1e293b;
     }
 
     .btn-guide-next {
@@ -495,6 +593,9 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   arrowEndY = 0;
   pathD = '';
 
+  demoFilesLoaded = false;
+  demoTargetsLoaded = false;
+
   private rafId: number | null = null;
 
   steps: GuideStep[] = [
@@ -565,33 +666,51 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       nextButtonText: 'Next ▶'
     },
 
-    // ── 3. File Upload ──
+    // ── 3. File Upload (with Demo Files action) ──
     {
       id: 'file-upload',
       stageName: 'File Upload',
       headline: 'Upload FASTQ Sequencing Files',
       textLines: [
         '• Drag and drop .fastq, .fq, or .gz compressed files directly into the central dropzone.',
-        '• Illumina paired-end files are automatically paired by filename (R1 & R2). All parsing runs locally in parallel Web Workers.'
+        '• Illumina paired-end files are automatically paired by filename (R1 & R2). All parsing runs locally in parallel Web Workers.',
+        '• Click the button below to load synthetic benchmark samples (CPC, TRY, and pooled) for testing:'
       ],
       targetSelector: '#guide-upload-zone',
+      interactiveAction: 'load_demo_files',
       nextButtonText: 'Next ▶'
     },
 
-    // ── 4. Reference Sequence(s) & Target(s) ──
+    // ── 4. Reference Sequence(s) & Target(s) (with Demo Config action) ──
     {
       id: 'ref-config',
       stageName: 'Ref & Targets',
       headline: 'Reference Sequence(s) & Target(s)',
       textLines: [
         '• Enter wild-type amplicon sequence(s) and gRNA spacer(s). Cut sites and PAM coordinates are determined automatically.',
-        '• Click Auto Fill to download an Excel template and batch-upload dozens of targets in 1 second, or use Config per File for multiplexed libraries.'
+        '• Click below to auto-fill synthetic reference amplicons and gRNAs for the CPC & TRY loci:'
       ],
       targetSelector: '#guide-targets-section',
+      interactiveAction: 'load_demo_targets',
       nextButtonText: 'Next ▶'
     },
 
-    // ── 5. Window Check ──
+    // ── 5. Auto Fill & Batch Management (4 Buttons) ──
+    {
+      id: 'autofill-panel',
+      stageName: 'Auto Fill (Excel)',
+      headline: 'Batch Configuration via Excel',
+      textLines: [
+        '• Download Template: Get an empty pre-formatted Excel template for batch target entry.',
+        '• Download Current Config: Export your currently active gene & guide setups to an Excel workbook.',
+        '• Upload Sequence (Excel): Batch-import references and gRNAs to configure all defaults at once.',
+        '• Apply to Current File: Apply an Excel sheet override only to the currently selected FASTQ library.'
+      ],
+      targetSelector: '#guide-autofill-panel',
+      nextButtonText: 'Next ▶'
+    },
+
+    // ── 6. Window Check ──
     {
       id: 'window-check',
       stageName: 'Window Check',
@@ -604,34 +723,54 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       nextButtonText: 'Next ▶'
     },
 
-    // ── 6. Parameter Settings ──
+    // ── 7. Core Parameter Settings ──
     {
-      id: 'parameters',
-      stageName: 'Parameters',
-      headline: 'Parameters & Advanced Settings',
+      id: 'core-parameters',
+      stageName: 'Core Parameters',
+      headline: 'Core Alignment & Filter Thresholds',
       textLines: [
-        '• Set Window Size (analysis span), Phred Quality, Assignment Margin (demux threshold), and Indel Threshold (noise filter).',
-        '• In Advanced, configure cut-site mutation exclusion or distance weighting so large deletions do not distort reference assignment.'
+        '• Window Size: Total analyzed sequence width centered around the cleavage site (default: 30 bp).',
+        '• Data Filtering (Phred): Minimum Phred base-calling score to filter out low-confidence reads.',
+        '• Assignment Margin (%): Alignment score advantage required to assign a read and eliminate cross-calling.',
+        '• Indel Threshold (%): Noise floor filter to exclude background sequencing errors.'
       ],
       targetSelector: '#guide-controls-grid',
+      nextButtonText: 'Next: Advanced ▶'
+    },
+
+    // ── 8. Advanced Parameters ──
+    {
+      id: 'advanced-parameters',
+      stageName: 'Advanced Settings',
+      headline: 'Mutation Resilience & Custom Window',
+      textLines: [
+        '• Cut Site Exclusion Window: Excludes mutations within cut site ±N bp from similarity calculations to prevent large deletions from distorting reference assignment.',
+        '• Distance Weight: Assigns higher weight to sequence differences (e.g. SNVs) located further from the cut site.',
+        '• Custom Window: Configures independent asymmetric Left and Right flank window boundaries around the cut site.'
+      ],
+      targetSelector: '#guide-advanced-panel',
       nextButtonText: 'Next ▶'
     },
 
-    // ── 7. Run Analysis & Viewers ──
+    // ── 9. Run Analysis & Viewers ──
     {
       id: 'run-and-view',
-      stageName: 'Execution',
-      headline: 'Run Analysis & Result Viewers',
+      stageName: 'Run & Viewers',
+      headline: 'Start Analysis & View Outcomes',
       textLines: [
         '• Click Start Local Analysis to run. Dedicated browser Web Workers process your files in parallel with live progress updates.',
-        '• Export comprehensive results to Excel (.xlsx) and drop them into Result Viewer anytime, or inspect accuracy in the Benchmark tab.'
+        '• Export comprehensive results to Excel (.xlsx) and drop them into Result Viewer anytime, or inspect accuracy in the Benchmark tab.',
+        '• You can now exit the guide or explore the upcoming results dashboard walkthrough below.'
       ],
       targetSelector: '#guide-run-btn',
-      nextButtonText: 'Finish Guide ✕'
+      isFinal: true
     }
   ];
 
-  constructor(private cdr: ChangeDetectorRef) {}
+  constructor(
+    public state: AppStateService,
+    private cdr: ChangeDetectorRef
+  ) {}
 
   get currentStep(): GuideStep {
     return this.steps[this.currentStepIndex];
@@ -646,6 +785,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    this.handleStepSideEffects();
     this.updateLayoutInstant();
   }
 
@@ -670,7 +810,9 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     if (e.key === 'Escape') {
       this.closeGuide();
     } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
-      this.nextStep();
+      if (!this.currentStep.isFinal) {
+        this.nextStep();
+      }
     }
   }
 
@@ -680,11 +822,103 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       return;
     }
     this.currentStepIndex++;
+    this.handleStepSideEffects();
     this.onStepChanged();
   }
 
   closeGuide() {
     this.close.emit();
+  }
+
+  openResultsGuideComingSoon() {
+    alert('Results Dashboard Walkthrough will be available in the upcoming update!\n\nYou can run analysis, export comprehensive multi-sheet Excel (.xlsx) files, and restore all visual charts anytime via the Result Viewer tab.');
+    this.closeGuide();
+  }
+
+  /**
+   * Automatically expand panels or prepare UI states required for each step.
+   */
+  private handleStepSideEffects() {
+    const step = this.currentStep;
+
+    // Step 5: Auto Fill - ensure Auto Fill panel is opened
+    if (step.id === 'autofill-panel') {
+      const autofillPanel = document.querySelector('#guide-autofill-panel');
+      if (!autofillPanel) {
+        const autofillBtn = document.querySelector('#guide-autofill-btn') as HTMLElement;
+        if (autofillBtn) autofillBtn.click();
+      }
+    }
+
+    // Step 8: Advanced Parameters - ensure Advanced panel is expanded
+    if (step.id === 'advanced-parameters') {
+      const advPanel = document.querySelector('#guide-advanced-panel');
+      if (!advPanel) {
+        const advBtn = document.querySelector('#guide-advanced-btn') as HTMLElement;
+        if (advBtn) advBtn.click();
+      }
+    }
+  }
+
+  /**
+   * Interactive Demo Action: Load synthetic FASTQ files (cpc, try, pooled).
+   */
+  loadDemoFiles() {
+    const dummyContent = "@SEQ_CPC_DEMO\nACTCCAAGGAGCTTGATTGGGTTTTCCAGTTGCCTTGTGGGAAGAGCAAG\n+\nIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII\n";
+    const file1 = new File([dummyContent], 'cpc_sample.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
+    const file2 = new File([dummyContent], 'try_sample.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
+    const file3 = new File([dummyContent], 'cpc_try_pooled.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
+
+    if (this.state.analysisForm.get('sequencingPlatform')?.value === 'illumina') {
+      const r1 = new File([dummyContent], 'cpc_sample_R1.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
+      const r2 = new File([dummyContent], 'cpc_sample_R2.fastq.gz', { type: 'application/gzip', lastModified: Date.now() });
+      this.state.illuminaPairs = [
+        { id: 'cpc_sample', name: 'cpc_sample', r1, r2 }
+      ];
+    } else {
+      this.state.selectedFiles = [file1, file2, file3];
+    }
+    this.demoFilesLoaded = true;
+    this.cdr.detectChanges();
+  }
+
+  /**
+   * Interactive Demo Action: Auto-fill synthetic CPC and TRY reference amplicons & gRNAs.
+   */
+  loadDemoTargets() {
+    const cpcSeq = 'ATGTTTTCAATTCAGGAAAAGGCTTCAATTCCTCAAAAGTCAATCAAGGAGCAAAATGTTTTCGCTAGTGATGATGATGATGATGAAATGGACTCCAAGGAGCTTGATTGGGTTTTCCAGTTGCCTTGTGGGAAGAGCAAGAAACTCCCTCAGGTATCGTTTTGA';
+    const trySeq = 'ATGTTTTCCATTCAGGAAAAGGCCTCAATTCCTCAAAAGTCGATCAAGGAGCAAAATGTTTTCGCTAGTGATGATGATGATGATGAAATGGACTCCAAGGAGCTTGATTGGGTTTTCCAGTTACCTTGTGGGAAGAGCAAGAAACTCCCTCAGGTATCGTTTTGA';
+    const grna = 'ACTCCAAGGAGCTTGATTGG';
+
+    // Clear existing genes
+    while (this.state.geneBlocks.length > 0) {
+      this.state.geneBlocks.removeAt(0);
+    }
+
+    // Add Gene 1: CPC
+    this.state.addGene('Homoeolog 1');
+    const gene0 = this.state.geneBlocks.at(0);
+    gene0.get('gene_name')?.setValue('CPC');
+    gene0.get('gene_reference')?.setValue(cpcSeq);
+    const targets0 = gene0.get('geneTargets') as FormArray;
+    if (targets0 && targets0.length > 0) {
+      targets0.at(0).get('target_id')?.setValue('CPC_gRNA1');
+      targets0.at(0).get('gRNA')?.setValue(grna);
+    }
+
+    // Add Gene 2: TRY
+    this.state.addGene('Homoeolog 2');
+    const gene1 = this.state.geneBlocks.at(1);
+    gene1.get('gene_name')?.setValue('TRY');
+    gene1.get('gene_reference')?.setValue(trySeq);
+    const targets1 = gene1.get('geneTargets') as FormArray;
+    if (targets1 && targets1.length > 0) {
+      targets1.at(0).get('target_id')?.setValue('TRY_gRNA1');
+      targets1.at(0).get('gRNA')?.setValue(grna);
+    }
+
+    this.demoTargetsLoaded = true;
+    this.cdr.detectChanges();
   }
 
   /**
@@ -698,10 +932,8 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }
-    // Update immediately (0ms delay)
     this.updateLayoutInstant();
 
-    // Continuously follow during smooth scrolling animation
     let frames = 0;
     const followScroll = () => {
       this.updateLayoutInstant();
@@ -740,10 +972,9 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
 
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const cardWidth = Math.min(760, Math.max(340, vw - 40));
+    const cardWidth = Math.min(780, Math.max(340, vw - 40));
     const cardEstimatedHeight = 260;
 
-    // Determine placement: above or below
     const spaceBelow = vh - rect.bottom;
     const spaceAbove = rect.top;
 
@@ -756,18 +987,15 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     let eY = 0;
 
     if (spaceBelow >= cardEstimatedHeight + 40 || spaceBelow >= spaceAbove) {
-      // Place below
       cTop = rect.bottom + 36;
       sY = rect.bottom + 6;
       eY = cTop;
     } else {
-      // Place above
       cTop = rect.top - cardEstimatedHeight - 36;
       sY = rect.top - 6;
       eY = cTop + cardEstimatedHeight;
     }
 
-    // Clamp inside viewport
     cLeft = Math.max(20, Math.min(vw - cardWidth - 20, cLeft));
     cTop = Math.max(24, Math.min(vh - cardEstimatedHeight - 24, cTop));
 
@@ -784,7 +1012,6 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     this.arrowEndX = Math.round(eX);
     this.arrowEndY = Math.round(eY);
 
-    // Smooth cubic bezier curve
     const dy = this.arrowEndY - this.arrowStartY;
     const cp1X = this.arrowStartX;
     const cp1Y = Math.round(this.arrowStartY + dy * 0.55);

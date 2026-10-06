@@ -158,7 +158,7 @@
         </button>
       </div>
 
-      <div class="similar-window-settings-panel" *ngIf="showSimilarWindowSettings">
+      <div class="similar-window-settings-panel" id="guide-advanced-panel" *ngIf="showSimilarWindowSettings">
         <div class="custom-window-row">
           <label class="custom-window-toggle">
             <input type="checkbox" formControlName="customWindowEnabled" />
@@ -231,7 +231,7 @@
           </div>
         </div>
 
-        <div class="autofill-actions-panel" *ngIf="showAutofill">
+        <div class="autofill-actions-panel" id="guide-autofill-panel" *ngIf="showAutofill">
           <p class="autofill-hint">Use Default for every file, or name a worksheet after a file to create an automatic override.</p>
           <div class="autofill-buttons">
             <button type="button" class="btn-template-download" (click)="downloadTemplate()">
