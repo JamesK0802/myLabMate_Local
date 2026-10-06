@@ -14,7 +14,6 @@ export interface GuideStep {
   stageName: string;
   headline: string;
   introLine?: string;
-  acronymBreakdown?: Array<{ letter: string; word: string }>;
   cards?: AdvantageCard[];
   comparisonColumns?: Array<{
     colTitle: string;
@@ -27,7 +26,9 @@ export interface GuideStep {
   isPrereq?: boolean;
   isFinal?: boolean;
   nextButtonText?: string;
-  interactiveAction?: 'create_guide_tab' | 'load_demo_files' | 'load_demo_targets' | 'open_window_check';
+  interactiveAction?: 'create_guide_tab' | 'load_demo_files' | 'open_autofill' | 'load_demo_targets' | 'open_window_check';
+  actionPromptText?: string;
+  actionSuccessText?: string;
 }
 
 @Component({
@@ -109,11 +110,16 @@ export interface GuideStep {
         <div class="bubble-content">
           <h2 class="bubble-headline">{{ currentStep.headline }}</h2>
 
-          <!-- Acronym Breakdown (Step 0) -->
-          <div class="acronym-box" *ngIf="currentStep.acronymBreakdown">
-            <span class="acronym-chip" *ngFor="let item of currentStep.acronymBreakdown">
-              <strong class="letter">{{ item.letter }}</strong>{{ item.word }}
-            </span>
+          <!-- Acronym Breakdown (Single line sentence with C, A, S, M, A, N, G, O highlighted) -->
+          <div class="acronym-sentence" *ngIf="currentStep.isIntro">
+            <span class="acro-letter">C</span>RISPR
+            <span class="acro-letter">A</span>mplicon
+            <span class="acro-letter">S</span>equencing with
+            <span class="acro-letter">M</span>ultiplexed
+            <span class="acro-letter">A</span>ssignment of
+            <span class="acro-letter">N</span>GS reads for
+            <span class="acro-letter">G</span>enotyping and
+            <span class="acro-letter">O</span>utcome analysis
           </div>
 
           <!-- 1-line tool explanation -->
@@ -154,38 +160,16 @@ export interface GuideStep {
             <p class="text-line" *ngFor="let line of currentStep.textLines">{{ line }}</p>
           </div>
 
-          <!-- Interactive Demo Button Action if provided -->
-          <div class="interactive-action-row" *ngIf="currentStep.interactiveAction">
-            <button type="button"
-                    class="btn-demo-action"
-                    *ngIf="currentStep.interactiveAction === 'create_guide_tab'"
-                    (click)="createOrSwitchToGuideTab()">
-              <span>📑 Click to Open Dedicated "Guide Analysis" Tab</span>
-              <span class="demo-badge" *ngIf="guideTabCreated">✓ Active</span>
-            </button>
-
-            <button type="button"
-                    class="btn-demo-action"
-                    *ngIf="currentStep.interactiveAction === 'load_demo_files'"
-                    (click)="loadDemoFiles()">
-              <span>📁 Click to Load Demo Files (cpc, try, cpc/try pooled)</span>
-              <span class="demo-badge" *ngIf="demoFilesLoaded">✓ Loaded</span>
-            </button>
-
-            <button type="button"
-                    class="btn-demo-action"
-                    *ngIf="currentStep.interactiveAction === 'load_demo_targets'"
-                    (click)="loadDemoTargets()">
-              <span>🧬 Click to Auto-Fill CPC & TRY Demo References</span>
-              <span class="demo-badge" *ngIf="demoTargetsLoaded">✓ Applied</span>
-            </button>
-
-            <button type="button"
-                    class="btn-demo-action"
-                    *ngIf="currentStep.interactiveAction === 'open_window_check'"
-                    (click)="triggerWindowCheck()">
-              <span>🔍 Click to Open Window Check Comparison</span>
-            </button>
+          <!-- Interactive Action Status Prompt (No fake buttons, guides real UI interaction) -->
+          <div class="interactive-status-row" *ngIf="currentStep.interactiveAction">
+            <div class="status-pill status-prompt" *ngIf="!isCurrentActionCompleted">
+              <span class="pulse-indicator"></span>
+              <span>{{ currentStep.actionPromptText }}</span>
+            </div>
+            <div class="status-pill status-success" *ngIf="isCurrentActionCompleted">
+              <span class="check-mark">✓</span>
+              <span>{{ currentStep.actionSuccessText }}</span>
+            </div>
           </div>
 
           <!-- Footer Actions -->
@@ -193,7 +177,7 @@ export interface GuideStep {
             <ng-container *ngIf="!currentStep.isFinal">
               <button type="button"
                       class="btn-guide-next"
-                      [disabled]="currentStep.id === 'file-upload' && !demoFilesLoaded && state.selectedFiles.length === 0 && state.illuminaPairs.length === 0"
+                      [disabled]="!isNextButtonEnabled"
                       (click)="nextStep()">
                 {{ currentStep.nextButtonText || 'Next ▶' }}
               </button>
@@ -235,13 +219,14 @@ export interface GuideStep {
       inset: 0;
       z-index: 10000;
       outline: none;
-      pointer-events: auto;
+      pointer-events: none;
       user-select: none;
     }
 
     /* Backdrop when on Intro / Prereq without target spotlight */
     .guide-root.no-target {
       background: rgba(15, 23, 42, 0.55);
+      pointer-events: auto;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -253,6 +238,7 @@ export interface GuideStep {
       top: 18px;
       left: 24px;
       z-index: 10010;
+      pointer-events: auto;
       background: rgba(15, 23, 42, 0.85);
       border: 1px solid rgba(255, 255, 255, 0.25);
       color: #ffffff;
@@ -284,6 +270,7 @@ export interface GuideStep {
       top: 18px;
       right: 24px;
       z-index: 10010;
+      pointer-events: auto;
       background: rgba(15, 23, 42, 0.85);
       border: 1px solid rgba(255, 255, 255, 0.25);
       color: #ffffff;
@@ -454,34 +441,31 @@ export interface GuideStep {
     }
 
     .bubble-headline {
-      margin: 0 0 6px 0;
+      margin: 0 0 10px 0;
       font-size: 20px;
       font-weight: 900;
       color: #0f172a;
       letter-spacing: -0.02em;
     }
 
-    /* ── Acronym Box ── */
-    .acronym-box {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-bottom: 12px;
-    }
-
-    .acronym-chip {
-      background: #f1f5f9;
+    /* ── Acronym Single-Line Sentence ── */
+    .acronym-sentence {
+      margin: 0 0 14px 0;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #334155;
+      line-height: 1.55;
+      background: #f8fafc;
       border: 1px solid #e2e8f0;
-      border-radius: 6px;
-      padding: 2px 8px;
-      font-size: 11.5px;
-      color: #475569;
+      border-radius: 10px;
+      padding: 9px 15px;
+      text-align: center;
     }
 
-    .acronym-chip .letter {
+    .acro-letter {
       color: #ea580c;
       font-weight: 900;
-      margin-right: 1px;
+      font-size: 15px;
     }
 
     .bubble-intro-line {
@@ -568,7 +552,7 @@ export interface GuideStep {
     }
 
     .comp-item-label {
-      font-size: 12.5px;
+      font-size: 13px;
       font-weight: 800;
       color: #ea580c;
     }
@@ -621,38 +605,51 @@ export interface GuideStep {
       line-height: 1.5;
     }
 
-    /* ── Interactive Demo Action Button ── */
-    .interactive-action-row {
-      margin-bottom: 14px;
+    /* ── Interactive Action Status Banner ── */
+    .interactive-status-row {
+      margin-top: 14px;
+      margin-bottom: 6px;
     }
 
-    .btn-demo-action {
-      background: #f0fdf4;
-      border: 1.5px dashed #22c55e;
-      color: #15803d;
-      padding: 9px 16px;
-      border-radius: 10px;
-      font-size: 12.5px;
-      font-weight: 800;
-      cursor: pointer;
+    .status-pill {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      transition: all 0.15s ease;
-    }
-
-    .btn-demo-action:hover {
-      background: #dcfce7;
-      transform: translateY(-1px);
-    }
-
-    .demo-badge {
-      background: #22c55e;
-      color: #ffffff;
-      font-size: 11px;
-      font-weight: 800;
-      padding: 2px 7px;
+      padding: 7px 16px;
       border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 700;
+    }
+
+    .status-pill.status-prompt {
+      background: #fef3c7;
+      border: 1px solid #fde68a;
+      color: #b45309;
+    }
+
+    .pulse-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #f59e0b;
+      box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+      animation: pulseDot 1.5s infinite;
+    }
+
+    @keyframes pulseDot {
+      0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+      70% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+    }
+
+    .status-pill.status-success {
+      background: #dcfce7;
+      border: 1px solid #bbf7d0;
+      color: #15803d;
+    }
+
+    .check-mark {
+      font-weight: 900;
     }
 
     /* ── Footer Actions ── */
@@ -685,6 +682,12 @@ export interface GuideStep {
       box-shadow: 0 6px 18px rgba(234, 88, 12, 0.45);
     }
 
+    .btn-guide-next:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
     .final-actions-group {
       display: flex;
       align-items: center;
@@ -706,12 +709,6 @@ export interface GuideStep {
     .btn-secondary-action:hover {
       background: #e2e8f0;
       color: #0f172a;
-    }
-
-    .btn-guide-next:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-      box-shadow: none;
     }
 
     /* ── Bottom Progress Bar ── */
@@ -769,25 +766,19 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   guideTabCreated = false;
   demoFilesLoaded = false;
   demoTargetsLoaded = false;
+  isAutofillOpen = false;
+  windowCheckOpened = false;
 
   private rafId: number | null = null;
+  private boundCaptureClick = (event: MouseEvent) => this.onCaptureClick(event);
 
   steps: GuideStep[] = [
     // ── 0. Intro (Overview with Acronym) ──
     {
       id: 'intro',
       stageName: 'Introduction',
-      headline: "Hi! I'm CasMANGO 👋",
-      acronymBreakdown: [
-        { letter: 'C', word: 'RISPR' },
-        { letter: 'A', word: 'mplicon' },
-        { letter: 'S', word: 'equencing with' },
-        { letter: 'M', word: 'ultiplexed' },
-        { letter: 'A', word: 'ssignment of' },
-        { letter: 'NG', word: 'S reads for Genotyping and' },
-        { letter: 'O', word: 'utcome analysis' }
-      ],
-      introLine: "Hi, I'm CasMANGO! I stand for CRISPR Amplicon Sequencing with Multiplexed Assignment of NGS reads for Genotyping and Outcome analysis. I'm a client-side tool built to accurately assign reads and analyze multiplexed CRISPR editing outcomes directly in your browser with zero server uploads!",
+      headline: "Hi! I'm CasMANGO",
+      introLine: 'CasMANGO is a 100% client-side web application built to accurately assign reads and analyze multiplexed CRISPR editing outcomes directly in your browser with zero server uploads.',
       cards: [
         {
           badge: 'Security & Privacy',
@@ -809,7 +800,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       isIntro: true
     },
 
-    // ── 1. Prerequisites (Inputs without artificial 19-25 limit) ──
+    // ── 1. Prerequisites ──
     {
       id: 'prerequisites',
       stageName: 'Prerequisites',
@@ -840,18 +831,19 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     {
       id: 'analysis-tabs',
       stageName: 'Analysis Tabs',
-      headline: 'Multi-Tab Workspaces',
-      introLine: 'CasMANGO allows you to create and manage multiple analysis sessions at once.',
+      headline: 'Open a Guide Analysis Tab',
       textLines: [
-        '• Work on different experiments simultaneously without losing your configuration or progress.',
-        '• Click below to open a dedicated "Guide Analysis" tab. All tutorial datasets run safely inside this tab and will be closed automatically when you exit.'
+        '• CasMANGO allows you to create and manage multiple analysis sessions at once.',
+        '• Click the (+) button highlighted above to open a new analysis tab. All tutorial experiments run safely inside this tab and will be cleanly closed when you exit.'
       ],
-      targetSelector: '#guide-tabs-bar',
+      targetSelector: '#guide-add-tab-btn',
       interactiveAction: 'create_guide_tab',
+      actionPromptText: '👉 Click the (+) button above to create a tab and proceed',
+      actionSuccessText: 'Guide Analysis tab created! Click Next to continue.',
       nextButtonText: 'Next: Platform & Mode ▶'
     },
 
-    // ── 3. Platform & Reference Mode (Side-by-Side A & B layout) ──
+    // ── 3. Platform & Reference Mode ──
     {
       id: 'platform-mode',
       stageName: 'Platform & Mode',
@@ -860,15 +852,15 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         {
           colTitle: 'Sequencing Platform',
           items: [
-            { label: 'A · Nanopore', desc: 'Long-read amplicon alignment with terminal anchor checks.' },
-            { label: 'B · Illumina', desc: 'Short-read pairing with automated R1/R2 linking and gap X-padding.' }
+            { label: 'Nanopore', desc: 'Long-read amplicon alignment with terminal anchor checks.' },
+            { label: 'Illumina', desc: 'Short-read pairing with automated R1/R2 linking and gap X-padding.' }
           ]
         },
         {
           colTitle: 'Reference Mode',
           items: [
-            { label: 'A · Standard', desc: 'Independent locus analysis (default for single-gene experiments).' },
-            { label: 'B · Homeolog', desc: 'Same core analysis, plus additionally computes inter-subgenome relationships in the result dashboard.' }
+            { label: 'Standard', desc: 'Independent locus analysis (default for single-gene experiments).' },
+            { label: 'Homeolog', desc: 'Same core analysis, plus additionally computes inter-subgenome relationships in the result dashboard.' }
           ]
         }
       ],
@@ -876,18 +868,20 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       nextButtonText: 'Next ▶'
     },
 
-    // ── 4. File Upload (Interactive: dropzone click loads demo files) ──
+    // ── 4. File Upload ──
     {
       id: 'file-upload',
       stageName: 'File Upload',
       headline: 'Upload FASTQ Sequencing Files',
       textLines: [
         '• Drag and drop .fastq or .gz files into the dropzone (Illumina pairs link automatically by name).',
-        '• Click the upload zone directly (or the button below) to load demo datasets (cpc, try, cpc/try pooled) to unlock the next step:'
+        '• Click the upload dropzone above to load the demo dataset (CPC, TRY, and Pooled samples):'
       ],
       targetSelector: '#guide-upload-zone',
       interactiveAction: 'load_demo_files',
-      nextButtonText: 'Next ▶'
+      actionPromptText: '👉 Click the upload dropzone above to load demo files and proceed',
+      actionSuccessText: 'Demo files loaded (CPC, TRY, Pooled)! Click Next to continue.',
+      nextButtonText: 'Next: Targets ▶'
     },
 
     // ── 5. Reference Sequence(s) & Target(s) ──
@@ -899,7 +893,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         '• Enter wild-type amplicon sequence(s) and gRNA spacer(s). Cut sites and PAM coordinates are determined automatically.',
         '• Supports multiple guide RNAs per amplicon as well as separate gene loci.'
       ],
-      targetSelector: '#guide-targets-section .section-header',
+      targetSelector: '#guide-targets-section',
       nextButtonText: 'Next ▶'
     },
 
@@ -907,16 +901,19 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     {
       id: 'ref-configuration-actions',
       stageName: 'Config Options',
-      headline: 'Batch Setup & Per-File Mapping',
+      headline: 'Batch Setup & Auto Fill',
       textLines: [
-        '• Config per File: Assign different reference sets to individual FASTQ libraries when sequencing multiplexed pools.',
-        '• Auto Fill: Click to open the batch Excel toolset for template download and 1-click importing.'
+        '• Config per File assigns distinct reference amplicons to individual FASTQ libraries in pooled runs.',
+        '• Click the Auto Fill button above to expand the batch Excel configuration toolset.'
       ],
-      targetSelector: '#guide-targets-section .header-actions',
+      targetSelector: '#guide-autofill-btn',
+      interactiveAction: 'open_autofill',
+      actionPromptText: '👉 Click the Auto Fill button above to expand the toolset and proceed',
+      actionSuccessText: 'Auto Fill toolset opened! Click Next to view tools.',
       nextButtonText: 'Next: Auto Fill Tools ▶'
     },
 
-    // ── 7. Auto Fill Toolset (4 Buttons) & Load Demo CPC/TRY ──
+    // ── 7. Auto Fill Toolset & Demo Reference Loading ──
     {
       id: 'autofill-panel',
       stageName: 'Auto Fill (Excel)',
@@ -927,8 +924,13 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         { name: '3. Upload Sequence (Excel)', desc: 'Batch-import references and gRNAs to configure all defaults at once.' },
         { name: '4. Apply to Current File', desc: 'Apply an Excel sheet override only to the currently selected FASTQ library.' }
       ],
+      textLines: [
+        '• Click anywhere on the Auto Fill panel above (or click Upload Sequence) to load the demo CPC & TRY locus configurations.'
+      ],
       targetSelector: '#guide-autofill-panel',
       interactiveAction: 'load_demo_targets',
+      actionPromptText: '👉 Click anywhere on the Auto Fill panel above to load demo references and proceed',
+      actionSuccessText: 'Demo CPC & TRY references loaded! Click Next to continue.',
       nextButtonText: 'Next ▶'
     },
 
@@ -936,13 +938,15 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     {
       id: 'window-check',
       stageName: 'Window Check',
-      headline: 'Window Check: Live CPC vs. TRY Locus',
+      headline: 'Window Check: Compare Locus Windows',
       textLines: [
-        '• Click below to open Window Check and inspect the extracted cut-site windows of CPC and TRY.',
-        '• The pairwise sequence similarity matrix directly guides how high you should set the Assignment Margin (%).'
+        '• Window Check compares extracted cut-site windows across amplicons to measure sequence similarity.',
+        '• Click the Window Check button above to view the live comparison between CPC and TRY.'
       ],
       targetSelector: '#guide-window-check-btn',
       interactiveAction: 'open_window_check',
+      actionPromptText: '👉 Click the Window Check button above to open comparison and proceed',
+      actionSuccessText: 'Window Check opened! Click Next to continue.',
       nextButtonText: 'Next ▶'
     },
 
@@ -983,7 +987,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       textLines: [
         '• Click Start Local Analysis to run hardware-accelerated Web Workers with live progress bars.',
         '• Export comprehensive results to Excel (.xlsx) and drop them into Result Viewer anytime, or inspect accuracy in the Benchmark tab.',
-        '• You can now exit the guide or explore the upcoming results dashboard walkthrough below.'
+        '• When you exit the guide, the "Guide Analysis" tab will be closed automatically, restoring your original workspace cleanly.'
       ],
       targetSelector: '#guide-run-btn',
       isFinal: true
@@ -1007,61 +1011,124 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     return Math.round(((this.currentStepIndex + 1) / this.steps.length) * 100);
   }
 
+  get currentStepTargetSelector(): string | undefined {
+    const step = this.currentStep;
+    if (step.id === 'file-upload' && this.demoFilesLoaded) {
+      return '#guide-upload-section';
+    }
+    if (step.id === 'window-check' && this.windowCheckOpened) {
+      return '#guide-window-check-panel';
+    }
+    return step.targetSelector;
+  }
+
+  get isCurrentActionCompleted(): boolean {
+    const step = this.currentStep;
+    if (!step.interactiveAction) return true;
+    switch (step.interactiveAction) {
+      case 'create_guide_tab':
+        return this.guideTabCreated;
+      case 'load_demo_files':
+        return this.demoFilesLoaded || this.state.selectedFiles.length > 0 || this.state.illuminaPairs.length > 0;
+      case 'open_autofill':
+        return this.isAutofillOpen || document.querySelector('#guide-autofill-panel') !== null;
+      case 'load_demo_targets':
+        return this.demoTargetsLoaded;
+      case 'open_window_check':
+        return this.windowCheckOpened || document.querySelector('#guide-window-check-panel') !== null;
+      default:
+        return true;
+    }
+  }
+
+  get isNextButtonEnabled(): boolean {
+    const step = this.currentStep;
+    if (step.isIntro || step.isPrereq) return true;
+    if (step.interactiveAction) {
+      return this.isCurrentActionCompleted;
+    }
+    return true;
+  }
+
   ngOnInit() {
+    window.addEventListener('click', this.boundCaptureClick, true);
     this.handleStepSideEffects();
     this.updateLayoutInstant();
   }
 
   ngOnDestroy() {
+    window.removeEventListener('click', this.boundCaptureClick, true);
     if (this.rafId) {
       cancelAnimationFrame(this.rafId);
     }
+    document.querySelectorAll('.guide-highlight-active').forEach(el => {
+      el.classList.remove('guide-highlight-active');
+    });
     this.removeGuideTab();
   }
 
-  createOrSwitchToGuideTab() {
-    if (this.guideTabId && this.state.tabs.some(t => t.id === this.guideTabId)) {
-      this.state.selectTab(this.guideTabId);
+  private onCaptureClick(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (!target) return;
+
+    // 1. Step: Analysis Tabs - user clicks (+) button
+    if (this.currentStep.id === 'analysis-tabs') {
+      if (target.closest('#guide-add-tab-btn')) {
+        setTimeout(() => {
+          this.onTabCreatedByClick();
+        }, 80);
+      }
+    }
+
+    // 2. Step: File Upload - user clicks upload dropzone
+    if (this.currentStep.id === 'file-upload') {
+      if (target.closest('#guide-upload-zone')) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.loadDemoFiles();
+      }
+    }
+
+    // 3. Step: Reference Configuration Actions - user clicks Auto Fill button
+    if (this.currentStep.id === 'ref-configuration-actions') {
+      if (target.closest('#guide-autofill-btn')) {
+        this.isAutofillOpen = true;
+        this.cdr.detectChanges();
+        setTimeout(() => {
+          this.nextStep();
+        }, 220);
+      }
+    }
+
+    // 4. Step: Auto Fill Panel - user clicks Auto Fill panel or upload sequence
+    if (this.currentStep.id === 'autofill-panel') {
+      if (target.closest('#guide-autofill-panel')) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.loadDemoTargets();
+      }
+    }
+
+    // 5. Step: Window Check - user clicks Window Check button
+    if (this.currentStep.id === 'window-check') {
+      if (target.closest('#guide-window-check-btn')) {
+        this.windowCheckOpened = true;
+        this.cdr.detectChanges();
+        setTimeout(() => {
+          this.updateLayoutInstant();
+        }, 200);
+      }
+    }
+  }
+
+  private onTabCreatedByClick() {
+    const activeTab = this.state.currentTab;
+    if (activeTab) {
+      this.state.renameTab(activeTab.id, 'Guide Analysis');
+      this.guideTabId = activeTab.id;
       this.guideTabCreated = true;
       this.cdr.detectChanges();
-      return;
     }
-
-    this.state.addTab('Guide Analysis');
-    this.guideTabId = this.state.activeTabId;
-    this.guideTabCreated = true;
-
-    // Reset settings in the fresh guide tab
-    this.state.selectedFiles = [];
-    this.state.illuminaPairs = [];
-    if (this.state.analysisForm) {
-      this.state.analysisForm.patchValue({
-        sequencingPlatform: 'nanopore',
-        homoeologMode: false,
-        interestRegion: 90,
-        phredThreshold: 20,
-        rescueThreshold: 20,
-        marginPercent: 10,
-        indelPercent: 2,
-        cutSiteDistanceWeight: 0,
-        cutSiteExclusionFlank: 0,
-        customWindowEnabled: false,
-        customWindowLeft: 45,
-        customWindowRight: 45,
-        analyzeAmbiguous: false,
-        rescueAmbiguous: false
-      }, { emitEvent: false });
-    }
-
-    // Initialize 1 blank gene block in guide tab
-    while (this.state.geneBlocks.length > 0) {
-      this.state.geneBlocks.removeAt(0);
-    }
-    this.state.addGene();
-    this.state.referenceConfigs = { default: this.state.geneBlocks.getRawValue() };
-    this.state.activeReferenceKey = 'default';
-
-    this.cdr.detectChanges();
   }
 
   private removeGuideTab() {
@@ -1072,16 +1139,6 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       }
       this.guideTabId = null;
       this.guideTabCreated = false;
-    }
-  }
-
-  @HostListener('document:click', ['$event'])
-  onDocClick(event: MouseEvent) {
-    if (this.currentStep.id === 'file-upload' && !this.demoFilesLoaded) {
-      const target = event.target as HTMLElement;
-      if (target && target.closest('#guide-upload-zone')) {
-        this.loadDemoFiles();
-      }
     }
   }
 
@@ -1100,10 +1157,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     if (e.key === 'Escape') {
       this.closeGuide();
     } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
-      if (!this.currentStep.isFinal) {
-        if (this.currentStep.id === 'file-upload' && !this.demoFilesLoaded && this.state.selectedFiles.length === 0 && this.state.illuminaPairs.length === 0) {
-          return;
-        }
+      if (!this.currentStep.isFinal && this.isNextButtonEnabled) {
         this.nextStep();
       }
     } else if (e.key === 'ArrowLeft') {
@@ -1127,9 +1181,8 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // If moving from Tabs step and guide tab wasn't explicitly created, create it automatically
-    if (this.currentStep.id === 'analysis-tabs' && !this.guideTabCreated) {
-      this.createOrSwitchToGuideTab();
+    if (!this.isNextButtonEnabled) {
+      return;
     }
 
     this.currentStepIndex++;
@@ -1160,6 +1213,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         const autofillBtn = document.querySelector('#guide-autofill-btn') as HTMLElement;
         if (autofillBtn) autofillBtn.click();
       }
+      this.isAutofillOpen = true;
     }
 
     // Step: Advanced Parameters - ensure Advanced panel is expanded
@@ -1192,6 +1246,9 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     }
     this.demoFilesLoaded = true;
     this.cdr.detectChanges();
+    setTimeout(() => {
+      this.updateLayoutInstant();
+    }, 120);
   }
 
   /**
@@ -1231,36 +1288,51 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
 
     this.demoTargetsLoaded = true;
     this.cdr.detectChanges();
+    setTimeout(() => {
+      this.updateLayoutInstant();
+    }, 120);
   }
 
   /**
-   * Interactive Demo Action: Open live Window Check tool.
-   */
-  triggerWindowCheck() {
-    const winCheckBtn = document.querySelector('#guide-window-check-btn') as HTMLElement;
-    if (winCheckBtn) {
-      winCheckBtn.click();
-    }
-  }
-
-  /**
-   * Instantly switch target and scroll smoothly without lag.
+   * Instantly switch target and scroll smoothly with guaranteed gap.
    */
   private onStepChanged() {
-    const sel = this.currentStep.targetSelector;
+    this.cdr.detectChanges();
+
+    document.querySelectorAll('.guide-highlight-active').forEach(el => {
+      el.classList.remove('guide-highlight-active');
+    });
+
+    const sel = this.currentStepTargetSelector;
     if (sel) {
-      const el = document.querySelector(sel);
+      const el = document.querySelector(sel) as HTMLElement;
       if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('guide-highlight-active');
+
+        const dialogEl = document.querySelector('.guide-dialog-wrapper') as HTMLElement;
+        const dialogHeight = dialogEl ? dialogEl.offsetHeight : 280;
+        const rect = el.getBoundingClientRect();
+        const absoluteTop = window.scrollY + rect.top;
+        const vh = window.innerHeight;
+
+        const preferAbove = (rect.bottom > vh * 0.55 || el.offsetHeight > 220);
+        if (preferAbove) {
+          const desiredScroll = Math.max(0, absoluteTop - (dialogHeight + 50));
+          window.scrollTo({ top: desiredScroll, behavior: 'smooth' });
+        } else {
+          const desiredScroll = Math.max(0, absoluteTop - 80);
+          window.scrollTo({ top: desiredScroll, behavior: 'smooth' });
+        }
       }
     }
+
     this.updateLayoutInstant();
 
     let frames = 0;
     const followScroll = () => {
       this.updateLayoutInstant();
       frames++;
-      if (frames < 20) {
+      if (frames < 25) {
         this.rafId = requestAnimationFrame(followScroll);
       }
     };
@@ -1271,7 +1343,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
    * Calculate coordinates synchronously without delays and prevent overlapping on tall targets.
    */
   private updateLayoutInstant() {
-    const sel = this.currentStep.targetSelector;
+    const sel = this.currentStepTargetSelector;
     if (!sel) {
       this.targetRect = null;
       this.pathD = '';
@@ -1280,7 +1352,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const el = document.querySelector(sel);
+    const el = document.querySelector(sel) as HTMLElement;
     if (!el) {
       this.targetRect = null;
       this.pathD = '';
@@ -1292,10 +1364,12 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     const rect = el.getBoundingClientRect();
     this.targetRect = rect;
 
+    const dialogEl = document.querySelector('.guide-dialog-wrapper') as HTMLElement;
+    const dialogHeight = dialogEl ? dialogEl.offsetHeight : 280;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const cardWidth = Math.min(800, Math.max(340, vw - 48));
-    const cardEstimatedHeight = 250;
+    const gap = 24;
 
     const spaceBelow = vh - rect.bottom;
     const spaceAbove = rect.top;
@@ -1308,25 +1382,35 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     let eX = 0;
     let eY = 0;
 
-    // Smart placement: if target is tall (e.g. > 240px) or space below is tight
-    if (rect.height > 240 && spaceAbove >= 200) {
-      cTop = Math.max(20, rect.top - cardEstimatedHeight - 25);
-      sY = rect.top - 4;
-      eY = cTop + cardEstimatedHeight;
-    } else if (spaceBelow >= cardEstimatedHeight + 35 || spaceBelow >= spaceAbove) {
-      cTop = rect.bottom + 25;
-      sY = rect.bottom + 4;
+    // Prefer placing ABOVE if target is in lower portion or tall
+    const preferAbove = (rect.bottom > vh * 0.55 || rect.height > 220);
+
+    if (preferAbove && spaceAbove >= dialogHeight + gap) {
+      cTop = rect.top - dialogHeight - gap;
+      sY = rect.top - 6;
+      eY = cTop + dialogHeight;
+    } else if (spaceBelow >= dialogHeight + gap) {
+      cTop = rect.bottom + gap;
+      sY = rect.bottom + 6;
       eY = cTop;
+    } else if (spaceAbove >= dialogHeight + gap) {
+      cTop = rect.top - dialogHeight - gap;
+      sY = rect.top - 6;
+      eY = cTop + dialogHeight;
     } else {
-      cTop = Math.max(20, rect.top - cardEstimatedHeight - 25);
-      sY = rect.top - 4;
-      eY = cTop + cardEstimatedHeight;
+      if (spaceBelow >= spaceAbove) {
+        cTop = rect.bottom + gap;
+        sY = rect.bottom + 6;
+        eY = cTop;
+      } else {
+        cTop = Math.max(10, rect.top - dialogHeight - gap);
+        sY = rect.top - 6;
+        eY = cTop + dialogHeight;
+      }
     }
 
-    // Clamp inside viewport
+    // Clamp horizontally
     cLeft = Math.max(24, Math.min(vw - cardWidth - 24, cLeft));
-    cTop = Math.max(24, Math.min(vh - cardEstimatedHeight - 24, cTop));
-
     eX = Math.max(cLeft + 60, Math.min(cLeft + cardWidth - 60, sX));
 
     this.cardStyle = {

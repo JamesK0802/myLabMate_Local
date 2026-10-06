@@ -98,6 +98,12 @@
   background: #fde68a !important;
 }
 
+.guide-highlight-active {
+  position: relative !important;
+  z-index: 10003 !important;
+  pointer-events: auto !important;
+}
+
 .mobile-active-section { display: none; }
 .version-tag {
   font-size: var(--text-xs); font-weight: var(--fw-semi); color: var(--color-text-tertiary);

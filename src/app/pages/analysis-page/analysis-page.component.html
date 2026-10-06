@@ -47,42 +47,44 @@
         </div>
       </div>
 
-      <div class="upload-zone" id="guide-upload-zone" [class.dragging]="state.isDragging" (drop)="onFileDropped($event)"
-        (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (click)="fileInput.click()">
-        <input type="file" #fileInput (change)="onFileSelected($event)" multiple hidden accept=".fastq,.fq,.fastq.gz,.fq.gz" />
-        <p><strong>{{ sequencingPlatform === 'illumina' ? 'Upload paired-end files' : 'Upload files' }}</strong></p>
-        <span class="hint" *ngIf="sequencingPlatform === 'nanopore'">FASTQ / FQ / GZ · Multiple files allowed</span>
-        <span class="hint" *ngIf="sequencingPlatform === 'illumina'">FASTQ / FQ / GZ · R1 and R2 names are paired automatically</span>
-      </div>
-
-      <div class="file-list" *ngIf="sequencingPlatform === 'nanopore' && state.selectedFiles.length > 0">
-        <div *ngFor="let file of state.selectedFiles; let i = index" class="file-item">
-          <span class="file-name">{{ file.name }}</span>
-          <span class="file-size">({{ file.size / 1024 / 1024 | number:'1.1-1' }} MB)</span>
-          <button type="button" class="btn-remove" (click)="removeFile(i)">&times;</button>
+      <div class="file-upload-section" id="guide-upload-section">
+        <div class="upload-zone" id="guide-upload-zone" [class.dragging]="state.isDragging" (drop)="onFileDropped($event)"
+          (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (click)="fileInput.click()">
+          <input type="file" #fileInput (change)="onFileSelected($event)" multiple hidden accept=".fastq,.fq,.fastq.gz,.fq.gz" />
+          <p><strong>{{ sequencingPlatform === 'illumina' ? 'Upload paired-end files' : 'Upload files' }}</strong></p>
+          <span class="hint" *ngIf="sequencingPlatform === 'nanopore'">FASTQ / FQ / GZ · Multiple files allowed</span>
+          <span class="hint" *ngIf="sequencingPlatform === 'illumina'">FASTQ / FQ / GZ · R1 and R2 names are paired automatically</span>
         </div>
-      </div>
 
-      <div class="illumina-pair-grid" *ngIf="sequencingPlatform === 'illumina' && state.illuminaPairs.length > 0">
-        <article class="illumina-pair-card" *ngFor="let pair of state.illuminaPairs">
-          <div class="illumina-mate-slots">
-            <div class="illumina-mate-slot" [class.empty]="!pair.r1" aria-label="R1 slot" (dragover)="allowMateDrop($event)" (drop)="dropMate($event, pair.id, 'r1')">
-              <div class="mate-file" *ngIf="pair.r1" draggable="true" (dragstart)="startMateDrag($event, pair.id, 'r1')">
-                <span class="mate-file-copy" [title]="pair.r1.name">{{ pair.r1.name }}</span>
-                <button type="button" class="btn-remove" (click)="removeIlluminaMate(pair.id, 'r1')" aria-label="Remove R1">&times;</button>
-              </div>
-              <span class="mate-empty" *ngIf="!pair.r1">Drop R1 file</span>
-            </div>
-            <div class="illumina-mate-slot" [class.empty]="!pair.r2" aria-label="R2 slot" (dragover)="allowMateDrop($event)" (drop)="dropMate($event, pair.id, 'r2')">
-              <div class="mate-file" *ngIf="pair.r2" draggable="true" (dragstart)="startMateDrag($event, pair.id, 'r2')">
-                <span class="mate-file-copy" [title]="pair.r2.name">{{ pair.r2.name }}</span>
-                <button type="button" class="btn-remove" (click)="removeIlluminaMate(pair.id, 'r2')" aria-label="Remove R2">&times;</button>
-              </div>
-              <span class="mate-empty" *ngIf="!pair.r2">Drop R2 file</span>
-            </div>
+        <div class="file-list" *ngIf="sequencingPlatform === 'nanopore' && state.selectedFiles.length > 0">
+          <div *ngFor="let file of state.selectedFiles; let i = index" class="file-item">
+            <span class="file-name">{{ file.name }}</span>
+            <span class="file-size">({{ file.size / 1024 / 1024 | number:'1.1-1' }} MB)</span>
+            <button type="button" class="btn-remove" (click)="removeFile(i)">&times;</button>
           </div>
-          <strong class="illumina-pair-name" [title]="displayIlluminaPairName(pair)">{{ displayIlluminaPairName(pair) }}</strong>
-        </article>
+        </div>
+
+        <div class="illumina-pair-grid" *ngIf="sequencingPlatform === 'illumina' && state.illuminaPairs.length > 0">
+          <article class="illumina-pair-card" *ngFor="let pair of state.illuminaPairs">
+            <div class="illumina-mate-slots">
+              <div class="illumina-mate-slot" [class.empty]="!pair.r1" aria-label="R1 slot" (dragover)="allowMateDrop($event)" (drop)="dropMate($event, pair.id, 'r1')">
+                <div class="mate-file" *ngIf="pair.r1" draggable="true" (dragstart)="startMateDrag($event, pair.id, 'r1')">
+                  <span class="mate-file-copy" [title]="pair.r1.name">{{ pair.r1.name }}</span>
+                  <button type="button" class="btn-remove" (click)="removeIlluminaMate(pair.id, 'r1')" aria-label="Remove R1">&times;</button>
+                </div>
+                <span class="mate-empty" *ngIf="!pair.r1">Drop R1 file</span>
+              </div>
+              <div class="illumina-mate-slot" [class.empty]="!pair.r2" aria-label="R2 slot" (dragover)="allowMateDrop($event)" (drop)="dropMate($event, pair.id, 'r2')">
+                <div class="mate-file" *ngIf="pair.r2" draggable="true" (dragstart)="startMateDrag($event, pair.id, 'r2')">
+                  <span class="mate-file-copy" [title]="pair.r2.name">{{ pair.r2.name }}</span>
+                  <button type="button" class="btn-remove" (click)="removeIlluminaMate(pair.id, 'r2')" aria-label="Remove R2">&times;</button>
+                </div>
+                <span class="mate-empty" *ngIf="!pair.r2">Drop R2 file</span>
+              </div>
+            </div>
+            <strong class="illumina-pair-name" [title]="displayIlluminaPairName(pair)">{{ displayIlluminaPairName(pair) }}</strong>
+          </article>
+        </div>
       </div>
 
       <div class="form-row analysis-controls-grid" id="guide-controls-grid">
@@ -270,7 +272,7 @@
         </div>
 
         <!-- Window Check Panel -->
-        <div class="window-check-panel" *ngIf="showWindowCheck">
+        <div class="window-check-panel" id="guide-window-check-panel" *ngIf="showWindowCheck">
           <div class="window-check-header">
             <div class="window-check-title">
               <h3>Window Check & Pairwise Similarity Matrix</h3>
