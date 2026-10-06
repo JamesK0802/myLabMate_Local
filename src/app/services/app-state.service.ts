@@ -113,6 +113,11 @@ export class AppStateService {
   debugLogs: string[] = [];
   private charts: Chart[] = [];
   resultsUpdated$ = new Subject<void>();
+  collapseAnalysisPanels$ = new Subject<void>();
+
+  collapseAnalysisPanels() {
+    this.collapseAnalysisPanels$.next();
+  }
 
   fileProgress: { [filename: string]: number } = {};
   get fileProgressKeys(): string[] {

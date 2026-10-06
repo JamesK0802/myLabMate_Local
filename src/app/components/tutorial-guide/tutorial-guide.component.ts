@@ -1030,6 +1030,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
+    this.state.collapseAnalysisPanels();
     window.addEventListener('click', this.boundCaptureClick, true);
     this.handleStepSideEffects();
     this.updateLayoutInstant();
@@ -1098,6 +1099,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   }
 
   private onTabCreatedByClick() {
+    this.state.collapseAnalysisPanels();
     const activeTab = this.state.currentTab;
     if (activeTab) {
       this.state.renameTab(activeTab.id, 'Guide Analysis');
@@ -1109,6 +1111,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
 
   private removeGuideTab() {
     this.closeWindowCheckPanel();
+    this.state.collapseAnalysisPanels();
     if (this.guideTabId) {
       const exists = this.state.tabs.some(t => t.id === this.guideTabId);
       if (exists) {
@@ -1177,6 +1180,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
 
   closeGuide() {
     this.closeWindowCheckPanel();
+    this.state.collapseAnalysisPanels();
     this.removeGuideTab();
     this.close.emit();
   }

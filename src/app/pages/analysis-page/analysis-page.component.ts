@@ -150,10 +150,18 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
 
   private lastActiveTabId = '';
 
-  closeTab(event: MouseEvent, tabId: string) {
-    event.stopPropagation();
+  collapseAllPanels() {
+    this.showAutofill = false;
+    this.showPerFileReferences = false;
+    this.showSimilarWindowSettings = false;
     this.showWindowCheck = false;
     this.clearPairComparison();
+    this.cdr.detectChanges();
+  }
+
+  closeTab(event: MouseEvent, tabId: string) {
+    event.stopPropagation();
+    this.collapseAllPanels();
     this.state.closeTab(tabId);
   }
 
@@ -178,6 +186,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
   ) { }
 
   private resultsUpdateSub?: Subscription;
+  private collapsePanelsSub?: Subscription;
   private windowCheckFormSub?: Subscription;
   private windowCheckTimer?: ReturnType<typeof setTimeout>;
   private windowCheckRevision = 0;
@@ -192,10 +201,12 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     this.resultsUpdateSub = this.state.resultsUpdated$.subscribe(() => {
       if (this.lastActiveTabId !== this.state.activeTabId) {
         this.lastActiveTabId = this.state.activeTabId;
-        this.showWindowCheck = false;
-        this.clearPairComparison();
+        this.collapseAllPanels();
       }
       this.cdr.detectChanges();
+    });
+    this.collapsePanelsSub = this.state.collapseAnalysisPanels$.subscribe(() => {
+      this.collapseAllPanels();
     });
     this.windowCheckFormSub = this.state.geneBlocks.valueChanges.pipe(debounceTime(120)).subscribe(() => {
       if (this.showWindowCheck) this.recalculateWindowCheck();
@@ -204,6 +215,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     this.resultsUpdateSub?.unsubscribe();
+    this.collapsePanelsSub?.unsubscribe();
     this.windowCheckFormSub?.unsubscribe();
     if (this.windowCheckTimer) clearTimeout(this.windowCheckTimer);
   }

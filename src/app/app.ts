@@ -187,6 +187,7 @@ export class App implements OnInit {
 
   openGuide() {
     this.switchTab('analysis');
+    this.state.collapseAnalysisPanels();
     this.isGuideOpen = true;
     this.mobileMenuOpen = false;
   }
