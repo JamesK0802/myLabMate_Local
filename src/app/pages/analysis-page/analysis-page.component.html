@@ -37,17 +37,17 @@
 
       <div class="sequencing-platform-field">
         <span class="platform-label">Platform</span>
-        <div class="platform-segmented" role="group" aria-label="Sequencing platform">
+        <div class="platform-segmented" role="group" aria-label="Sequencing platform" id="guide-platform-choice">
           <button type="button" [class.active]="sequencingPlatform === 'nanopore'" (click)="setSequencingPlatform('nanopore')">Nanopore</button>
           <button type="button" [class.active]="sequencingPlatform === 'illumina'" (click)="setSequencingPlatform('illumina')">Illumina</button>
         </div>
-        <div class="platform-segmented reference-mode-segmented" role="group" aria-label="Reference mode">
+        <div class="platform-segmented reference-mode-segmented" role="group" aria-label="Reference mode" id="guide-mode-choice">
           <button type="button" [class.active]="!homoeologMode" (click)="setHomoeologMode(false)">Standard</button>
           <button type="button" [class.active]="homoeologMode" (click)="setHomoeologMode(true)">Homoeolog</button>
         </div>
       </div>
 
-      <div class="upload-zone" [class.dragging]="state.isDragging" (drop)="onFileDropped($event)"
+      <div class="upload-zone" id="guide-upload-zone" [class.dragging]="state.isDragging" (drop)="onFileDropped($event)"
         (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (click)="fileInput.click()">
         <input type="file" #fileInput (change)="onFileSelected($event)" multiple hidden accept=".fastq,.fq,.fastq.gz,.fq.gz" />
         <p><strong>{{ sequencingPlatform === 'illumina' ? 'Upload paired-end files' : 'Upload files' }}</strong></p>
@@ -85,7 +85,7 @@
         </article>
       </div>
 
-      <div class="form-row analysis-controls-grid">
+      <div class="form-row analysis-controls-grid" id="guide-controls-grid">
         <div class="form-group flex-wide">
           <label>
             Window Size (bp)
@@ -94,8 +94,7 @@
               <span class="tooltip-text">Total analysis width around cut site.</span>
             </span>
           </label>
-          <input type="number" formControlName="interestRegion" class="form-control"
-            [readonly]="state.analysisForm.get('customWindowEnabled')?.value" />
+          <input type="number" formControlName="interestRegion" class="form-control" />
         </div>
         <div class="form-group flex-wide">
           <label>
@@ -154,7 +153,7 @@
       </div>
 
       <div class="advanced-toggle-bar">
-        <button type="button" class="btn-advanced-toggle" (click)="showSimilarWindowSettings = !showSimilarWindowSettings">
+        <button type="button" class="btn-advanced-toggle" id="guide-advanced-btn" (click)="showSimilarWindowSettings = !showSimilarWindowSettings">
           Advanced {{ showSimilarWindowSettings ? '▼' : '▶' }}
         </button>
       </div>
@@ -214,17 +213,17 @@
 
       <hr class="divider" />
 
-      <div class="targets-section">
+      <div class="targets-section" id="guide-targets-section">
         <div class="section-header">
           <h2>Reference Configuration</h2>
           <div class="header-actions">
-            <button type="button" class="btn-autofill" (click)="showAutofill = !showAutofill">
+            <button type="button" class="btn-autofill" id="guide-autofill-btn" (click)="showAutofill = !showAutofill">
               Auto Fill
             </button>
-            <button type="button" class="btn-reference-scope" [class.active]="showPerFileReferences" (click)="togglePerFileReferences()">
+            <button type="button" class="btn-reference-scope" id="guide-scope-btn" [class.active]="showPerFileReferences" (click)="togglePerFileReferences()">
               Config per File <span *ngIf="customReferenceCount">{{customReferenceCount}}</span>
             </button>
-            <button type="button" class="btn-window-check" [class.active]="showWindowCheck" (click)="toggleWindowCheck()">
+            <button type="button" class="btn-window-check" id="guide-window-check-btn" [class.active]="showWindowCheck" (click)="toggleWindowCheck()">
               Window Check
             </button>
             <button type="button" class="btn-add" *ngIf="!homoeologMode" (click)="state.addGene()">Add Gene</button>
@@ -601,6 +600,7 @@
 
       <button
         type="submit"
+        id="guide-run-btn"
         [disabled]="state.isLoading || (sequencingPlatform === 'illumina' ? illuminaUnitCount === 0 : state.selectedFiles.length === 0)"
         class="btn-primary"
       >

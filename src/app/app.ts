@@ -16,11 +16,11 @@ import { TutorialGuideComponent } from './components/tutorial-guide/tutorial-gui
       <!-- ── Top Navigation ── -->
       <nav class="top-nav">
         <div class="nav-left">
-          <div class="nav-brand" [class.locked]="state.isAnalysisRunning && activeTab !== 'analysis'" style="cursor: pointer;" (click)="switchTab('analysis')">
+          <div class="nav-brand" id="guide-brand-logo" [class.locked]="state.isAnalysisRunning && activeTab !== 'analysis'" style="cursor: pointer;" (click)="switchTab('analysis')">
             <img src="casmango-logo.jpg" alt="CasMango" class="nav-brand-logo">
           </div>
 
-          <div class="desktop-nav-links">
+          <div class="desktop-nav-links" id="guide-nav-links">
             <button class="nav-tab btn-tab" [class.active]="activeTab === 'analysis'" (click)="switchTab('analysis')">
               CRISPR Analysis
             </button>
