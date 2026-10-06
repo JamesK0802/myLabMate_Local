@@ -9,8 +9,6 @@ export interface AdvantageCard {
 
 export interface GuideStep {
   id: string;
-  stepNum: number;
-  totalSteps: number;
   stageName: string;
   headline: string;
   introLine?: string;
@@ -29,7 +27,12 @@ export interface GuideStep {
   template: `
     <div class="guide-root" [class.no-target]="!targetRect" (keydown.escape)="closeGuide()" tabindex="0">
 
-      <!-- ── Spotlight Hole with 0% Tint Inside (Clear Cutout) ── -->
+      <!-- ── Top-Right Fixed Exit Guide Button ── -->
+      <button type="button" class="btn-top-exit" (click)="closeGuide()" title="Exit Guide (Esc)">
+        Exit Guide ✕
+      </button>
+
+      <!-- ── Spotlight Cutout with 0% Tint Inside ── -->
       <div class="spotlight-hole"
            *ngIf="targetRect"
            [style.top.px]="targetRect.top - 6"
@@ -70,6 +73,7 @@ export interface GuideStep {
       <!-- ── Character on Left + Speech Bubble on Right ── -->
       <div class="guide-dialog-wrapper"
            [class.is-centered]="!targetRect"
+           [class.is-large-dialog]="currentStep.isIntro || currentStep.isPrereq"
            [ngStyle]="targetRect ? cardStyle : {}">
 
         <!-- Character Column (Left) -->
@@ -83,22 +87,9 @@ export interface GuideStep {
 
         <!-- Speech Bubble (Right) -->
         <div class="bubble-content">
-          <!-- Close Button -->
-          <button type="button" class="btn-close" (click)="closeGuide()" title="Close Guide (Esc)">✕</button>
+          <h2 class="bubble-headline">{{ currentStep.headline }}</h2>
 
-          <!-- Stage Badge & Headline -->
-          <div class="bubble-header">
-            <span class="bubble-badge" *ngIf="!currentStep.isIntro && !currentStep.isPrereq">
-              STEP {{ currentStep.stepNum }} / {{ currentStep.totalSteps }} · {{ currentStep.stageName }}
-            </span>
-            <span class="bubble-badge intro-badge" *ngIf="currentStep.isIntro || currentStep.isPrereq">
-              {{ currentStep.stageName }}
-            </span>
-          </div>
-
-          <h3 class="bubble-headline">{{ currentStep.headline }}</h3>
-
-          <!-- Intro 1-line tool explanation -->
+          <!-- 1-line tool explanation -->
           <p class="bubble-intro-line" *ngIf="currentStep.introLine">
             {{ currentStep.introLine }}
           </p>
@@ -107,7 +98,7 @@ export interface GuideStep {
           <div class="cards-grid" *ngIf="currentStep.cards && currentStep.cards.length > 0">
             <div class="grid-card" *ngFor="let card of currentStep.cards">
               <span class="grid-card-badge" *ngIf="card.badge">{{ card.badge }}</span>
-              <h4 class="grid-card-title">{{ card.title }}</h4>
+              <h3 class="grid-card-title">{{ card.title }}</h3>
               <p class="grid-card-desc">{{ card.desc }}</p>
             </div>
           </div>
@@ -117,31 +108,20 @@ export interface GuideStep {
             <p class="text-line" *ngFor="let line of currentStep.textLines">{{ line }}</p>
           </div>
 
-          <!-- Footer Actions -->
+          <!-- Footer Actions (Forward button only, no back button) -->
           <div class="bubble-footer">
-            <button type="button"
-                    class="btn-guide-back"
-                    *ngIf="currentStepIndex > 0"
-                    (click)="prevStep()">
-              ◀ 이전
-            </button>
-
-            <!-- Progress dots -->
-            <div class="dots-track">
-              <span *ngFor="let s of steps; let i = index"
-                    class="step-dot"
-                    [class.active]="i === currentStepIndex"
-                    (click)="goToStep(i)"
-                    [title]="s.stageName"></span>
-            </div>
-
             <button type="button"
                     class="btn-guide-next"
                     (click)="nextStep()">
-              {{ currentStep.nextButtonText || '다음 ▶' }}
+              {{ currentStep.nextButtonText || 'Next ▶' }}
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- ── Screen Bottom Overall Progress Bar ── -->
+      <div class="screen-progress-track">
+        <div class="screen-progress-fill" [style.width.%]="progressPercent"></div>
       </div>
     </div>
   `,
@@ -160,7 +140,7 @@ export interface GuideStep {
       user-select: none;
     }
 
-    /* Default backdrop when on Intro / Prereq without target spotlight */
+    /* Backdrop when on Intro / Prereq without target spotlight */
     .guide-root.no-target {
       background: rgba(15, 23, 42, 0.55);
       display: flex;
@@ -168,30 +148,60 @@ export interface GuideStep {
       justify-content: center;
     }
 
-    /* ── Spotlight Hole: 0% Tint Inside, Covers Rest of Viewport with Shadow ── */
+    /* ── Top-Right Fixed Exit Guide Button ── */
+    .btn-top-exit {
+      position: fixed;
+      top: 18px;
+      right: 24px;
+      z-index: 10010;
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      padding: 8px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+      transition: all 0.15s ease;
+    }
+
+    .btn-top-exit:hover {
+      background: rgba(239, 68, 68, 0.9);
+      border-color: #ef4444;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(239, 68, 68, 0.4);
+    }
+
+    /* ── Spotlight Hole: 0% Tint Inside, Massive Box Shadow Darkens Outside ── */
     .spotlight-hole {
       position: fixed;
       z-index: 10001;
       border: 3px solid #f59e0b;
       border-radius: 10px;
-      /* Massive box-shadow darkens the rest of the screen, leaving inside crystal-clear! */
-      box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.55), 0 0 18px rgba(245, 158, 11, 0.4);
+      box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.55), 0 0 20px rgba(245, 158, 11, 0.4);
       pointer-events: none;
       transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .spotlight-label {
       position: absolute;
-      top: -12px;
-      left: 12px;
+      top: -13px;
+      left: 14px;
       background: #f59e0b;
       color: #0f172a;
-      font-size: 10.5px;
+      font-size: 11px;
       font-weight: 900;
-      letter-spacing: 0.05em;
-      padding: 1px 9px;
+      letter-spacing: 0.06em;
+      padding: 2px 10px;
       border-radius: 999px;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+      text-transform: uppercase;
     }
 
     /* ── SVG Arrow Layer ── */
@@ -230,9 +240,9 @@ export interface GuideStep {
       z-index: 10005;
       display: flex;
       align-items: flex-start;
-      gap: 16px;
-      max-width: 680px;
-      width: calc(100vw - 36px);
+      gap: 20px;
+      max-width: 760px;
+      width: calc(100vw - 40px);
       pointer-events: auto;
       transition: top 0.15s cubic-bezier(0.16, 1, 0.3, 1), left 0.15s cubic-bezier(0.16, 1, 0.3, 1);
       animation: dialogPop 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -240,12 +250,15 @@ export interface GuideStep {
 
     .guide-dialog-wrapper.is-centered {
       position: relative;
-      max-width: 740px;
       margin: auto;
     }
 
+    .guide-dialog-wrapper.is-large-dialog {
+      max-width: 940px;
+    }
+
     @keyframes dialogPop {
-      from { transform: scale(0.96); opacity: 0; }
+      from { transform: scale(0.97); opacity: 0; }
       to { transform: scale(1); opacity: 1; }
     }
 
@@ -254,23 +267,23 @@ export interface GuideStep {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
       flex-shrink: 0;
-      margin-top: 8px;
+      margin-top: 12px;
     }
 
     .mascot-avatar-frame {
       position: relative;
-      width: 58px;
-      height: 58px;
+      width: 76px;
+      height: 76px;
     }
 
     .mascot-avatar-img {
       width: 100%;
       height: 100%;
-      border-radius: 14px;
-      border: 2.5px solid #f59e0b;
-      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+      border-radius: 18px;
+      border: 3px solid #f59e0b;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
       object-fit: cover;
       background: #ffffff;
     }
@@ -279,19 +292,19 @@ export interface GuideStep {
       position: absolute;
       bottom: -2px;
       right: -2px;
-      width: 12px;
-      height: 12px;
+      width: 14px;
+      height: 14px;
       border-radius: 999px;
       background: #10b981;
-      border: 2px solid #ffffff;
+      border: 2.5px solid #ffffff;
     }
 
     .mascot-tag {
-      font-size: 11px;
+      font-size: 11.5px;
       font-weight: 800;
       color: #ffffff;
-      background: rgba(15, 23, 42, 0.75);
-      padding: 2px 8px;
+      background: rgba(15, 23, 42, 0.85);
+      padding: 3px 10px;
       border-radius: 999px;
       letter-spacing: 0.04em;
     }
@@ -302,9 +315,9 @@ export interface GuideStep {
       background: #ffffff;
       color: #1e293b;
       border: 1px solid #e2e8f0;
-      border-radius: 16px;
-      box-shadow: 0 16px 36px -6px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.08);
-      padding: 20px 24px 16px 24px;
+      border-radius: 20px;
+      box-shadow: 0 20px 45px -8px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.06);
+      padding: 26px 30px 22px 30px;
       flex: 1;
       min-width: 0;
     }
@@ -313,198 +326,140 @@ export interface GuideStep {
     .bubble-content::before {
       content: '';
       position: absolute;
-      top: 24px;
-      left: -9px;
+      top: 36px;
+      left: -11px;
       width: 0;
       height: 0;
-      border-top: 8px solid transparent;
-      border-bottom: 8px solid transparent;
-      border-right: 9px solid #ffffff;
-    }
-
-    .btn-close {
-      position: absolute;
-      top: 14px;
-      right: 14px;
-      background: #f1f5f9;
-      border: 1px solid #e2e8f0;
-      color: #64748b;
-      width: 26px;
-      height: 26px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 800;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.15s ease;
-    }
-
-    .btn-close:hover {
-      background: #fee2e2;
-      color: #ef4444;
-      border-color: #fca5a5;
-    }
-
-    .bubble-header {
-      margin-bottom: 6px;
-    }
-
-    .bubble-badge {
-      font-size: 10.5px;
-      font-weight: 800;
-      color: #ea580c;
-      background: #fff7ed;
-      border: 1px solid #ffedd5;
-      padding: 2px 8px;
-      border-radius: 6px;
-      letter-spacing: 0.04em;
-    }
-
-    .bubble-badge.intro-badge {
-      color: #0369a1;
-      background: #f0f9ff;
-      border-color: #e0f2fe;
+      border-top: 10px solid transparent;
+      border-bottom: 10px solid transparent;
+      border-right: 11px solid #ffffff;
     }
 
     .bubble-headline {
-      margin: 4px 0 6px 0;
-      font-size: 18px;
-      font-weight: 800;
+      margin: 0 0 8px 0;
+      font-size: 21px;
+      font-weight: 900;
       color: #0f172a;
-      letter-spacing: -0.01em;
+      letter-spacing: -0.02em;
     }
 
     .bubble-intro-line {
-      margin: 0 0 14px 0;
-      font-size: 13.5px;
+      margin: 0 0 18px 0;
+      font-size: 14.5px;
       color: #475569;
-      line-height: 1.5;
+      line-height: 1.55;
     }
 
     /* ── 3 Cards Grid (Intro & Prereq) ── */
     .cards-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-      margin-bottom: 14px;
+      gap: 14px;
+      margin-bottom: 18px;
     }
 
     .grid-card {
       background: #f8fafc;
       border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      padding: 12px 14px;
+      border-radius: 12px;
+      padding: 16px 16px 14px 16px;
       display: flex;
       flex-direction: column;
+      transition: all 0.15s ease;
+    }
+
+    .grid-card:hover {
+      background: #ffffff;
+      border-color: #cbd5e1;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
     }
 
     .grid-card-badge {
-      font-size: 9.5px;
-      font-weight: 800;
-      color: #f59e0b;
-      margin-bottom: 4px;
-      letter-spacing: 0.05em;
+      font-size: 10px;
+      font-weight: 900;
+      color: #ea580c;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
     }
 
     .grid-card-title {
       margin: 0 0 6px 0;
-      font-size: 13.5px;
+      font-size: 15px;
       font-weight: 800;
       color: #0f172a;
-      line-height: 1.3;
+      line-height: 1.35;
     }
 
     .grid-card-desc {
       margin: 0;
-      font-size: 11.5px;
+      font-size: 12px;
       color: #475569;
-      line-height: 1.45;
+      line-height: 1.5;
     }
 
     /* ── Minimal 1-2 Lines Text (Tour Steps) ── */
     .text-lines-block {
       display: flex;
       flex-direction: column;
-      gap: 6px;
-      margin-bottom: 14px;
+      gap: 8px;
+      margin-bottom: 18px;
     }
 
     .text-line {
       margin: 0;
-      font-size: 13.5px;
+      font-size: 14.5px;
       color: #334155;
-      line-height: 1.5;
+      line-height: 1.55;
     }
 
-    /* ── Footer ── */
+    /* ── Footer Actions ── */
     .bubble-footer {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-end;
       border-top: 1px solid #f1f5f9;
-      padding-top: 12px;
-    }
-
-    .dots-track {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-
-    .step-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 999px;
-      background: #cbd5e1;
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-
-    .step-dot.active {
-      width: 18px;
-      background: #f59e0b;
-      box-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
-    }
-
-    .btn-guide-back {
-      background: #f1f5f9;
-      border: 1px solid #e2e8f0;
-      color: #475569;
-      padding: 6px 14px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 800;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .btn-guide-back:hover {
-      background: #e2e8f0;
-      color: #1e293b;
+      padding-top: 14px;
     }
 
     .btn-guide-next {
       background: linear-gradient(135deg, #f59e0b, #d97706);
       border: none;
       color: #ffffff;
-      padding: 7px 18px;
-      border-radius: 8px;
-      font-size: 12.5px;
+      padding: 10px 24px;
+      border-radius: 10px;
+      font-size: 13.5px;
       font-weight: 800;
       cursor: pointer;
-      margin-left: auto;
-      box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+      box-shadow: 0 3px 10px rgba(245, 158, 11, 0.35);
       transition: all 0.15s ease;
     }
 
     .btn-guide-next:hover {
       background: linear-gradient(135deg, #fbbf24, #f59e0b);
-      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.45);
+      box-shadow: 0 6px 16px rgba(245, 158, 11, 0.5);
+      transform: translateY(-1px);
     }
 
-    @media (max-width: 640px) {
+    /* ── Bottom Progress Bar ── */
+    .screen-progress-track {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 5px;
+      background: rgba(255, 255, 255, 0.15);
+      z-index: 10009;
+    }
+
+    .screen-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #f59e0b, #ea580c);
+      transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.8);
+    }
+
+    @media (max-width: 768px) {
       .cards-grid {
         grid-template-columns: 1fr;
       }
@@ -518,6 +473,9 @@ export interface GuideStep {
       }
       .bubble-content::before {
         display: none;
+      }
+      .bubble-content {
+        padding: 20px;
       }
     }
   `]
@@ -540,155 +498,136 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   private rafId: number | null = null;
 
   steps: GuideStep[] = [
-    // ── 0. Intro (소개) ──
+    // ── 0. Intro (Overview) ──
     {
       id: 'intro',
-      stepNum: 0,
-      totalSteps: 6,
-      stageName: '안내 시작',
-      headline: '안녕하세요! CasMANGO 가이드입니다.',
-      introLine: 'CasMANGO는 브라우저 로컬에서 안전하고 빠르게 분석하는 다중 풀링 CRISPR amplicon 분석 도구입니다.',
+      stageName: 'Introduction',
+      headline: 'Welcome to CasMANGO',
+      introLine: 'CasMANGO is a client-side tool for pooled, multiplexed CRISPR amplicon sequencing using ambiguity-aware reference assignment.',
       cards: [
         {
-          badge: '보안 & 프라이버시',
-          title: '100% 로컬 분석',
-          desc: 'FASTQ 파일이 외부 서버로 전송되지 않고 브라우저 Web Worker에서 즉시 분석됩니다.'
+          badge: 'Security & Privacy',
+          title: '100% Client-Side Engine',
+          desc: 'All sequencing FASTQ data is processed directly in your browser Web Workers—zero files uploaded to external servers.'
         },
         {
-          badge: '플랫폼 호환',
+          badge: 'Platform Agnostic',
           title: 'Illumina & Nanopore',
-          desc: '짧은 Illumina paired-end부터 긴 Oxford Nanopore 리드까지 모두 지원 (.gz 지원).'
+          desc: 'Supports short-read Illumina paired ends (with mate linking and gap X-padding) and long-read Oxford Nanopore amplicons (.gz supported).'
         },
         {
-          badge: '다배체 특화',
-          title: '0% 오할당 분리',
-          desc: '동질유전자(Homeolog) 간 미세한 차이를 정밀 분리하여 교차 오할당을 방지합니다.'
+          badge: 'Polyploid Demux',
+          title: 'Minimizing Misassignment',
+          desc: 'Ambiguity-aware assignment separates near-identical homeologs (e.g. wheat, canola) while retaining uncertain reads to prevent miscalling.'
         }
       ],
-      nextButtonText: '다음 ▶',
+      nextButtonText: 'Next ▶',
       isIntro: true
     },
 
-    // ── 1. Prerequisites (준비물) ──
+    // ── 1. Prerequisites (Inputs) ──
     {
       id: 'prerequisites',
-      stepNum: 0,
-      totalSteps: 6,
-      stageName: '필수 준비물',
-      headline: '분석 전 3가지 필수 준비물이에요',
-      introLine: '아래 3가지 정보만 준비되면 바로 브라우저에서 분석을 시작할 수 있습니다.',
+      stageName: 'Prerequisites',
+      headline: 'What You Need to Prepare',
+      introLine: 'You only need 3 core inputs to begin analyzing your CRISPR editing outcomes:',
       cards: [
         {
-          badge: '입력 1',
-          title: 'FASTQ 파일',
-          desc: '지원 포맷: .fastq, .fq, .fastq.gz, .fq.gz (Illumina 또는 Nanopore 시퀀싱 파일)'
+          badge: 'Input 1',
+          title: 'FASTQ File(s)',
+          desc: 'Supported formats: .fastq, .fq, .fastq.gz, .fq.gz (from Illumina paired/single-end or Oxford Nanopore).'
         },
         {
-          badge: '입력 2',
-          title: 'Gene Reference',
-          desc: '리드(Read)가 정렬 및 비교될 기준 Wild-Type 유전자 서열 정보입니다.'
+          badge: 'Input 2',
+          title: 'Gene Reference Sequence(s)',
+          desc: 'The wild-type genomic sequence(s) against which sequencing reads are aligned and compared.'
         },
         {
-          badge: '입력 3',
-          title: 'gRNA Target',
-          desc: '절단(Cut site) 및 유전자 교정 타겟 지점을 확인하기 위한 가이드 서열입니다.'
+          badge: 'Input 3',
+          title: 'gRNA Target Sequence(s)',
+          desc: '19–25 bp guide spacer sequence(s) used to define double-strand cut sites and editing target loci.'
         }
       ],
-      nextButtonText: '시작하기 ▶',
+      nextButtonText: 'Start Interactive Tour ▶',
       isPrereq: true
     },
 
-    // ── 2. Platform & Reference Mode (플랫폼 및 모드 선택) ──
+    // ── 2. Platform & Reference Mode ──
     {
       id: 'platform-mode',
-      stepNum: 1,
-      totalSteps: 6,
-      stageName: '플랫폼 및 모드',
-      headline: '시퀀싱 플랫폼과 분석 모드를 선택하세요',
+      stageName: 'Platform & Mode',
+      headline: 'Platform & Reference Mode',
       textLines: [
-        '• 플랫폼: Illumina(자동 R1/R2 페어링 및 갭 패딩) 또는 Nanopore(롱리드 정렬)를 선택합니다.',
-        '• 참조 모드: 일반 분석은 Standard를, 밀·유채 등 다배체 작물의 동질유전자 관계까지 함께 분석하려면 Homeolog 모드를 선택하세요.'
+        '• Platform: Choose Illumina (short-read with auto R1/R2 mate pairing) or Nanopore (long-read amplicon alignment). Both support .fastq.gz.',
+        '• Reference Mode: Select Standard for independent gene loci, or Homeolog for polyploid crops (wheat, canola) to analyze inter-subgenome competition and minimize cross-misassignments.'
       ],
       targetSelector: '#guide-platform-section',
-      nextButtonText: '다음 ▶'
+      nextButtonText: 'Next ▶'
     },
 
-    // ── 3. File Upload (파일 업로드) ──
+    // ── 3. File Upload ──
     {
       id: 'file-upload',
-      stepNum: 2,
-      totalSteps: 6,
-      stageName: '파일 업로드',
-      headline: 'FASTQ 파일을 드래그 & 드롭으로 업로드하세요',
+      stageName: 'File Upload',
+      headline: 'Upload FASTQ Sequencing Files',
       textLines: [
-        '• .fastq, .fq 및 압축된 .fastq.gz, .fq.gz 파일을 바로 업로드할 수 있습니다.',
-        '• Illumina Paired-end 파일은 파일명(R1, R2)에 따라 자동으로 묶입니다.',
-        '• 모든 파일은 브라우저 백그라운드 스레드에서 병렬로 안전하게 파싱됩니다.'
+        '• Drag and drop .fastq, .fq, or .gz compressed files directly into the central dropzone.',
+        '• Illumina paired-end files are automatically paired by filename (R1 & R2). All parsing runs locally in parallel Web Workers.'
       ],
       targetSelector: '#guide-upload-zone',
-      nextButtonText: '다음 ▶'
+      nextButtonText: 'Next ▶'
     },
 
-    // ── 4. Ref & Target Config (Ref / Target 입력) ──
+    // ── 4. Reference Sequence(s) & Target(s) ──
     {
       id: 'ref-config',
-      stepNum: 3,
-      totalSteps: 6,
-      stageName: 'Ref / Target 설정',
-      headline: '참조 서열과 타겟 gRNA를 입력하세요',
+      stageName: 'Ref & Targets',
+      headline: 'Reference Sequence(s) & Target(s)',
       textLines: [
-        '• Reference Sequence와 타겟 서열을 입력하면 절단 위치가 자동으로 계산됩니다.',
-        '• 상단의 Auto Fill로 엑셀 템플릿을 다운로드/업로드하여 여러 유전자를 한 번에 자동 입력할 수 있습니다.',
-        '• 파일별로 서열 구성이 다르다면 Config per File로 개별 지정도 가능합니다.'
+        '• Enter wild-type amplicon sequence(s) and gRNA spacer(s). Cut sites and PAM coordinates are determined automatically.',
+        '• Click Auto Fill to download an Excel template and batch-upload dozens of targets in 1 second, or use Config per File for multiplexed libraries.'
       ],
       targetSelector: '#guide-targets-section',
-      nextButtonText: '다음 ▶'
+      nextButtonText: 'Next ▶'
     },
 
-    // ── 5. Window Check (Window Check) ──
+    // ── 5. Window Check ──
     {
       id: 'window-check',
-      stepNum: 4,
-      totalSteps: 6,
       stageName: 'Window Check',
-      headline: 'Window Check로 서열과 유사도를 확인하세요',
+      headline: 'Window Check & Similarity Indicator',
       textLines: [
-        '• 절단 부위 주변 서열과 설정한 윈도우 범위를 시각적으로 확인하여 Indel 누락을 방지합니다.',
-        '• Homeolog 모드에서는 변형 간의 서열 유사도(Similarity Matrix)를 확인하여 Assignment Margin 파라미터 결정의 핵심 지표로 활용할 수 있습니다.'
+        '• Visually inspect the nucleotide sequence around the cut site to verify that expected editing events fall within the analyzed window.',
+        '• In Homeolog mode, review the pairwise similarity matrix—high sequence similarity (e.g. >98%) indicates you should raise the Assignment Margin (%).'
       ],
       targetSelector: '#guide-window-check-btn',
-      nextButtonText: '다음 ▶'
+      nextButtonText: 'Next ▶'
     },
 
-    // ── 6. Parameters (Parameter 설정) ──
+    // ── 6. Parameter Settings ──
     {
       id: 'parameters',
-      stepNum: 5,
-      totalSteps: 6,
-      stageName: '파라미터 설정',
-      headline: '분석 파라미터 및 고급 옵션을 조정하세요',
+      stageName: 'Parameters',
+      headline: 'Parameters & Advanced Settings',
       textLines: [
-        '• Window Size(분석 폭), Phred 품질 점수, Margin(할당 마진), Indel Threshold(노이즈 필터)를 설정합니다.',
-        '• Advanced에서는 절단 부위 기준 비대칭 윈도우, Cut-site 근처 제외(Exclusion), 거리 가중치(Distance Weight)를 주어 대형 결실이 할당을 왜곡하지 않도록 방지할 수 있습니다.'
+        '• Set Window Size (analysis span), Phred Quality, Assignment Margin (demux threshold), and Indel Threshold (noise filter).',
+        '• In Advanced, configure cut-site mutation exclusion or distance weighting so large deletions do not distort reference assignment.'
       ],
       targetSelector: '#guide-controls-grid',
-      nextButtonText: '다음 ▶'
+      nextButtonText: 'Next ▶'
     },
 
-    // ── 7. Run & Beyond (실행 및 결과/뷰어/벤치마크) ──
+    // ── 7. Run Analysis & Viewers ──
     {
       id: 'run-and-view',
-      stepNum: 6,
-      totalSteps: 6,
-      stageName: '분석 실행',
-      headline: 'Start Local Analysis 버튼으로 분석을 시작하세요',
+      stageName: 'Execution',
+      headline: 'Run Analysis & Result Viewers',
       textLines: [
-        '• 분석 버튼을 누르면 브라우저 로컬 워커가 즉시 실행되며 실시간 진행률이 표시됩니다.',
-        '• 분석 결과를 Excel(.xlsx)로 내보낸 뒤, 상단 Result Viewer 탭에 드롭하면 언제든 재계산 없이 결과를 다시 확인할 수 있습니다.',
-        '• Benchmark 탭에서는 기존 툴과의 정밀도 비교 분석도 지원합니다.'
+        '• Click Start Local Analysis to run. Dedicated browser Web Workers process your files in parallel with live progress updates.',
+        '• Export comprehensive results to Excel (.xlsx) and drop them into Result Viewer anytime, or inspect accuracy in the Benchmark tab.'
       ],
       targetSelector: '#guide-run-btn',
-      nextButtonText: '가이드 완료 ✕'
+      nextButtonText: 'Finish Guide ✕'
     }
   ];
 
@@ -700,6 +639,10 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
 
   get isLastStep(): boolean {
     return this.currentStepIndex === this.steps.length - 1;
+  }
+
+  get progressPercent(): number {
+    return Math.round(((this.currentStepIndex + 1) / this.steps.length) * 100);
   }
 
   ngOnInit() {
@@ -728,8 +671,6 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       this.closeGuide();
     } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
       this.nextStep();
-    } else if (e.key === 'ArrowLeft') {
-      this.prevStep();
     }
   }
 
@@ -742,26 +683,12 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     this.onStepChanged();
   }
 
-  prevStep() {
-    if (this.currentStepIndex > 0) {
-      this.currentStepIndex--;
-      this.onStepChanged();
-    }
-  }
-
-  goToStep(index: number) {
-    if (index >= 0 && index < this.steps.length) {
-      this.currentStepIndex = index;
-      this.onStepChanged();
-    }
-  }
-
   closeGuide() {
     this.close.emit();
   }
 
   /**
-   * Instantly switch target and scroll smoothly without any sluggish delays.
+   * Instantly switch target and scroll smoothly without lag.
    */
   private onStepChanged() {
     const sel = this.currentStep.targetSelector;
@@ -771,7 +698,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }
-    // Update immediately (0ms delay!)
+    // Update immediately (0ms delay)
     this.updateLayoutInstant();
 
     // Continuously follow during smooth scrolling animation
@@ -813,8 +740,8 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
 
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const cardWidth = Math.min(620, Math.max(320, vw - 36));
-    const cardEstimatedHeight = 250;
+    const cardWidth = Math.min(760, Math.max(340, vw - 40));
+    const cardEstimatedHeight = 260;
 
     // Determine placement: above or below
     const spaceBelow = vh - rect.bottom;
@@ -841,10 +768,10 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     }
 
     // Clamp inside viewport
-    cLeft = Math.max(18, Math.min(vw - cardWidth - 18, cLeft));
-    cTop = Math.max(20, Math.min(vh - cardEstimatedHeight - 20, cTop));
+    cLeft = Math.max(20, Math.min(vw - cardWidth - 20, cLeft));
+    cTop = Math.max(24, Math.min(vh - cardEstimatedHeight - 24, cTop));
 
-    eX = Math.max(cLeft + 40, Math.min(cLeft + cardWidth - 40, sX));
+    eX = Math.max(cLeft + 50, Math.min(cLeft + cardWidth - 50, sX));
 
     this.cardStyle = {
       top: `${Math.round(cTop)}px`,
