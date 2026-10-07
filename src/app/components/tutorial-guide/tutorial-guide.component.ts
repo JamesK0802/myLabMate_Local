@@ -1,5 +1,6 @@
 import { Component, EventEmitter, Input, Output, OnDestroy, OnInit, ChangeDetectorRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { FormArray } from '@angular/forms';
 import { AppStateService } from '../../services/app-state.service';
 
@@ -110,7 +111,7 @@ export interface GuideStep {
           <h2 class="bubble-headline">{{ currentStep.headline }}</h2>
 
           <!-- Acronym Breakdown (Single line sentence with C, A, S, M, A, N, G, O highlighted) -->
-          <div class="acronym-sentence" *ngIf="currentStep.isIntro">
+          <div class="acronym-sentence" *ngIf="currentStep.isIntro && guideMode === 'analysis'">
             <span class="acro-letter">C</span>RISPR
             <span class="acro-letter">A</span>mplicon
             <span class="acro-letter">S</span>equencing with
@@ -126,8 +127,23 @@ export interface GuideStep {
             {{ currentStep.introLine }}
           </p>
 
+          <!-- Interactive 4-Card Selection Grid for Guide Hub -->
+          <div class="hub-cards-grid" *ngIf="guideMode === 'hub'">
+            <div class="hub-card"
+                 *ngFor="let card of currentStep.cards; let i = index"
+                 (click)="selectGuideFromHub(card.title)">
+              <div class="hub-card-header">
+                <span class="hub-card-badge">{{ card.badge }}</span>
+                <span class="hub-card-arrow">▶</span>
+              </div>
+              <h3 class="hub-card-title">{{ card.title }}</h3>
+              <p class="hub-card-desc">{{ card.desc }}</p>
+              <button type="button" class="btn-hub-start">Start Guide</button>
+            </div>
+          </div>
+
           <!-- 3 Advantage Cards (Intro & Prereq) -->
-          <div class="cards-grid" *ngIf="currentStep.cards && currentStep.cards.length > 0">
+          <div class="cards-grid" *ngIf="guideMode !== 'hub' && currentStep.cards && currentStep.cards.length > 0">
             <div class="grid-card" *ngFor="let card of currentStep.cards">
               <span class="grid-card-badge" *ngIf="card.badge">{{ card.badge }}</span>
               <h3 class="grid-card-title">{{ card.title }}</h3>
@@ -135,8 +151,10 @@ export interface GuideStep {
             </div>
           </div>
 
-          <!-- Side-by-Side Comparison Columns (Platform / Mode) -->
-          <div class="comparison-grid" *ngIf="currentStep.comparisonColumns">
+          <!-- Side-by-Side Comparison Columns (Platform / Mode / 3 Charts) -->
+          <div class="comparison-grid"
+               [class.three-cols]="currentStep.comparisonColumns.length === 3"
+               *ngIf="currentStep.comparisonColumns">
             <div class="comp-col" *ngFor="let col of currentStep.comparisonColumns">
               <h4 class="comp-col-title">{{ col.colTitle }}</h4>
               <div class="comp-item" *ngFor="let item of col.items">
@@ -154,9 +172,9 @@ export interface GuideStep {
             </div>
           </div>
 
-          <!-- Minimal text lines -->
+          <!-- Text lines with Markdown bold support -->
           <div class="text-lines-block" *ngIf="currentStep.textLines && currentStep.textLines.length > 0">
-            <p class="text-line" *ngFor="let line of currentStep.textLines">{{ line }}</p>
+            <p class="text-line" *ngFor="let line of currentStep.textLines" [innerHTML]="formatMarkdown(line)"></p>
           </div>
 
           <!-- Interactive Action Status Prompt (Clean yellow box without emojis) -->
@@ -173,7 +191,21 @@ export interface GuideStep {
 
           <!-- Footer Actions -->
           <div class="bubble-footer">
-            <ng-container *ngIf="!currentStep.isFinal">
+            <button type="button"
+                    class="btn-hub-return"
+                    *ngIf="guideMode !== 'hub'"
+                    (click)="returnToHub()"
+                    title="Return to Guide Selection Hub">
+              All Guides Hub
+            </button>
+
+            <ng-container *ngIf="guideMode === 'hub'">
+              <button type="button" class="btn-secondary-action" (click)="closeGuide()">
+                Close ✕
+              </button>
+            </ng-container>
+
+            <ng-container *ngIf="guideMode !== 'hub' && !currentStep.isFinal">
               <button type="button"
                       class="btn-guide-next"
                       [disabled]="!isNextButtonEnabled"
@@ -182,8 +214,8 @@ export interface GuideStep {
               </button>
             </ng-container>
 
-            <!-- Final Step: Exit or Explore Results Guide -->
-            <ng-container *ngIf="currentStep.isFinal">
+            <!-- Final Step of Any Tour: Hub, Next Tour, or Exit -->
+            <ng-container *ngIf="guideMode !== 'hub' && currentStep.isFinal">
               <div class="final-actions-group">
                 <button type="button"
                         class="btn-secondary-action"
@@ -192,8 +224,27 @@ export interface GuideStep {
                 </button>
                 <button type="button"
                         class="btn-guide-next"
-                        (click)="openResultsGuideComingSoon()">
-                  Explore Results Guide ▶
+                        *ngIf="guideMode === 'analysis'"
+                        (click)="startResultsGuide()">
+                  Next: Results Guide ▶
+                </button>
+                <button type="button"
+                        class="btn-guide-next"
+                        *ngIf="guideMode === 'result'"
+                        (click)="startSequenceWorkspaceGuide()">
+                  Next: Sequence Viewer Guide ▶
+                </button>
+                <button type="button"
+                        class="btn-guide-next"
+                        *ngIf="guideMode === 'workspace'"
+                        (click)="startBenchmarkGuide()">
+                  Next: Benchmark Guide ▶
+                </button>
+                <button type="button"
+                        class="btn-guide-next"
+                        *ngIf="guideMode === 'benchmark'"
+                        (click)="returnToHub()">
+                  Back to Hub ▶
                 </button>
               </div>
             </ng-container>
@@ -506,12 +557,103 @@ export interface GuideStep {
       line-height: 1.45;
     }
 
-    /* ── Comparison Columns (Platform / Mode) ── */
+    /* ── 4 Hub Cards Grid (Guide Selection) ── */
+    .hub-cards-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .hub-card {
+      background: #f8fafc;
+      border: 2px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+
+    .hub-card:hover {
+      background: #ffffff;
+      border-color: #f59e0b;
+      box-shadow: 0 8px 24px rgba(245, 158, 11, 0.18);
+      transform: translateY(-2px);
+    }
+
+    .hub-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .hub-card-badge {
+      font-size: 11px;
+      font-weight: 900;
+      color: #ea580c;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: #fff7ed;
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid #ffedd5;
+    }
+
+    .hub-card-arrow {
+      color: #f59e0b;
+      font-size: 13px;
+      font-weight: 800;
+      transition: transform 0.2s ease;
+    }
+
+    .hub-card:hover .hub-card-arrow {
+      transform: translateX(3px);
+    }
+
+    .hub-card-title {
+      margin: 0 0 6px 0;
+      font-size: 15.5px;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.35;
+    }
+
+    .hub-card-desc {
+      margin: 0 0 14px 0;
+      font-size: 12.5px;
+      color: #475569;
+      line-height: 1.48;
+      flex: 1;
+    }
+
+    .btn-hub-start {
+      background: linear-gradient(135deg, #f59e0b, #ea580c);
+      color: #ffffff;
+      border: none;
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      align-self: flex-start;
+      box-shadow: 0 3px 10px rgba(234, 88, 12, 0.25);
+      pointer-events: none;
+    }
+
+    /* ── Comparison Columns (Platform / Mode / 3 Charts) ── */
     .comparison-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 14px;
       margin-bottom: 16px;
+    }
+
+    .comparison-grid.three-cols {
+      grid-template-columns: repeat(3, 1fr);
     }
 
     .comp-col {
@@ -680,6 +822,25 @@ export interface GuideStep {
       box-shadow: none;
     }
 
+    .btn-hub-return {
+      background: #f8fafc;
+      color: #64748b;
+      border: 1px solid #cbd5e1;
+      padding: 8px 16px;
+      border-radius: 10px;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-right: auto;
+      transition: all 0.15s ease;
+    }
+
+    .btn-hub-return:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+      border-color: #94a3b8;
+    }
+
     .final-actions-group {
       display: flex;
       align-items: center;
@@ -740,11 +901,11 @@ export interface GuideStep {
   `]
 })
 export class TutorialGuideComponent implements OnInit, OnDestroy {
-  @Input() initialMode: 'analysis' | 'result' = 'analysis';
+  @Input() initialMode: 'hub' | 'analysis' | 'result' | 'workspace' | 'benchmark' = 'hub';
   @Output() close = new EventEmitter<void>();
   @Output() requestTab = new EventEmitter<'analysis' | 'viewer' | 'benchmark' | 'workspace'>();
 
-  guideMode: 'analysis' | 'result' = 'analysis';
+  guideMode: 'hub' | 'analysis' | 'result' | 'workspace' | 'benchmark' = 'hub';
   currentStepIndex = 0;
 
   targetRect: { top: number; left: number; width: number; height: number; bottom: number; right: number } | null = null;
@@ -986,28 +1147,194 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     }
   ];
 
+  hubSteps: GuideStep[] = [
+    {
+      id: 'hub',
+      stageName: 'Guide Selection Hub',
+      headline: 'Welcome to CasMANGO Guides',
+      introLine: 'Select a guide below to explore the end-to-end interactive tutorial for that module:',
+      cards: [
+        {
+          badge: 'Tour 1',
+          title: 'CRISPR Analysis',
+          desc: 'End-to-end pipeline setup: file upload, reference amplicons & gRNAs, auto fill, window check, and alignment parameters.'
+        },
+        {
+          badge: 'Tour 2',
+          title: 'Results & Result Viewer',
+          desc: 'Tour results with the Figure 2 synthetic dataset: read filtering flow, metrics, 3 visual charts, annotation tracks, curation, and Excel report reproducibility.'
+        },
+        {
+          badge: 'Tour 3',
+          title: 'Sequence Viewer',
+          desc: 'Multi-sequence alignment workspace, tree hierarchy, linear map, sequence tracks, and PAM visualization controls.'
+        },
+        {
+          badge: 'Tour 4',
+          title: 'Benchmark',
+          desc: 'In-browser labeled read ground truth evaluation and Illumina paired-end overlap mate normalization.'
+        }
+      ],
+      isIntro: true
+    }
+  ];
+
+  workspaceSteps: GuideStep[] = [
+    {
+      id: 'workspace-overview',
+      stageName: 'Sequence Viewer',
+      headline: 'Sequence Workspace Overview',
+      introLine: 'The Sequence Viewer offers full multi-sequence alignment, feature annotation, and Sanger / NGS read visualization in your browser.',
+      cards: [
+        {
+          badge: 'Explorer',
+          title: 'Project Tree',
+          desc: 'Organize amplicons, plasmids, Sanger reads, and NGS FASTQ files in hierarchical folders.'
+        },
+        {
+          badge: 'Visualization',
+          title: 'Linear & Plasmid Maps',
+          desc: 'Interactive high-density sequence tracks with gRNA PAM markers and translation frames.'
+        },
+        {
+          badge: 'Inspector',
+          title: 'Feature Inspector',
+          desc: 'Inspect sequence properties, GC content, annotations, and export curated sub-sequences.'
+        }
+      ],
+      nextButtonText: 'Next: Project Explorer ▶',
+      isIntro: true
+    },
+    {
+      id: 'workspace-explorer',
+      stageName: 'Project Explorer',
+      headline: 'Project Explorer & File Hierarchy',
+      textLines: [
+        '• Manage your sequence documents, references, and imported FASTQ reads.',
+        '• Click to collapse or expand folders, rename items, and select sequences for viewing.'
+      ],
+      targetSelector: '#guide-workspace-explorer',
+      nextButtonText: 'Next: Main Alignment Viewer ▶'
+    },
+    {
+      id: 'workspace-viewer',
+      stageName: 'Main Viewer',
+      headline: 'Interactive Sequence Alignment & Maps',
+      textLines: [
+        '• Zoom and pan across base pairs with single-nucleotide clarity.',
+        '• Toggle between linear map, circular plasmid map, and multi-read pairwise alignment views.'
+      ],
+      targetSelector: '#guide-workspace-viewer',
+      nextButtonText: 'Next: Feature Inspector ▶'
+    },
+    {
+      id: 'workspace-inspector',
+      stageName: 'Inspector',
+      headline: 'Item Inspector & Properties',
+      textLines: [
+        '• Inspect base composition, GC percentage, translations, and feature annotations.',
+        '• Edit features or export clean FASTA sequences directly.'
+      ],
+      targetSelector: '#guide-workspace-inspector',
+      nextButtonText: 'Next: Benchmark Guide ▶'
+    },
+    {
+      id: 'workspace-final',
+      stageName: 'Workspace Complete',
+      headline: 'Sequence Workspace Tour Complete!',
+      introLine: 'You can return to the Guide Hub anytime or proceed to explore the Benchmark module next.',
+      cards: [
+        {
+          badge: 'Next Step',
+          title: 'Explore Benchmark',
+          desc: 'Verify classification accuracy and Illumina paired-end normalization.'
+        }
+      ],
+      isFinal: true
+    }
+  ];
+
+  benchmarkSteps: GuideStep[] = [
+    {
+      id: 'benchmark-overview',
+      stageName: 'Benchmark Module',
+      headline: 'Deterministic Benchmark & Normalization',
+      introLine: 'CasMANGO includes built-in benchmarking utilities to evaluate classification accuracy against labelled datasets and inspect Illumina paired-end normalization.',
+      cards: [
+        {
+          badge: 'Classification',
+          title: 'Ground Truth Verification',
+          desc: 'Validate assignment precision, cross-calling prevention, and ambiguity handling.'
+        },
+        {
+          badge: 'Illumina',
+          title: 'Overlap-Aware Normalization',
+          desc: 'Form high-confidence consensus from qualifying mate overlaps or apply window-sized X-guards.'
+        }
+      ],
+      nextButtonText: 'Next: Parameters & Platform ▶',
+      isIntro: true
+    },
+    {
+      id: 'benchmark-params',
+      stageName: 'Benchmark Parameters',
+      headline: 'Analysis Parameters for Benchmark',
+      textLines: [
+        '• Configure window size, Phred quality filter, and Assignment Margin for benchmark validation.',
+        '• Toggle between Nanopore long-read amplicons and Illumina paired-end libraries.'
+      ],
+      targetSelector: '#guide-bench-params-card',
+      nextButtonText: 'Next: Labelled Dataset ▶'
+    },
+    {
+      id: 'benchmark-dataset',
+      stageName: 'Dataset Setup',
+      headline: 'Labelled Classes & Expected References',
+      textLines: [
+        '• Add classes with defined ground-truth gene references, gRNA spacers, and test FASTQ reads.',
+        '• Run Benchmark to obtain instant confusion metrics (Correct %, Wrong %, Ambiguous %).'
+      ],
+      targetSelector: '#guide-bench-dataset-card',
+      nextButtonText: 'Next: Illumina Normalization ▶'
+    },
+    {
+      id: 'benchmark-final',
+      stageName: 'Benchmark Complete',
+      headline: 'Benchmark Tour Complete!',
+      introLine: 'You have explored all core modules of CasMANGO! Return to the Guide Hub or start analyzing your CRISPR experiments.',
+      cards: [
+        {
+          badge: 'Ready to Run',
+          title: 'Start Analyzing',
+          desc: 'Load your FASTQ sequencing reads and discover accurate CRISPR outcomes with 100% client-side privacy.'
+        }
+      ],
+      isFinal: true
+    }
+  ];
+
   resultSteps: GuideStep[] = [
-    // ── R0. Result Welcome (Figure 2 Synthetic Benchmark) ──
+    // ── R0. Result Introduction (Figure 2 Synthetic Benchmark) ──
     {
       id: 'result-welcome',
       stageName: 'Results Dashboard',
-      headline: 'Welcome to Results Analysis',
-      introLine: 'CasMANGO accurately decodes CRISPR outcomes locally. Here we load the Figure 2 synthetic benchmark dataset (single-target CPC Cas9 amplicon) to tour all results, charts, annotation tracks, and curation tools.',
+      headline: 'Results & Outcome Analysis',
+      introLine: 'Welcome to the Results Guide! We load the Figure 2 synthetic benchmark dataset (single-target CPC Cas9 amplicon) to walk through the read-filtering flow, metric cards, 3 visual charts, mutation annotation tracks, and live curation tools.',
       cards: [
         {
-          badge: 'Benchmark',
-          title: 'Single-Target Amplicon',
+          badge: 'Synthetic Ground Truth',
+          title: 'Figure 2 CPC Amplicon',
           desc: 'High-coverage synthetic locus modeled after Figure 2 CPC amplicon with defined cleavage sites and mutation spectrum.'
         },
         {
-          badge: 'Filter Analytics',
+          badge: 'Filter Transparency',
           title: 'Traceable Read Filtering',
-          desc: 'Transparent tracking of Raw Reads, Phred Quality Filter, Margin Filter, and unambiguous Assigned Reads.'
+          desc: 'Transparent stage-by-stage tracking: Raw Reads → Phred Passed → Usable for Assignment → Assigned Reads.'
         },
         {
-          badge: 'Interactive Curation',
-          title: 'Real-Time Curation',
-          desc: 'Exclude and restore individual sequencing files, gene references, targets, or specific mutation groups on the fly.'
+          badge: 'Live Exploration',
+          title: 'Interactive Curation',
+          desc: 'Exclude or restore individual sequencing files, gene references, targets, or specific mutation groups on the fly.'
         }
       ],
       nextButtonText: 'Next: Read Filtering Flow ▶',
@@ -1020,28 +1347,61 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       stageName: 'Read Flow Analytics',
       headline: 'Read Filtering & Ambiguity Exclusion',
       textLines: [
-        '• Raw Reads: Initial total sequencing reads read from the FASTQ input file(s).',
-        '• Phred Passed: Reads passing your minimum Phred average quality threshold.',
-        '• Usable for Assignment: Filtered reads successfully matching outer flanking amplicon primers/anchors.',
-        '• Assigned Reads: Reads unambiguously assigned to this target gene reference.',
-        '• Ambiguous Excluded: Reads where alignment score difference was within your configured Assignment Margin—safely segregated to prevent cross-assignment false positives.'
+        '• **Raw Reads**: Initial total sequencing reads read from the FASTQ input file(s).',
+        '• **Phred Passed**: Reads passing your minimum Phred average quality threshold.',
+        '• **Usable for Assignment**: Filtered reads successfully matching outer flanking amplicon primers/anchors.',
+        '• **Assigned Reads**: Reads unambiguously assigned to this target gene reference.',
+        '• **Ambiguous Excluded**: Reads where alignment score difference was within your configured **Assignment Margin**—safely segregated to prevent cross-assignment false positives.'
       ],
       targetSelector: '#guide-read-flow-stripe',
-      nextButtonText: 'Next: Metrics & Charts ▶'
+      nextButtonText: 'Next: Summary Metrics ▶'
     },
 
-    // ── R2. Metrics & Visual Charts ──
+    // ── R2. Summary Metrics Grid ──
     {
-      id: 'result-metrics-and-charts',
-      stageName: 'Metrics & Charts',
-      headline: 'Summary Metrics & Distribution Charts',
+      id: 'result-metrics',
+      stageName: 'Summary Metrics',
+      headline: 'Summary Metrics Cards',
       textLines: [
-        '• Metric Cards: Instant overview of Total & Aligned reads, Out-of-frame %, In-frame %, Unmodified %, and Substitution %.',
-        '• Mutation Pie Chart: Visual breakdown of unmodified wild-type, in-frame indels, out-of-frame frame-shifts, and substitutions.',
-        '• Indel Distribution: Bar chart displaying exact deletion (-) and insertion (+) sizes at single-nucleotide resolution.',
-        '• Donut Chart: Overall editing efficiency summary.'
+        '• **Total & Aligned Reads**: Overall read count and percentage successfully assigned to this locus window.',
+        '• **Out-of-frame %**: Frame-shifting indel rate (disruptive knockout mutations).',
+        '• **In-frame %**: In-frame indels (multiples of 3 bp preserving reading frame).',
+        '• **Unmodified %**: Wild-type unedited reads.',
+        '• **Substitution %**: Base substitutions tracked in a distinct category according to policy.'
       ],
       targetSelector: '#guide-metrics-grid',
+      nextButtonText: 'Next: 3 Visual Charts ▶'
+    },
+
+    // ── R3. 3 Visual Charts: Left - Center - Right Breakdown ──
+    {
+      id: 'result-charts',
+      stageName: 'Visual Charts',
+      headline: 'Mutation Outcome Charts (Left · Center · Right)',
+      comparisonColumns: [
+        {
+          colTitle: 'Left: Mutation Pie Chart',
+          items: [
+            { label: 'Classification Ratio', desc: 'Visual proportion of Unmodified (WT), In-frame indels, Out-of-frame frame-shifts, and Substitutions.' },
+            { label: 'Instant Focus', desc: 'Identifies dominant genotype class at a glance.' }
+          ]
+        },
+        {
+          colTitle: 'Center: Indel Distribution',
+          items: [
+            { label: 'Indel Size Spectrum', desc: 'High-resolution bar chart showing exact deletion (-) and insertion (+) sizes in nucleotides.' },
+            { label: 'Frameshift Detection', desc: 'Colors highlight frameshifting indels vs 3bp-multiple in-frame alterations.' }
+          ]
+        },
+        {
+          colTitle: 'Right: Donut Summary',
+          items: [
+            { label: 'Total Efficiency', desc: 'Total editing efficiency summarizing modified vs unmodified amplicons.' },
+            { label: 'Knockout Ratio', desc: 'Fast benchmark gauge for experimental knockout success.' }
+          ]
+        }
+      ],
+      targetSelector: '#guide-charts-section',
       nextButtonText: 'Next: Mutation Annotation Track ▶'
     },
 
@@ -1119,17 +1479,49 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       interactiveAction: 'switch_to_viewer',
       actionPromptText: 'Click the "Result Viewer" tab in the top navigation bar',
       actionSuccessText: 'Result loaded into Result Viewer! Complete dashboard restored.',
+      nextButtonText: 'Next: Sequence Viewer Guide ▶'
+    },
+    {
+      id: 'result-final-hub',
+      stageName: 'Results Complete',
+      headline: 'Results Guide Complete!',
+      introLine: 'You have explored all outcome analytics, annotation tracks, curation options, and Excel reports. What would you like to explore next?',
+      cards: [
+        {
+          badge: 'Next Guide',
+          title: 'Sequence Viewer Guide',
+          desc: 'Explore the full multi-sequence alignment workspace and plasmid viewer.'
+        },
+        {
+          badge: 'Next Guide',
+          title: 'Benchmark Guide',
+          desc: 'Explore labeled dataset validation and Illumina paired-end normalization.'
+        }
+      ],
       isFinal: true
     }
   ];
 
   constructor(
     public state: AppStateService,
-    private cdr: ChangeDetectorRef
+    private cdr: ChangeDetectorRef,
+    private sanitizer: DomSanitizer
   ) {}
 
   get currentSteps(): GuideStep[] {
-    return this.guideMode === 'result' ? this.resultSteps : this.steps;
+    switch (this.guideMode) {
+      case 'hub':
+        return this.hubSteps;
+      case 'result':
+        return this.resultSteps;
+      case 'workspace':
+        return this.workspaceSteps;
+      case 'benchmark':
+        return this.benchmarkSteps;
+      case 'analysis':
+      default:
+        return this.steps;
+    }
   }
 
   get currentStep(): GuideStep {
@@ -1384,17 +1776,107 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Converts markdown bolding syntax `**text**` to safe HTML strong tags.
+   */
+  formatMarkdown(text: string): SafeHtml {
+    if (!text) return '';
+    const formatted = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    return this.sanitizer.bypassSecurityTrustHtml(formatted);
+  }
+
+  /**
+   * Handler when a user clicks one of the 4 cards on the Guide Hub.
+   */
+  selectGuideFromHub(cardTitle: string) {
+    if (cardTitle.includes('CRISPR Analysis')) {
+      this.startAnalysisGuide();
+    } else if (cardTitle.includes('Result')) {
+      this.startResultsGuide();
+    } else if (cardTitle.includes('Sequence Viewer')) {
+      this.startSequenceWorkspaceGuide();
+    } else if (cardTitle.includes('Benchmark')) {
+      this.startBenchmarkGuide();
+    }
+  }
+
+  /**
+   * Return back to the Guide Selection Hub from any guide.
+   */
+  returnToHub() {
+    this.closeWindowCheckPanel();
+    this.state.collapseAnalysisPanels();
+    this.guideMode = 'hub';
+    this.currentStepIndex = 0;
+    this.targetRect = null;
+    this.pathD = '';
+    this.cardStyle = {};
+    this.cdr.detectChanges();
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      this.updateLayoutInstant();
+    }, 120);
+  }
+
+  /**
+   * Starts the CRISPR Analysis Tour.
+   */
+  startAnalysisGuide() {
+    this.guideMode = 'analysis';
+    this.currentStepIndex = 0;
+    this.requestTab.emit('analysis');
+    this.state.collapseAnalysisPanels();
+    this.cdr.detectChanges();
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      this.handleStepSideEffects();
+      this.updateLayoutInstant();
+    }, 200);
+  }
+
+  /**
    * Switch Tutorial Guide to Results Guide mode and load synthetic Figure 2 dataset if needed.
    */
   startResultsGuide() {
     this.guideMode = 'result';
     this.currentStepIndex = 0;
+    this.requestTab.emit('viewer');
     this.ensureFigure2SyntheticDataLoaded();
     this.cdr.detectChanges();
     setTimeout(() => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      this.handleStepSideEffects();
       this.updateLayoutInstant();
-    }, 200);
+    }, 250);
+  }
+
+  /**
+   * Starts the Sequence Workspace Tour.
+   */
+  startSequenceWorkspaceGuide() {
+    this.guideMode = 'workspace';
+    this.currentStepIndex = 0;
+    this.requestTab.emit('workspace');
+    this.cdr.detectChanges();
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      this.handleStepSideEffects();
+      this.updateLayoutInstant();
+    }, 250);
+  }
+
+  /**
+   * Starts the Benchmark Tour.
+   */
+  startBenchmarkGuide() {
+    this.guideMode = 'benchmark';
+    this.currentStepIndex = 0;
+    this.requestTab.emit('benchmark');
+    this.cdr.detectChanges();
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      this.handleStepSideEffects();
+      this.updateLayoutInstant();
+    }, 250);
   }
 
   /**
@@ -1444,9 +1926,14 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
    * Generates synthetic Figure 2 single-target Cas9 outcome dataset (CPC amplicon).
    */
   private generateSyntheticFigure2Result(): { params: any; scopes: any[] } {
-    const cpcSeq = 'gctactattaatccttcccctcgtgaggaaatcatttcttcttgtttctcgagatttattctctttctctctctctttctctgtgtgtttcgtgtcttcagattagttcgATGTTTCGTTCAGACAAGGCGGAAAAAATGGATAAACGACGACGGAGACAGAGCAAAGCCAAGGCTTCTTGTTCCGAAGgtctgatttctctttgtttctctctatatctttttgatcggtttgagtctgattttgtatgtttgtttcgcagAGGTGAGTAGTATCGAATGGGAAGCTGTGAAGATGTCAGAAGAAGAAGAAGATCTCATTTCTCGGATGTATAAACTCGTTGGCGACAGgttagagactctttctctctcgatccatcttgttgctttctcttttttttggtctttcatgttttgtcgaatctgcttagattttgatctcaaagtcggtcgtttatttatgcattttcttggtttttctattatattattgggtctaacttaccgagctgtcaatgactgtgttcagcctgatttttgatcttgttattattctctgttttttgttttagttgttcaaatagcaaaacctaatcaagatttcgttttcagtttctttttttatatatgattctttagcaaaacatattcttaatttatgtcagaactcactttggctagtttggttcaattttgattacagcatgtttgtatgaagtcaaagtgtaaattacgattttggttcggttccatagaattttaaccgaattacaaactttatgcggtttttatcggaataaaaggtatttggttaagtgtaagttcctcaacactgactgttagcctatcctacgtggcgcgtagGTGGGAGTTGATCGCCGGAAGGATCCCGGGACGGACGCCGGAGGAGATAGAGAGATATTGGCTTATGAAACACGGCGTCGTTTTTGCCAACAGACGAAGAGACTTTTTTAGGAAATGAttttttttgtttggattaaaagaaaattttcctctccttaattcacaagacaagaaaaaaaggaaatgtacctgtccttgaattactattttggaatgtataattatctatatatataagaagaaaaaattgcttaggaatttcaaatttttaccagcctccatcgacacatgatatatc';
+    const cpcAmplicon = 'AAATTTGAAATTCCTAAGCAATTTTTTCTTCTTATATATATAGATAATTATACATTCCAAAATAGTAATTCAAGGACAGGTACATTTCCTTTTTTTCTTGTCTTGTGAATTAAGGAGAGGAAAATTTTCTTTTAATCCAAACAAAAAAAATCATTTCCTAAAAAAGTCTCTTCGTCTGTTGGCAAAAACGACGCCGTGTTTCATAAGCCAATATCTCTCTATCTCCTCCGGCGTCCGTCCCGGGATCCTTCCGGCGATCAACTCCCACCTACGCGCCACGTAGGATAGGCTAACAGTCAGTGTTGAGGAACTTACACTTAACCAAATACCTTTTATTCCGATAAAAACCGCATAAAGTTTGTAATTCGGTTAAAATTCTATGGAACCGAACCAAAATCGTAATTTACACTTTGACTTCATACAAACATGCTGTAATCAAAATTGAACCAA';
     const grna = 'AATATCTCTCTATCTCCTC';
-    const cutPos = 428;
+    
+    // 90bp analyzed window centered around cut site 225 (window indices 180..270)
+    // Cut site is at index 45 within this 90bp window (3bp upstream of PAM CGG at 48..51)
+    const refWindow90 = 'GGCAAAAACGACGCCGTGTTTCATAAGCCAATATCTCTCTATCTCCTCCGGCGTCCGTCCCGGGATCCTTCCGGCGATCAACTCCCACCT';
+    const grnaStartInWindow = 29;
+    const cutPosInWindow = 45;
 
     const rawReads = 2500;
     const phredPassed = 2420;
@@ -1463,7 +1950,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         classification: 'WT / No Indel',
         net_indel: 0,
         tokens: [
-          { type: 'equal', val: 'AATATCTCTCTATCTCCTCCGGCGTCCGTCCCGGGATCCTTCCGGCGATCA' }
+          { type: 'equal', val: refWindow90 }
         ]
       },
       {
@@ -1474,9 +1961,9 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         classification: 'Out-of-frame Deletion',
         net_indel: -1,
         tokens: [
-          { type: 'equal', val: 'AATATCTCTCTATCTCCTC' },
-          { type: 'delete', val: 'C' },
-          { type: 'equal', val: 'GGCGTCCGTCCCGGGATCCTTCCGGCGATCA' }
+          { type: 'equal', val: refWindow90.slice(0, 44) },
+          { type: 'delete', val: refWindow90.slice(44, 45) },
+          { type: 'equal', val: refWindow90.slice(45) }
         ]
       },
       {
@@ -1487,9 +1974,9 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         classification: 'Out-of-frame Insertion',
         net_indel: 1,
         tokens: [
-          { type: 'equal', val: 'AATATCTCTCTATCTCCTC' },
+          { type: 'equal', val: refWindow90.slice(0, 45) },
           { type: 'insert', val: 'A' },
-          { type: 'equal', val: 'CGGCGTCCGTCCCGGGATCCTTCCGGCGATCA' }
+          { type: 'equal', val: refWindow90.slice(45) }
         ]
       },
       {
@@ -1500,9 +1987,9 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         classification: 'In-frame Deletion',
         net_indel: -3,
         tokens: [
-          { type: 'equal', val: 'AATATCTCTCTATCTCCT' },
-          { type: 'delete', val: 'CCG' },
-          { type: 'equal', val: 'GCGTCCGTCCCGGGATCCTTCCGGCGATCA' }
+          { type: 'equal', val: refWindow90.slice(0, 43) },
+          { type: 'delete', val: refWindow90.slice(43, 46) },
+          { type: 'equal', val: refWindow90.slice(46) }
         ]
       },
       {
@@ -1513,9 +2000,9 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         classification: 'Substitution',
         net_indel: 0,
         tokens: [
-          { type: 'equal', val: 'AATATCTCTCTATCTCCT' },
-          { type: 'substitute', val: 'A' },
-          { type: 'equal', val: 'CGGCGTCCGTCCCGGGATCCTTCCGGCGATCA' }
+          { type: 'equal', val: refWindow90.slice(0, 44) },
+          { type: 'substitute', val: 'T' },
+          { type: 'equal', val: refWindow90.slice(45) }
         ]
       }
     ];
@@ -1546,18 +2033,18 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         failed: 0
       },
       read_details: [],
-      ref_sequence: cpcSeq,
-      cut_site_index: cutPos,
+      ref_sequence: refWindow90,
+      cut_site_index: cutPosInWindow,
       sgrna_seq: grna,
       display_sgrna_seq: grna,
-      grna_start_index: cutPos - 17,
+      grna_start_index: grnaStartInWindow,
       strand: '+',
       top_groups: topGroups
     };
 
     const geneResult = {
       gene: 'CPC',
-      reference_sequence: cpcSeq,
+      reference_sequence: cpcAmplicon,
       assigned_read_count: assignedReads,
       ambiguous_excluded: true,
       analysis_result: {

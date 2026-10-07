@@ -182,15 +182,21 @@ export class App implements OnInit {
   activeTab: 'analysis' | 'viewer' | 'benchmark' | 'workspace' = 'analysis';
   mobileMenuOpen = false;
   isGuideOpen = false;
-  guideInitialMode: 'analysis' | 'result' = 'analysis';
+  guideInitialMode: 'hub' | 'analysis' | 'result' | 'workspace' | 'benchmark' = 'hub';
 
   constructor(public state: AppStateService) {}
 
-  openGuide(mode: 'analysis' | 'result' = 'analysis') {
+  openGuide(mode: 'hub' | 'analysis' | 'result' | 'workspace' | 'benchmark' = 'hub') {
     this.guideInitialMode = mode;
     if (mode === 'analysis') {
       this.switchTab('analysis');
       this.state.collapseAnalysisPanels();
+    } else if (mode === 'result') {
+      this.switchTab('viewer');
+    } else if (mode === 'workspace') {
+      this.switchTab('workspace');
+    } else if (mode === 'benchmark') {
+      this.switchTab('benchmark');
     }
     this.isGuideOpen = true;
     this.mobileMenuOpen = false;

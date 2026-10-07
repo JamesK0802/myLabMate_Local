@@ -29,7 +29,7 @@ type MobileWorkspacePanel = 'files' | 'viewer' | 'details';
       </nav>
       <div class="workspace-container">
       <!-- Collapsible Explorer Left Sidebar -->
-      <div class="panel explorer-panel" [class.mobile-panel-hidden]="mobilePanel !== 'files'" *ngIf="!isSidebarCollapsed">
+      <div id="guide-workspace-explorer" class="panel explorer-panel" [class.mobile-panel-hidden]="mobilePanel !== 'files'" *ngIf="!isSidebarCollapsed">
         <app-project-explorer (collapse)="toggleSidebar()"></app-project-explorer>
       </div>
 
@@ -38,11 +38,11 @@ type MobileWorkspacePanel = 'files' | 'viewer' | 'details';
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
 
-      <div class="panel viewer-panel" [class.mobile-panel-hidden]="mobilePanel !== 'viewer'">
+      <div id="guide-workspace-viewer" class="panel viewer-panel" [class.mobile-panel-hidden]="mobilePanel !== 'viewer'">
         <app-main-viewer [isSidebarCollapsed]="isSidebarCollapsed"></app-main-viewer>
       </div>
 
-      <div class="panel inspector-panel" [class.mobile-panel-hidden]="mobilePanel !== 'details'" *ngIf="canOpenDetails">
+      <div id="guide-workspace-inspector" class="panel inspector-panel" [class.mobile-panel-hidden]="mobilePanel !== 'details'" *ngIf="canOpenDetails">
         <app-item-inspector></app-item-inspector>
       </div>
       </div>

@@ -1,16 +1,16 @@
-<div class="bench-container">
-  <div class="bench-header">
+<div class="bench-container" id="guide-bench-container">
+  <div class="bench-header" id="guide-bench-header">
     <h2>Benchmark</h2>
     <p class="bench-subtitle">Test the current deterministic analysis pipeline against labelled reads, or inspect Illumina mate normalization.</p>
   </div>
 
-  <div class="bench-mode-tabs">
+  <div class="bench-mode-tabs" id="guide-bench-mode-tabs">
     <button type="button" [class.active]="benchmarkMode === 'classification'" (click)="setMode('classification')">Classification</button>
     <button type="button" [class.active]="benchmarkMode === 'merge'" (click)="setMode('merge')">Illumina Normalization</button>
   </div>
 
   <ng-container *ngIf="benchmarkMode === 'classification'">
-    <section class="bench-params-card">
+    <section class="bench-params-card" id="guide-bench-params-card">
       <div class="bench-section-title">
         <div>
           <h3>Analysis Parameters</h3>
@@ -42,7 +42,7 @@
       </div>
     </section>
 
-    <section class="bench-dataset-card">
+    <section class="bench-dataset-card" id="guide-bench-dataset-card">
       <div class="bench-dataset-header">
         <div><h3>Labelled Dataset</h3><p>Each row identifies the expected gene/reference for its reads. Reuse a gene name to add more target windows to that gene.</p></div>
         <button type="button" class="btn-add-small" (click)="state.addBenchRow()">+ Add Class</button>
