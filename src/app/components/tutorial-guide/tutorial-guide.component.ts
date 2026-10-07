@@ -214,8 +214,11 @@ export interface GuideStep {
 
     /* ── Fullscreen Overlay (Higher than all page elements, lets clicks pass through) ── */
     .guide-root {
-      position: fixed;
-      inset: 0;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      min-height: 100%;
       z-index: 99990;
       outline: none;
       pointer-events: none;
@@ -224,6 +227,8 @@ export interface GuideStep {
 
     /* Backdrop when on Intro / Prereq without target spotlight */
     .guide-root.no-target {
+      position: fixed;
+      inset: 0;
       background: rgba(15, 23, 42, 0.55);
       pointer-events: auto;
       display: flex;
@@ -296,7 +301,7 @@ export interface GuideStep {
 
     /* ── Spotlight Cutout with 0% Tint Inside (Clean border without label) ── */
     .spotlight-hole {
-      position: fixed;
+      position: absolute;
       border-radius: 12px;
       box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.52);
       border: 2px solid #f59e0b;
@@ -313,8 +318,9 @@ export interface GuideStep {
 
     /* ── SVG Arrow Layer ── */
     .arrow-svg-layer {
-      position: fixed;
-      inset: 0;
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 100%;
       height: 100%;
       pointer-events: none;
@@ -340,9 +346,9 @@ export interface GuideStep {
       100% { r: 12; opacity: 0; }
     }
 
-    /* ── Dialog Wrapper: Highest z-index on page, always on top ── */
+    /* ── Dialog Wrapper: Highest z-index on page, placed once in document flow ── */
     .guide-dialog-wrapper {
-      position: fixed;
+      position: absolute;
       z-index: 100000;
       display: flex;
       flex-direction: row;
@@ -739,7 +745,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
 
   currentStepIndex = 0;
 
-  targetRect: DOMRect | null = null;
+  targetRect: { top: number; left: number; width: number; height: number; bottom: number; right: number } | null = null;
   cardStyle: { [key: string]: string } = {};
 
   arrowStartX = 0;
@@ -1135,11 +1141,6 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     this.updateLayoutInstant();
   }
 
-  @HostListener('window:scroll')
-  onScroll() {
-    this.updateLayoutInstant();
-  }
-
   @HostListener('window:keydown', ['$event'])
   onKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
@@ -1287,7 +1288,7 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Instantly switch target and scroll smoothly with guaranteed gap.
+   * Smoothly scroll target into view if needed, and place guide dialog.
    */
   private onStepChanged() {
     this.cdr.detectChanges();
@@ -1313,21 +1314,18 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       }
     }
 
+    // Update layout once immediately
     this.updateLayoutInstant();
 
-    let frames = 0;
-    const followScroll = () => {
+    // Re-verify once after smooth scroll settles
+    setTimeout(() => {
       this.updateLayoutInstant();
-      frames++;
-      if (frames < 25) {
-        this.rafId = requestAnimationFrame(followScroll);
-      }
-    };
-    this.rafId = requestAnimationFrame(followScroll);
+    }, 320);
   }
 
   /**
-   * Calculate coordinates synchronously without delays and prevent overlapping on tall targets.
+   * Calculate document-absolute coordinates so the guide stays anchored to the page
+   * without continuously following the viewport when the user scrolls.
    */
   private updateLayoutInstant() {
     const sel = this.currentStepTargetSelector;
@@ -1348,18 +1346,29 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const rect = el.getBoundingClientRect();
+    const clientRect = el.getBoundingClientRect();
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    const scrollX = window.scrollX || window.pageXOffset || 0;
+
+    // Convert target rect to document-absolute coordinates
+    const docTop = clientRect.top + scrollY;
+    const docLeft = clientRect.left + scrollX;
+    const rect = {
+      top: docTop,
+      left: docLeft,
+      width: clientRect.width,
+      height: clientRect.height,
+      bottom: docTop + clientRect.height,
+      right: docLeft + clientRect.width
+    };
     this.targetRect = rect;
 
     const dialogEl = document.querySelector('.guide-dialog-wrapper') as HTMLElement;
     const dialogHeight = dialogEl ? dialogEl.offsetHeight : 280;
-    const vw = window.innerWidth;
+    const docWidth = document.documentElement.clientWidth || window.innerWidth;
     const vh = window.innerHeight;
-    const cardWidth = Math.min(800, Math.max(340, vw - 48));
+    const cardWidth = Math.min(800, Math.max(340, docWidth - 48));
     const gap = 24;
-
-    const spaceBelow = vh - rect.bottom;
-    const spaceAbove = rect.top;
 
     let cTop = 0;
     let cLeft = rect.left + (rect.width - cardWidth) / 2;
@@ -1369,8 +1378,10 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     let eX = 0;
     let eY = 0;
 
-    // Prefer placing ABOVE if target is in lower portion or tall
-    const preferAbove = (rect.bottom > vh * 0.55 || rect.height > 220);
+    // Use viewport-relative position at the moment of calculation to decide above vs below
+    const spaceBelow = vh - clientRect.bottom;
+    const spaceAbove = clientRect.top;
+    const preferAbove = (clientRect.bottom > vh * 0.55 || clientRect.height > 220);
 
     if (preferAbove && spaceAbove >= dialogHeight + gap) {
       cTop = rect.top - dialogHeight - gap;
@@ -1396,8 +1407,8 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
       }
     }
 
-    // Clamp horizontally
-    cLeft = Math.max(24, Math.min(vw - cardWidth - 24, cLeft));
+    // Clamp horizontally to page bounds
+    cLeft = Math.max(24, Math.min(docWidth - cardWidth - 24, cLeft));
     eX = Math.max(cLeft + 60, Math.min(cLeft + cardWidth - 60, sX));
 
     this.cardStyle = {
