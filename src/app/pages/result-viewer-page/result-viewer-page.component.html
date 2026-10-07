@@ -3,7 +3,7 @@
 
   <!-- ══════════════ VIEWER DROP ZONE ══════════════ -->
   <div *ngIf="state.genes.length === 0" class="config-section">
-    <div class="upload-zone" [class.dragging]="state.isDragging" (drop)="onExcelDropped($event)"
+    <div class="upload-zone" id="guide-viewer-dropzone" [class.dragging]="state.isDragging" (drop)="onExcelDropped($event)"
       (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (click)="excelInput.click()">
       <input type="file" #excelInput (change)="onExcelSelected($event)" hidden accept=".xlsx" />
       <div class="upload-icon">📁</div>

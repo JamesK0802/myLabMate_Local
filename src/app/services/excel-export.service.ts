@@ -40,7 +40,7 @@ export class ExcelExportService {
     right: { style: 'thin', color: { argb: 'FFE0E0E0' } }
   };
 
-  async exportToExcel(params: ExportParams, scopes: ScopeData[], chartImages?: { [scopeName: string]: { [targetId: string]: { [chartName: string]: string } } }, curationConfig?: CurationConfig): Promise<void> {
+  async exportToExcel(params: ExportParams, scopes: ScopeData[], chartImages?: { [scopeName: string]: { [targetId: string]: { [chartName: string]: string } } }, curationConfig?: CurationConfig): Promise<File> {
     const wb = new ExcelJS.Workbook();
 
     // If curated, add a Curation Info sheet first
@@ -56,7 +56,10 @@ export class ExcelExportService {
     const buf = await wb.xlsx.writeBuffer();
     const ts = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 16);
     const prefix = curationConfig ? 'curated-crispr-report' : 'crispr-analysis-report';
-    saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${prefix}-${ts}.xlsx`);
+    const fileName = `${prefix}-${ts}.xlsx`;
+    const file = new File([buf], fileName, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    saveAs(file, fileName);
+    return file;
   }
 
   private buildSheet(wb: ExcelJS.Workbook, scope: ScopeData, params: ExportParams, scopeCharts?: { [targetId: string]: { [chartName: string]: string } }): void {
@@ -265,7 +268,7 @@ export class ExcelExportService {
     return row + 1;
   }
 
-  async importFromExcel(file: File): Promise<{ params: Partial<ExportParams>, scopes: ScopeData[] }> {
+  async importFromExcel(file: File): Promise<{ params: Partial<ExportParams>, scopes: ScopeData[], curationConfig?: CurationConfig | null }> {
     const wb = new ExcelJS.Workbook(); await wb.xlsx.load(await file.arrayBuffer());
     const metaSheet = wb.getWorksheet('.metadata');
     if (metaSheet) {

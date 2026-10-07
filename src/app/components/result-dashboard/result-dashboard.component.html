@@ -62,11 +62,11 @@
   <div class="export-bar" style="justify-content: space-between;">
     <div class="left-actions" style="display: flex; gap: 12px;">
       <!-- Curate / Exit Button -->
-      <button *ngIf="!state.isCuratedView" type="button" class="btn-curate"
+      <button *ngIf="!state.isCuratedView" type="button" class="btn-curate" id="guide-curate-btn"
         (click)="enterCuratedView()" [disabled]="state.mergedGenes.length === 0">
         Create Curated View
       </button>
-      <button *ngIf="state.isCuratedView" type="button" class="btn-exit-curate"
+      <button *ngIf="state.isCuratedView" type="button" class="btn-exit-curate" id="guide-exit-curate-btn"
         (click)="exitCuratedView()">
         Back to Original
       </button>
@@ -83,13 +83,13 @@
 
       <!-- Export Buttons -->
       <ng-container *ngIf="!state.isCuratedView">
-        <button type="button" class="btn-export" (click)="state.exportToExcel()"
+        <button type="button" class="btn-export" id="guide-export-excel-btn" (click)="state.exportToExcel()"
           [disabled]="state.mergedGenes.length === 0">
           Export Excel
         </button>
       </ng-container>
       <ng-container *ngIf="state.isCuratedView">
-        <button type="button" class="btn-export" (click)="state.exportCuratedToExcel()"
+        <button type="button" class="btn-export" id="guide-export-curated-btn" (click)="state.exportCuratedToExcel()"
           [disabled]="state.mergedGenes.length === 0">
           Export Curated
         </button>
@@ -187,7 +187,7 @@
       {{ mobileGeneInfoOpen ? 'Hide details' : 'Show details' }}
     </button>
 
-    <div class="gene-info-stripe" *ngIf="state.currentGene" [class.mobile-open]="mobileGeneInfoOpen">
+    <div class="gene-info-stripe" id="guide-read-flow-stripe" *ngIf="state.currentGene" [class.mobile-open]="mobileGeneInfoOpen">
       <span class="gene-info-item"><strong>Gene:</strong> {{ state.currentGene.gene }}</span>
       <span class="gene-info-sep">|</span>
       <span class="gene-info-item"><strong>Assigned Reads:</strong> {{ state.currentGene.assigned_read_count | number
@@ -210,7 +210,7 @@
   </div>
 
   <!-- ── Metric Cards ── -->
-  <div class="metrics-grid" *ngIf="state.genes.length > 0">
+  <div class="metrics-grid" id="guide-metrics-grid" *ngIf="state.genes.length > 0">
     <div class="metric-card">
       <span class="m-label">Total Reads</span>
       <span class="m-value">{{ state.metrics.totalReads | number }}</span>
@@ -242,7 +242,7 @@
     (click)="mobileChartsOpen = !mobileChartsOpen">
     {{ mobileChartsOpen ? 'Hide charts' : 'Show charts' }}
   </button>
-  <div class="charts-section" *ngIf="state.genes.length > 0" [class.mobile-open]="mobileChartsOpen">
+  <div class="charts-section" id="guide-charts-section" *ngIf="state.genes.length > 0" [class.mobile-open]="mobileChartsOpen">
     <div class="chart-card pie"><canvas id="mutationPieChart"></canvas></div>
     <div class="chart-card"><canvas id="indelChart"></canvas></div>
     <div class="chart-card donut"><canvas id="donutChart"></canvas></div>
@@ -339,7 +339,7 @@
   </div>
 
 <!-- ══════════════ ANNOTATION PANEL ══════════════ -->
-<div class="annotation-panel"
+<div class="annotation-panel" id="guide-annotation-panel"
   *ngIf="state.selectedTarget && state.selectedTarget.top_groups && state.selectedTarget.top_groups.length > 0">
   <div class="anno-header">
     <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
@@ -355,6 +355,7 @@
       <div class="target-all-actions-bar" *ngIf="state.activeMode !== 'viewer' && state.hasFastqExportSources" style="display: flex; gap: 8px; margin-left: 8px;">
         <button 
           type="button"
+          id="guide-all-reads-download-btn"
           (click)="state.downloadAllTargetFastq(state.selectedTarget)"
           [disabled]="state.isExportingFastq"
           title="Download all reads of this target as FASTQ"
@@ -369,6 +370,7 @@
 
         <button 
           type="button"
+          id="guide-all-reads-workspace-btn"
           (click)="state.openAllTargetInSequenceWorkspace(state.selectedTarget)"
           [disabled]="state.isExportingFastq"
           title="Open all reads of this target in Sequence Workspace with auto-alignment"

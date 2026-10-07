@@ -24,7 +24,7 @@ import { TutorialGuideComponent } from './components/tutorial-guide/tutorial-gui
             <button class="nav-tab btn-tab" [class.active]="activeTab === 'analysis'" (click)="switchTab('analysis')">
               CRISPR Analysis
             </button>
-            <button class="nav-tab btn-tab" [class.active]="activeTab === 'viewer'" [class.locked]="state.isAnalysisRunning" [disabled]="state.isAnalysisRunning" title="{{ state.isAnalysisRunning ? 'Finish or cancel the current analysis first' : '' }}" (click)="switchTab('viewer')">
+            <button class="nav-tab btn-tab" id="guide-viewer-tab-btn" [class.active]="activeTab === 'viewer'" [class.locked]="state.isAnalysisRunning" [disabled]="state.isAnalysisRunning" title="{{ state.isAnalysisRunning ? 'Finish or cancel the current analysis first' : '' }}" (click)="switchTab('viewer')">
               Result Viewer
             </button>
             <button class="nav-tab btn-tab" [class.active]="activeTab === 'benchmark'" [class.locked]="state.isAnalysisRunning" [disabled]="state.isAnalysisRunning" title="{{ state.isAnalysisRunning ? 'Finish or cancel the current analysis first' : '' }}" (click)="switchTab('benchmark')">
@@ -95,7 +95,7 @@ import { TutorialGuideComponent } from './components/tutorial-guide/tutorial-gui
           </footer>
 
           <!-- ── Interactive Mascot Tutorial Guide ── -->
-          <app-tutorial-guide *ngIf="isGuideOpen" (close)="isGuideOpen = false" (requestTab)="switchTab($event)"></app-tutorial-guide>
+          <app-tutorial-guide *ngIf="isGuideOpen" [initialMode]="guideInitialMode" (close)="isGuideOpen = false" (requestTab)="switchTab($event)"></app-tutorial-guide>
       <!-- ── Global Export Loading Overlay ── -->
       <div class="global-export-overlay" *ngIf="state.exportStatus$ | async as status">
         <div class="export-loading-card">
@@ -182,12 +182,16 @@ export class App implements OnInit {
   activeTab: 'analysis' | 'viewer' | 'benchmark' | 'workspace' = 'analysis';
   mobileMenuOpen = false;
   isGuideOpen = false;
+  guideInitialMode: 'analysis' | 'result' = 'analysis';
 
   constructor(public state: AppStateService) {}
 
-  openGuide() {
-    this.switchTab('analysis');
-    this.state.collapseAnalysisPanels();
+  openGuide(mode: 'analysis' | 'result' = 'analysis') {
+    this.guideInitialMode = mode;
+    if (mode === 'analysis') {
+      this.switchTab('analysis');
+      this.state.collapseAnalysisPanels();
+    }
     this.isGuideOpen = true;
     this.mobileMenuOpen = false;
   }

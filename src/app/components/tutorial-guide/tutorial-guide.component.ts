@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Output, OnDestroy, OnInit, ChangeDetectorRef, HostListener } from '@angular/core';
+import { Component, EventEmitter, Input, Output, OnDestroy, OnInit, ChangeDetectorRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormArray } from '@angular/forms';
 import { AppStateService } from '../../services/app-state.service';
@@ -26,7 +26,7 @@ export interface GuideStep {
   isPrereq?: boolean;
   isFinal?: boolean;
   nextButtonText?: string;
-  interactiveAction?: 'create_guide_tab' | 'load_demo_files' | 'open_autofill' | 'load_demo_targets' | 'open_window_check';
+  interactiveAction?: 'create_guide_tab' | 'load_demo_files' | 'open_autofill' | 'load_demo_targets' | 'open_window_check' | 'test_curation' | 'click_export' | 'switch_to_viewer';
   actionPromptText?: string;
   actionSuccessText?: string;
 }
@@ -740,9 +740,11 @@ export interface GuideStep {
   `]
 })
 export class TutorialGuideComponent implements OnInit, OnDestroy {
+  @Input() initialMode: 'analysis' | 'result' = 'analysis';
   @Output() close = new EventEmitter<void>();
   @Output() requestTab = new EventEmitter<'analysis' | 'viewer' | 'benchmark' | 'workspace'>();
 
+  guideMode: 'analysis' | 'result' = 'analysis';
   currentStepIndex = 0;
 
   targetRect: { top: number; left: number; width: number; height: number; bottom: number; right: number } | null = null;
@@ -760,6 +762,11 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   demoTargetsLoaded = false;
   isAutofillOpen = false;
   windowCheckOpened = false;
+
+  // Result Guide specific interactive flags
+  curationTested = false;
+  exportTested = false;
+  viewerLoaded = false;
 
   private rafId: number | null = null;
   private boundCaptureClick = (event: MouseEvent) => this.onCaptureClick(event);
@@ -979,21 +986,162 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     }
   ];
 
+  resultSteps: GuideStep[] = [
+    // ── R0. Result Welcome (Figure 2 Synthetic Benchmark) ──
+    {
+      id: 'result-welcome',
+      stageName: 'Results Dashboard',
+      headline: 'Welcome to Results Analysis',
+      introLine: 'CasMANGO accurately decodes CRISPR outcomes locally. Here we load the Figure 2 synthetic benchmark dataset (single-target CPC Cas9 amplicon) to tour all results, charts, annotation tracks, and curation tools.',
+      cards: [
+        {
+          badge: 'Benchmark',
+          title: 'Single-Target Amplicon',
+          desc: 'High-coverage synthetic locus modeled after Figure 2 CPC amplicon with defined cleavage sites and mutation spectrum.'
+        },
+        {
+          badge: 'Filter Analytics',
+          title: 'Traceable Read Filtering',
+          desc: 'Transparent tracking of Raw Reads, Phred Quality Filter, Margin Filter, and unambiguous Assigned Reads.'
+        },
+        {
+          badge: 'Interactive Curation',
+          title: 'Real-Time Curation',
+          desc: 'Exclude and restore individual sequencing files, gene references, targets, or specific mutation groups on the fly.'
+        }
+      ],
+      nextButtonText: 'Next: Read Filtering Flow ▶',
+      isIntro: true
+    },
+
+    // ── R1. Read Flow & Margin Filter ──
+    {
+      id: 'result-read-flow',
+      stageName: 'Read Flow Analytics',
+      headline: 'Read Filtering & Ambiguity Exclusion',
+      textLines: [
+        '• Raw Reads: Initial total sequencing reads read from the FASTQ input file(s).',
+        '• Phred Passed: Reads passing your minimum Phred average quality threshold.',
+        '• Usable for Assignment: Filtered reads successfully matching outer flanking amplicon primers/anchors.',
+        '• Assigned Reads: Reads unambiguously assigned to this target gene reference.',
+        '• Ambiguous Excluded: Reads where alignment score difference was within your configured Assignment Margin—safely segregated to prevent cross-assignment false positives.'
+      ],
+      targetSelector: '#guide-read-flow-stripe',
+      nextButtonText: 'Next: Metrics & Charts ▶'
+    },
+
+    // ── R2. Metrics & Visual Charts ──
+    {
+      id: 'result-metrics-and-charts',
+      stageName: 'Metrics & Charts',
+      headline: 'Summary Metrics & Distribution Charts',
+      textLines: [
+        '• Metric Cards: Instant overview of Total & Aligned reads, Out-of-frame %, In-frame %, Unmodified %, and Substitution %.',
+        '• Mutation Pie Chart: Visual breakdown of unmodified wild-type, in-frame indels, out-of-frame frame-shifts, and substitutions.',
+        '• Indel Distribution: Bar chart displaying exact deletion (-) and insertion (+) sizes at single-nucleotide resolution.',
+        '• Donut Chart: Overall editing efficiency summary.'
+      ],
+      targetSelector: '#guide-metrics-grid',
+      nextButtonText: 'Next: Mutation Annotation Track ▶'
+    },
+
+    // ── R3. Mutation Annotation Track ──
+    {
+      id: 'result-annotation',
+      stageName: 'Sequence Annotation',
+      headline: 'Mutation Annotation Track',
+      textLines: [
+        '• REFERENCE 5\'→3\': Wild-type genomic reference sequence with the 20nt gRNA track highlighted.',
+        '• Cut Site Indicator: Vertical marker marking the predicted Cas9 double-strand break (3 bp upstream of PAM).',
+        '• Group Alignment Rows: Sequenced reads grouped by identical variant genotypes.',
+        '• Variant Tokens: Hyphen (-) represents deletion, colored bases represent substitutions, and insertions are pinned at position.'
+      ],
+      targetSelector: '#guide-annotation-panel',
+      nextButtonText: 'Next: FASTQ Export & Sequence Viewer ▶'
+    },
+
+    // ── R4. Actions in Annotation: FASTQ Download & Sequence Workspace ──
+    {
+      id: 'result-export-workspace',
+      stageName: 'Target Actions',
+      headline: 'Read FASTQ Export & Sequence Viewer',
+      textLines: [
+        '• Download FASTQ: Export all original sequencing reads or specific mutation group reads as standard FASTQ files.',
+        '• All Reads in Workspace: Click to instantly open all reads in the Sequence Viewer (Sequence Workspace) with automatic reference alignment pre-configured.'
+      ],
+      targetSelector: '#guide-all-reads-workspace-btn',
+      nextButtonText: 'Next: Test Curation View ▶'
+    },
+
+    // ── R5. Interactive Curation: Free Exploration ──
+    {
+      id: 'result-curation',
+      stageName: 'Data Curation',
+      headline: 'Interactive Curation View',
+      textLines: [
+        '• Click Create Curated View below to test filtering out noise or specific groups.',
+        '• Once activated, click the (✕) toggle buttons on any file tab, gene tab, summary table target row, or individual mutation group row to exclude them.',
+        '• All summary statistics and charts recalculate instantly in real-time!'
+      ],
+      targetSelector: '#guide-curate-btn',
+      interactiveAction: 'test_curation',
+      actionPromptText: 'Click "Create Curated View" above and freely toggle exclusions on files, targets, or groups',
+      actionSuccessText: 'Curation tested! Statistics recalculated. Click Next to continue.',
+      nextButtonText: 'Next: Export Reports ▶'
+    },
+
+    // ── R6. Export Excel Reports ──
+    {
+      id: 'result-export-report',
+      stageName: 'Export Reports',
+      headline: 'Export Multi-Sheet Excel Reports',
+      textLines: [
+        '• CasMANGO generates publication-ready Excel reports containing per-file scopes, read-flow summaries, and high-resolution chart images.',
+        '• If you curated the data, "Export Curated" includes full curation exclusion records and adjusted statistics alongside original data.'
+      ],
+      targetSelector: '#guide-export-excel-btn',
+      interactiveAction: 'click_export',
+      actionPromptText: 'Click "Export Excel" (or "Export Curated") to download your analysis workbook (.xlsx)',
+      actionSuccessText: 'Excel report downloaded! Click Next to verify Result Viewer.',
+      nextButtonText: 'Next: Reproduce in Result Viewer ▶'
+    },
+
+    // ── R7. Result Viewer Reproducibility ──
+    {
+      id: 'result-viewer-reproduce',
+      stageName: 'Result Viewer',
+      headline: 'Reproduce Results in Result Viewer',
+      textLines: [
+        '• Click the Result Viewer tab in the navigation bar.',
+        '• Drop or load your exported Excel report into the dropzone to instantly restore the complete analysis dashboard—including any active curation states!'
+      ],
+      targetSelector: '#guide-viewer-tab-btn',
+      interactiveAction: 'switch_to_viewer',
+      actionPromptText: 'Click the "Result Viewer" tab in the top navigation bar',
+      actionSuccessText: 'Result loaded into Result Viewer! Complete dashboard restored.',
+      isFinal: true
+    }
+  ];
+
   constructor(
     public state: AppStateService,
     private cdr: ChangeDetectorRef
   ) {}
 
+  get currentSteps(): GuideStep[] {
+    return this.guideMode === 'result' ? this.resultSteps : this.steps;
+  }
+
   get currentStep(): GuideStep {
-    return this.steps[this.currentStepIndex];
+    return this.currentSteps[this.currentStepIndex];
   }
 
   get isLastStep(): boolean {
-    return this.currentStepIndex === this.steps.length - 1;
+    return this.currentStepIndex === this.currentSteps.length - 1;
   }
 
   get progressPercent(): number {
-    return Math.round(((this.currentStepIndex + 1) / this.steps.length) * 100);
+    return Math.round(((this.currentStepIndex + 1) / this.currentSteps.length) * 100);
   }
 
   get currentStepTargetSelector(): string | undefined {
@@ -1021,6 +1169,12 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         return this.demoTargetsLoaded;
       case 'open_window_check':
         return this.windowCheckOpened || document.querySelector('#guide-window-check-panel') !== null;
+      case 'test_curation':
+        return this.curationTested || this.state.isCuratedView;
+      case 'click_export':
+        return this.exportTested || this.state.lastExportedFile !== null;
+      case 'switch_to_viewer':
+        return this.viewerLoaded || (this.state.activeMode === 'viewer' && this.state.genes.length > 0);
       default:
         return true;
     }
@@ -1036,7 +1190,12 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit() {
-    this.state.collapseAnalysisPanels();
+    this.guideMode = this.initialMode;
+    if (this.guideMode === 'result') {
+      this.ensureFigure2SyntheticDataLoaded();
+    } else {
+      this.state.collapseAnalysisPanels();
+    }
     window.addEventListener('click', this.boundCaptureClick, true);
     this.handleStepSideEffects();
     this.updateLayoutInstant();
@@ -1047,7 +1206,9 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
     if (this.rafId) {
       cancelAnimationFrame(this.rafId);
     }
-    this.removeGuideTab();
+    if (this.guideMode === 'analysis') {
+      this.removeGuideTab();
+    }
   }
 
   private onCaptureClick(event: MouseEvent) {
@@ -1100,6 +1261,38 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
         setTimeout(() => {
           this.updateLayoutInstant();
         }, 200);
+      }
+    }
+
+    // 6. Result Guide Step: Test Curation (click curate button or toggle exclusions)
+    if (this.currentStep.id === 'result-curation') {
+      if (target.closest('#guide-curate-btn') || target.closest('#guide-exit-curate-btn') || target.closest('.exclude-toggle') || target.closest('.exclude-btn-sm') || target.closest('.exclude-btn-group')) {
+        this.curationTested = true;
+        this.cdr.detectChanges();
+        setTimeout(() => {
+          this.updateLayoutInstant();
+        }, 250);
+      }
+    }
+
+    // 7. Result Guide Step: Export Excel / Curated
+    if (this.currentStep.id === 'result-export-report') {
+      if (target.closest('#guide-export-excel-btn') || target.closest('#guide-export-curated-btn')) {
+        this.exportTested = true;
+        this.cdr.detectChanges();
+        setTimeout(() => {
+          this.updateLayoutInstant();
+        }, 300);
+      }
+    }
+
+    // 8. Result Guide Step: Reproduce in Result Viewer tab
+    if (this.currentStep.id === 'result-viewer-reproduce') {
+      if (target.closest('#guide-viewer-tab-btn') || target.closest('.nav-tab')) {
+        this.requestTab.emit('viewer');
+        setTimeout(() => {
+          this.simulateDropIntoResultViewer();
+        }, 350);
       }
     }
   }
@@ -1187,8 +1380,234 @@ export class TutorialGuideComponent implements OnInit, OnDestroy {
   }
 
   openResultsGuideComingSoon() {
-    alert('Results Dashboard Walkthrough will be available in the upcoming update!\n\nYou can run analysis, export comprehensive multi-sheet Excel (.xlsx) files, and restore all visual charts anytime via the Result Viewer tab.');
-    this.closeGuide();
+    this.startResultsGuide();
+  }
+
+  /**
+   * Switch Tutorial Guide to Results Guide mode and load synthetic Figure 2 dataset if needed.
+   */
+  startResultsGuide() {
+    this.guideMode = 'result';
+    this.currentStepIndex = 0;
+    this.ensureFigure2SyntheticDataLoaded();
+    this.cdr.detectChanges();
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      this.updateLayoutInstant();
+    }, 200);
+  }
+
+  /**
+   * Loads realistic Figure 2 synthetic data for the single-target CPC locus.
+   */
+  private ensureFigure2SyntheticDataLoaded() {
+    // If analysisSlot already has loaded genes and results, we don't overwrite
+    if (this.state.analysisSlot.genes && this.state.analysisSlot.genes.length > 0) {
+      this.state.activateSlot('analysis');
+      return;
+    }
+
+    const fig2Data = this.generateSyntheticFigure2Result();
+    this.state.activateSlot('analysis');
+    this.state.loadResultData(fig2Data);
+  }
+
+  /**
+   * Simulates loading exported Excel into Result Viewer when reaching step R7.
+   */
+  private simulateDropIntoResultViewer() {
+    const file = this.state.lastExportedFile;
+    if (file) {
+      window.dispatchEvent(new CustomEvent('casmango:guide-load-excel', { detail: { file } }));
+      this.viewerLoaded = true;
+      this.cdr.detectChanges();
+      setTimeout(() => {
+        this.updateLayoutInstant();
+      }, 250);
+    } else {
+      // If user skipped direct export button, generate and load Figure 2 data directly into viewer slot
+      const fig2Data = this.generateSyntheticFigure2Result();
+      this.state.activateSlot('viewer');
+      this.state.loadResultData({
+        ...fig2Data,
+        curationConfig: this.state.isCuratedView ? this.state.curationConfig : null
+      });
+      this.viewerLoaded = true;
+      this.cdr.detectChanges();
+      setTimeout(() => {
+        this.updateLayoutInstant();
+      }, 250);
+    }
+  }
+
+  /**
+   * Generates synthetic Figure 2 single-target Cas9 outcome dataset (CPC amplicon).
+   */
+  private generateSyntheticFigure2Result(): { params: any; scopes: any[] } {
+    const cpcSeq = 'gctactattaatccttcccctcgtgaggaaatcatttcttcttgtttctcgagatttattctctttctctctctctttctctgtgtgtttcgtgtcttcagattagttcgATGTTTCGTTCAGACAAGGCGGAAAAAATGGATAAACGACGACGGAGACAGAGCAAAGCCAAGGCTTCTTGTTCCGAAGgtctgatttctctttgtttctctctatatctttttgatcggtttgagtctgattttgtatgtttgtttcgcagAGGTGAGTAGTATCGAATGGGAAGCTGTGAAGATGTCAGAAGAAGAAGAAGATCTCATTTCTCGGATGTATAAACTCGTTGGCGACAGgttagagactctttctctctcgatccatcttgttgctttctcttttttttggtctttcatgttttgtcgaatctgcttagattttgatctcaaagtcggtcgtttatttatgcattttcttggtttttctattatattattgggtctaacttaccgagctgtcaatgactgtgttcagcctgatttttgatcttgttattattctctgttttttgttttagttgttcaaatagcaaaacctaatcaagatttcgttttcagtttctttttttatatatgattctttagcaaaacatattcttaatttatgtcagaactcactttggctagtttggttcaattttgattacagcatgtttgtatgaagtcaaagtgtaaattacgattttggttcggttccatagaattttaaccgaattacaaactttatgcggtttttatcggaataaaaggtatttggttaagtgtaagttcctcaacactgactgttagcctatcctacgtggcgcgtagGTGGGAGTTGATCGCCGGAAGGATCCCGGGACGGACGCCGGAGGAGATAGAGAGATATTGGCTTATGAAACACGGCGTCGTTTTTGCCAACAGACGAAGAGACTTTTTTAGGAAATGAttttttttgtttggattaaaagaaaattttcctctccttaattcacaagacaagaaaaaaaggaaatgtacctgtccttgaattactattttggaatgtataattatctatatatataagaagaaaaaattgcttaggaatttcaaatttttaccagcctccatcgacacatgatatatc';
+    const grna = 'AATATCTCTCTATCTCCTC';
+    const cutPos = 428;
+
+    const rawReads = 2500;
+    const phredPassed = 2420;
+    const usableForAssignment = 2350;
+    const assignedReads = 2210;
+    const ambiguousReads = 140;
+
+    const topGroups = [
+      {
+        group_rank: 1,
+        read_inner: 'WT_CPC_UNMODIFIED',
+        read_count: 1094,
+        read_pct: 49.5,
+        classification: 'WT / No Indel',
+        net_indel: 0,
+        tokens: [
+          { type: 'equal', val: 'AATATCTCTCTATCTCCTCCGGCGTCCGTCCCGGGATCCTTCCGGCGATCA' }
+        ]
+      },
+      {
+        group_rank: 2,
+        read_inner: 'DEL_1BP_OUT_OF_FRAME',
+        read_count: 628,
+        read_pct: 28.4,
+        classification: 'Out-of-frame Deletion',
+        net_indel: -1,
+        tokens: [
+          { type: 'equal', val: 'AATATCTCTCTATCTCCTC' },
+          { type: 'delete', val: 'C' },
+          { type: 'equal', val: 'GGCGTCCGTCCCGGGATCCTTCCGGCGATCA' }
+        ]
+      },
+      {
+        group_rank: 3,
+        read_inner: 'INS_1BP_A_OUT_OF_FRAME',
+        read_count: 283,
+        read_pct: 12.8,
+        classification: 'Out-of-frame Insertion',
+        net_indel: 1,
+        tokens: [
+          { type: 'equal', val: 'AATATCTCTCTATCTCCTC' },
+          { type: 'insert', val: 'A' },
+          { type: 'equal', val: 'CGGCGTCCGTCCCGGGATCCTTCCGGCGATCA' }
+        ]
+      },
+      {
+        group_rank: 4,
+        read_inner: 'DEL_3BP_IN_FRAME',
+        read_count: 150,
+        read_pct: 6.8,
+        classification: 'In-frame Deletion',
+        net_indel: -3,
+        tokens: [
+          { type: 'equal', val: 'AATATCTCTCTATCTCCT' },
+          { type: 'delete', val: 'CCG' },
+          { type: 'equal', val: 'GCGTCCGTCCCGGGATCCTTCCGGCGATCA' }
+        ]
+      },
+      {
+        group_rank: 5,
+        read_inner: 'SUB_1BP_T_TO_A',
+        read_count: 55,
+        read_pct: 2.5,
+        classification: 'Substitution',
+        net_indel: 0,
+        tokens: [
+          { type: 'equal', val: 'AATATCTCTCTATCTCCT' },
+          { type: 'substitute', val: 'A' },
+          { type: 'equal', val: 'CGGCGTCCGTCCCGGGATCCTTCCGGCGATCA' }
+        ]
+      }
+    ];
+
+    const targetResult = {
+      target_id: 't1',
+      summary: {
+        total_reads: assignedReads,
+        matched_reads: assignedReads,
+        aligned_reads: assignedReads,
+        unmodified: 1094,
+        modified: 1061,
+        editing_efficiency: 48.0,
+        out_of_frame_pct: 41.2,
+        in_frame_pct: 6.8,
+        no_indel_pct: 52.0,
+        substitution_pct: 2.5,
+        substitution_reads: 55,
+        indel_editing_efficiency: 48.0,
+        substitution_policy: 'separate_category_indel_editing_excludes_substitutions',
+        failed_reads: 0
+      },
+      breakdown: {
+        no_indel: 1094,
+        substitution: 55,
+        in_frame: 150,
+        out_of_frame: 911,
+        failed: 0
+      },
+      read_details: [],
+      ref_sequence: cpcSeq,
+      cut_site_index: cutPos,
+      sgrna_seq: grna,
+      display_sgrna_seq: grna,
+      grna_start_index: cutPos - 17,
+      strand: '+',
+      top_groups: topGroups
+    };
+
+    const geneResult = {
+      gene: 'CPC',
+      reference_sequence: cpcSeq,
+      assigned_read_count: assignedReads,
+      ambiguous_excluded: true,
+      analysis_result: {
+        targets: [targetResult]
+      }
+    };
+
+    const scopes = [
+      {
+        sheetName: 'Merged',
+        readFlow: {
+          rawReads,
+          phredPassed,
+          anchorMatched: usableForAssignment,
+          usableForAssignment,
+          assignedReads,
+          ambiguousReads
+        },
+        genes: [geneResult]
+      },
+      {
+        sheetName: 'cpc_sample.fastq.gz',
+        readFlow: {
+          rawReads,
+          phredPassed,
+          anchorMatched: usableForAssignment,
+          usableForAssignment,
+          assignedReads,
+          ambiguousReads
+        },
+        genes: [geneResult]
+      }
+    ];
+
+    const params = {
+      windowSize: 90,
+      phredThreshold: 20,
+      indelThreshold: 30,
+      assignmentMargin: 10,
+      rescueThreshold: 0,
+      cutSiteDistanceWeight: 0,
+      cutSiteExclusionFlank: 0,
+      analyzeAmbiguous: false,
+      rescueAmbiguous: false,
+      dataType: 'Single-Target CPC Amplicon (Figure 2)',
+      fileCount: 1,
+      sequencingPlatform: 'nanopore'
+    };
+
+    return { params, scopes };
   }
 
   /**

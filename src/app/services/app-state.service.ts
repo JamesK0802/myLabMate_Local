@@ -744,7 +744,7 @@ export class AppStateService {
     this.selectedRowIndex = 0;
   }
 
-  loadResultData(data: { params: any, scopes: any[] }) {
+  loadResultData(data: { params: any, scopes: any[], curationConfig?: CurationConfig | null }) {
     this.ngZone.run(() => {
       this.lastRunParams = data.params;
       this.allFileResults = [];
@@ -780,6 +780,17 @@ export class AppStateService {
       this.isMultiReference = true;
       this.multiFileCount = fileScopes.length;
       this.selectedScopeIndex = -1;
+
+      if (data.curationConfig) {
+        this.originalSlotSnapshot = JSON.parse(JSON.stringify(this.slot));
+        this.curationConfig = data.curationConfig;
+        this.isCuratedView = true;
+      } else {
+        this.isCuratedView = false;
+        this.curationConfig = null;
+        this.originalSlotSnapshot = null;
+      }
+
       this.updateVisibleGenes();
       this.resultsUpdated$.next();
     });
@@ -1144,22 +1155,27 @@ export class AppStateService {
     return allImages;
   }
 
-  async exportToExcel() {
+  lastExportedFile: File | null = null;
+
+  async exportToExcel(): Promise<File | null> {
     const data = this.getExportData();
-    if (!data) return;
+    if (!data) return null;
 
     try {
       this.addLog('Generating chart images for export...');
       const images = await this.generateChartImagesForExport(data.scopes);
-      await this.excelExportService.exportToExcel(data.params as any, data.scopes, images);
+      const file = await this.excelExportService.exportToExcel(data.params as any, data.scopes, images);
+      this.lastExportedFile = file;
       this.addLog('Excel exported with all diagrams.');
+      return file;
     } catch (e: any) {
       console.error('Excel export failed:', e);
       this.addLog(`Excel export failed: ${e.message}`);
+      return null;
     }
   }
 
-  async exportOriginalToExcel() {
+  async exportOriginalToExcel(): Promise<File | null> {
     const data = this.getOriginalExportData();
     if (!data) {
       return this.exportToExcel();
@@ -1167,27 +1183,33 @@ export class AppStateService {
     try {
       this.addLog('Generating original result export...');
       const images = await this.generateChartImagesForExport(data.scopes);
-      await this.excelExportService.exportToExcel(data.params as any, data.scopes, images);
+      const file = await this.excelExportService.exportToExcel(data.params as any, data.scopes, images);
+      this.lastExportedFile = file;
       this.addLog('Original result Excel exported.');
+      return file;
     } catch (e: any) {
       console.error('Original export failed:', e);
       this.addLog(`Original export failed: ${e.message}`);
+      return null;
     }
   }
 
-  async exportCuratedToExcel() {
+  async exportCuratedToExcel(): Promise<File | null> {
     const data = this.getExportData();
-    if (!data) return;
+    if (!data) return null;
     try {
       this.addLog('Generating curated result export...');
       const images = await this.generateChartImagesForExport(data.scopes);
-      await this.excelExportService.exportToExcel(
+      const file = await this.excelExportService.exportToExcel(
         data.params as any, data.scopes, images, this.curationConfig ?? undefined
       );
+      this.lastExportedFile = file;
       this.addLog('Curated result Excel exported.');
+      return file;
     } catch (e: any) {
       console.error('Curated export failed:', e);
       this.addLog(`Curated export failed: ${e.message}`);
+      return null;
     }
   }
 

@@ -1,4 +1,4 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AppStateService } from '../../services/app-state.service';
 import { ResultDashboardComponent } from '../../components/result-dashboard/result-dashboard.component';
@@ -19,7 +19,18 @@ export class ResultViewerPageComponent implements OnInit {
 
   ngOnInit() {
     this.state.activateSlot('viewer');
+    window.addEventListener('casmango:guide-load-excel', this.onGuideLoadExcel as EventListener);
   }
+
+  ngOnDestroy() {
+    window.removeEventListener('casmango:guide-load-excel', this.onGuideLoadExcel as EventListener);
+  }
+
+  private onGuideLoadExcel = (event: CustomEvent<{ file: File }>) => {
+    if (event.detail?.file) {
+      this.loadExcelResult(event.detail.file);
+    }
+  };
 
   onExcelDropped(event: DragEvent) {
     event.preventDefault();
