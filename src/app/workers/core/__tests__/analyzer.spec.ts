@@ -145,4 +145,51 @@ describe('Analyzer Alignment Core', () => {
     expect(resOutOfFrame.category).toBe('out_of_frame');
     expect(resOutOfFrame.net_indel).toBe(-1);
   });
+
+  it('recovers short genuine matches inside the YCO replacement interval', () => {
+    const ref = 'AAAATGGTGTTTTAGGTACGCAAGTGAAAAATACTGTTGAGATTGGAGTTGTTGAGGATCCGATGGAAGCTGAGGTTGCTCAAGGCTACACGATGGCTCAGTTCTGCGACAAGATCATCG';
+    const read = 'AAAATGGTGTTTTAGGTACGCAAGTGAAAAATACTGTTGAGATTGGAGTTGTTGAGGATCACGATGGAGGCTGGGGTTGCTCAAGGCTACACGATGGCTCAGTTCTGCGACAAGATCATCG';
+    const result = classifyMutationWithAlignment(ref, read);
+    const editedBases = result.tokens.filter(t => ['insert', 'delete', 'substitute'].includes(t.type))
+      .reduce((sum, t) => sum + t.val.length, 0);
+    expect(editedBases).toBe(3);
+    expect(result.net_indel).toBe(1);
+    expect(result.tokens.filter(t => t.type === 'substitute').reduce((sum, t) => sum + t.val.length, 0)).toBe(2);
+    expect(result.tokens.some(t => t.type === 'equal' && t.val.length > 0 && t.val.length < 10)).toBe(true);
+  });
+
+  it('uses the same replacement correction in a terminal X-padded read', () => {
+    const ref = 'AAAATGGTGTTTTAGGTACGCAAGTGAAAAATACTGTTGAGATTGGAGTTGTTGAGGATCCGATGGAAGCTGAGGTTGCTCAAGGCTACACGATGGCTCAGTTCTGCGACAAGATCATCG';
+    const read = 'AAAATGGTGTTTTAGGTACGCAAGTGAAAAATACTGTTGAGATTGGAGTTGTTGAGGATCACGATGGAGGCTGGGGTTGCTCAAGGCTACACGATGGCTCAGTTCTGCGACAAGATCATCG';
+    const result = classifyMutationWithAlignment('TTGAC' + ref, 'XXXXX' + read, 5);
+    expect(result.net_indel).toBe(1);
+    expect(result.tokens.filter(t => ['insert', 'delete', 'substitute'].includes(t.type))
+      .reduce((sum, t) => sum + t.val.length, 0)).toBe(3);
+    expect(result.tokens[0]).toEqual({ type: 'unobserved', val: 'XXXXX' });
+  });
+
+  it('keeps a genuine large deletion contiguous rather than matching incidental bases', () => {
+    const ref = 'TCATGTCGTCTTCTGCACTACCTCCGGCGTCGACATGCCTGGTGCTGACTACCAGCTCACCAAGCTTCTTGGTCTCCGTCCTTCCGTCAAGCGTCTCATGATGTACCAGCAAGGTTGCTTCGCCGGCGGTACTGTCCTCCGTATCGCTAAGGATCTCGCCGAGAACAATCGTGGAGCACGTGTCCTCGTTGTCTGCTCTGAGATCACAGCCGTTAC';
+    const read = ref.substring(0, 72) + ref.substring(144);
+    const result = classifyMutationWithAlignment(ref, read);
+    expect(result.net_indel).toBe(-72);
+    expect(result.has_sub).toBe(false);
+    expect(result.tokens.filter(t => t.type === 'delete')).toEqual([{ type: 'delete', val: '-'.repeat(72) }]);
+    expect(result.tokens.some(t => t.type === 'insert')).toBe(false);
+  });
+
+  it('preserves the observed extra sequence in the recurrent YCO +31 group', () => {
+    const ref = 'AAAATGGTGTTTTAGGTACGGAAGTGAAAAATACTGTTGAGGTTGGAGTTGTTGAGGATCCGATGGAAGTTGAGGTCGCTCAAGGCTACACCATGGCTCAGTTCTGCGACAAGATCATTG';
+    const read = 'AAAATGGTGTTTTAGGTACGGAAGTGAAAAATACTGTTGAGGTTGGAGTTGTTTATCCGCTGTGAGTGCTTATGACAATACACTGGATAAGATCATTGCTCAGTTCTGCACCAAGGCTACACCATGGCTCAGTTCTGCGACAAGATCATTG';
+    const result = classifyMutationWithAlignment(ref, read);
+    expect(result.net_indel).toBe(31);
+    expect(result.tokens.filter(t => t.type !== 'delete').map(t => t.val).join('')).toBe(read);
+    expect(result.tokens.filter(t => t.type !== 'insert').reduce((sum, t) => sum + t.val.length, 0)).toBe(ref.length);
+  });
+
+  it('bounds replacement refinement for long unrelated sequences', () => {
+    const result = classifyMutationWithAlignment('A'.repeat(1000), 'C'.repeat(1000));
+    expect(result.tokens).toEqual([{ type: 'substitute', val: 'C'.repeat(1000) }]);
+    expect(result.net_indel).toBe(0);
+  });
 });

@@ -40,6 +40,68 @@ export function clearAnalyzerCache(): void {
   mutationCache.clear();
 }
 
+// Refine only the small replacement intervals BETWEEN established matching
+// blocks. The 10-bp placement/evidence floor must not erase real shorter matches
+// inside these intervals. Affine gaps discourage the opposite failure: chaining
+// incidental single-base matches into many separate insertions/deletions.
+// Bounded work keeps this correction independent of the full amplicon size.
+function refineReplacement(ref: string, read: string): AlignmentToken[] | null {
+  const width = read.length + 1;
+  const cells = (ref.length + 1) * width;
+  if (cells > 65536) return null;
+  const scores = Array.from({ length: 3 }, () => new Int32Array(cells).fill(1_000_000));
+  const trace = Array.from({ length: 3 }, () => new Uint8Array(cells));
+  scores[0][0] = 0;
+  const choose = (a: number, b: number, c: number): number => a <= b && a <= c ? 0 : b <= c ? 1 : 2;
+  for (let i = 0; i <= ref.length; i++) {
+    for (let j = 0; j <= read.length; j++) {
+      if (!i && !j) continue;
+      const index = i * width + j;
+      if (i && j) {
+        const previous = index - width - 1;
+        const state = choose(scores[0][previous], scores[1][previous], scores[2][previous]);
+        scores[0][index] = scores[state][previous] + (ref[i - 1] === read[j - 1] ? 0 : 3);
+        trace[0][index] = state;
+      }
+      if (i) {
+        const previous = index - width;
+        const state = choose(scores[0][previous] + 6, scores[1][previous] + 1, scores[2][previous] + 6);
+        scores[1][index] = scores[state][previous] + (state === 1 ? 1 : 6);
+        trace[1][index] = state;
+      }
+      if (j) {
+        const previous = index - 1;
+        const state = choose(scores[0][previous] + 6, scores[1][previous] + 6, scores[2][previous] + 1);
+        scores[2][index] = scores[state][previous] + (state === 2 ? 1 : 6);
+        trace[2][index] = state;
+      }
+    }
+  }
+  let i = ref.length, j = read.length;
+  const end = cells - 1;
+  let state = choose(scores[0][end], scores[1][end], scores[2][end]);
+  const reverse: AlignmentToken[] = [];
+  while (i || j) {
+    const previous = trace[state][i * width + j];
+    if (state === 0) {
+      reverse.push({ type: ref[i - 1] === read[j - 1] ? 'equal' : 'substitute', val: read[j - 1] });
+      i--; j--;
+    } else if (state === 1) {
+      reverse.push({ type: 'delete', val: '-' }); i--;
+    } else {
+      reverse.push({ type: 'insert', val: read[j - 1] }); j--;
+    }
+    state = previous;
+  }
+  const result: AlignmentToken[] = [];
+  for (const token of reverse.reverse()) {
+    const last = result[result.length - 1];
+    if (last?.type === token.type) last.val += token.val;
+    else result.push({ ...token });
+  }
+  return result;
+}
+
 export function classifyMutationWithAlignment(
   refSeq: string,
   readSeq: string,
@@ -89,9 +151,8 @@ export function alignReadToRef(refSeq: string, readSeq: string, minMatchLength: 
   // giant replacement. DNA bases are evidence, never junk.
   const matcher = new SequenceMatcher(null, refSeq, readSeq, readSeq.length < 200);
   let opcodes = matcher.getOpcodes();
-  // Strict annotation must not chain short chance matches into a
-  // deletion/insertion mosaic. Keep the requested 10-bp floor for normal
-  // windows, while allowing genuinely shorter terminal slices to align.
+  // Strong blocks establish placement. Short matches inside the intervening
+  // replacement intervals are recovered below, not discarded as substitutions.
   const shortestSequenceLength = Math.min(refSeq.length, readSeq.length);
   const effectiveMinMatchLength = shortestSequenceLength < minMatchLength
     ? 1
@@ -127,6 +188,13 @@ export function alignReadToRef(refSeq: string, readSeq: string, minMatchLength: 
     } else if (tag === 'replace') {
       const refChunk = refSeq.substring(i1, i2);
       const readChunk = readSeq.substring(j1, j2);
+      const refined = effectiveMinMatchLength > 1
+        ? refineReplacement(refChunk, readChunk)
+        : null;
+      if (refined) {
+        tokens.push(...refined);
+        continue;
+      }
       const subLen = Math.min(refChunk.length, readChunk.length);
 
       if (subLen > 0) {
