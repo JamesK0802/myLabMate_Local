@@ -197,4 +197,50 @@ describe('Classifier Core Utilities', () => {
     expect(scoreZeroWeight).toBe(1.0);
     expect(scoreHighWeight).toBe(1.0);
   });
+
+  describe('observed two-flank coverage across large deletions', () => {
+    const left = 'ACGTTGCACTGATCG';
+    const right = 'TGCATGACCTAGTCA';
+    const reference = left + 'C'.repeat(170) + right;
+    const junction = left + 'CC' + right;
+
+    it('accepts a spanning molecule even when the offset-estimated cut is outside it', () => {
+      clearClassifierCache();
+      const [usable, reason, aligned] = isReadUsable(junction, null, reference, 20, '', 100);
+      expect(usable).toBe(true);
+      expect(reason).toBe('ok');
+      expect(aligned?.read_window).toBe(junction);
+      expect(aligned?.left_x).toBe(0);
+      expect(aligned?.right_x).toBe(0);
+    });
+
+    it('accepts the reverse-complement orientation', () => {
+      expect(isReadUsable(reverseComplement(junction), null, reference, 20, '', 100)[0]).toBe(true);
+    });
+
+    it('does not rescue terminal truncation with only one observed flank', () => {
+      expect(isReadUsable(left + 'CC', null, reference, 20, '', 100)[0]).toBe(false);
+      expect(isReadUsable('CC' + right, null, reference, 20, '', 100)[0]).toBe(false);
+    });
+
+    it('does not connect flanks separated by unobserved X bases', () => {
+      expect(isReadUsable(left + 'X'.repeat(170) + right, null, reference, 20, '', 100)[0]).toBe(false);
+      expect(isReadUsable('X'.repeat(200), null, reference, 20, '', 100)[0]).toBe(false);
+    });
+
+    it('does not rescue reversed anchors or a repeated ambiguous anchor pair', () => {
+      expect(isReadUsable(right + 'CC' + left, null, reference, 20, '', 100)[0]).toBe(false);
+      expect(isReadUsable(left + left + 'CC' + right, null, reference, 20, '', 100)[0]).toBe(false);
+    });
+
+    it('keeps the quality gate and ordinary WT reads unchanged', () => {
+      expect(isReadUsable(junction, new Array(junction.length).fill(5), reference, 20, '', 100)[1]).toBe('quality');
+      expect(isReadUsable(reference, null, reference, 20, '', 100)[0]).toBe(true);
+    });
+
+    it('does not relax minimum coverage for a short window without full 15-bp anchors', () => {
+      const short = 'ACGTTGCACT';
+      expect(isReadUsable(short, null, short, 20, '', 5)[0]).toBe(false);
+    });
+  });
 });

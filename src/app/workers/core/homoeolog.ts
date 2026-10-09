@@ -1,5 +1,5 @@
 import { findGrnaCutSite, reverseComplement } from './classifier';
-import { SequenceMatcher } from './sequence-matcher';
+import { ReferenceMatcher as SequenceMatcher } from './reference-comparison';
 
 export interface HomoeologGuideMatch {
   matched: boolean;

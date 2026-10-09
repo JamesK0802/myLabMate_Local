@@ -206,7 +206,8 @@
                 <span>bp</span>
               </label>
             </div>
-            <input type="range" min="0" max="10" step="1" formControlName="cutSiteExclusionFlank" class="form-range" />
+            <input type="range" min="0" max="500" step="1" formControlName="cutSiteExclusionFlank"
+              aria-label="Cut-site exclusion slider" class="form-range" />
             <p class="slider-description">Excludes indels/mutations starting within cut site ±N bp from similarity calculations to prevent score distortion.</p>
           </div>
           </div>
@@ -284,11 +285,11 @@
           <div class="window-controls-row">
             <label class="control-label">Window Size (bp):</label>
             <div class="slider-wrapper">
-              <input type="range" min="30" max="180" step="1" [ngModel]="windowCheckSize"
+              <input type="range" [min]="windowCheckSize < 30 ? 1 : 30" [max]="windowCheckSize > 180 ? 1000 : 180" step="1" [ngModel]="windowCheckSize"
                 [ngModelOptions]="{standalone: true}" (ngModelChange)="onWindowCheckSizeChange($event)"
                 class="window-range-slider" />
-              <span class="range-bound min-bound">30</span>
-              <span class="range-bound max-bound">180</span>
+              <span class="range-bound min-bound">{{windowCheckSize < 30 ? 1 : 30}}</span>
+              <span class="range-bound max-bound">{{windowCheckSize > 180 ? 1000 : 180}}</span>
             </div>
             <div class="number-input-wrapper">
               <input type="number" min="1" max="1000" [ngModel]="windowCheckSize"
@@ -305,7 +306,8 @@
           </div>
 
           <!-- Content Results -->
-          <div class="window-check-results" *ngIf="!isCalculatingWindowCheck">
+          <p *ngIf="windowCheckError" role="alert">{{windowCheckError}}</p>
+          <div class="window-check-results" *ngIf="!isCalculatingWindowCheck && !windowCheckError">
             <div *ngIf="extractedWindows.length === 0" class="no-windows-alert">
               No valid reference sequences or gRNA targets entered yet. Please fill out the reference configuration below.
             </div>

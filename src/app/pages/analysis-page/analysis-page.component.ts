@@ -7,7 +7,7 @@ import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { Subscription, debounceTime } from 'rxjs';
 import { findGrnaCutSite, extractWindow, cutIndexInWindow } from '../../workers/core/classifier';
-import { SequenceMatcher } from '../../workers/core/sequence-matcher';
+import { ReferenceMatcher as SequenceMatcher, compareReferences, rememberComparison, setComparisonCacheLimit, ReferenceComparison } from '../../workers/core/reference-comparison';
 import {
   findHomoeologGuideSite,
   homoeologSimilarity,
@@ -168,6 +168,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
   showWindowCheck = false;
   windowCheckSize = 90;
   isCalculatingWindowCheck = false;
+  windowCheckError = '';
   extractedWindows: ExtractedWindowItem[] = [];
   similarityMatrix: number[][] = [];
   homoeologOverviews: HomoeologOverview[] = [];
@@ -190,6 +191,9 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
   private windowCheckFormSub?: Subscription;
   private windowCheckTimer?: ReturnType<typeof setTimeout>;
   private windowCheckRevision = 0;
+  private referenceCheckWorker?: Worker;
+  private referenceRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>();
+  private referenceRequestId = 0;
   private homoeologAnchorByGroup = new Map<string, number>();
   draggedReferenceIndex: number | null = null;
   dragOverHomoeolog = '';
@@ -214,10 +218,14 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
+    this.windowCheckRevision++;
     this.resultsUpdateSub?.unsubscribe();
     this.collapsePanelsSub?.unsubscribe();
     this.windowCheckFormSub?.unsubscribe();
     if (this.windowCheckTimer) clearTimeout(this.windowCheckTimer);
+    this.referenceCheckWorker?.terminate();
+    this.referenceRequests.forEach(request => request.reject(new Error('Reference check closed')));
+    this.referenceRequests.clear();
   }
 
   get sequencingPlatform(): SequencingPlatform {
@@ -399,7 +407,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
 
   onWindowCheckSizeChange(newSize: any) {
     const parsed = Number(newSize);
-    this.windowCheckSize = isNaN(parsed) || parsed < 1 ? 90 : parsed;
+    this.windowCheckSize = isNaN(parsed) || parsed < 1 ? 90 : Math.min(1000, Math.round(parsed));
     if (this.showWindowCheck) {
       this.recalculateWindowCheck();
     }
@@ -540,9 +548,10 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     if (this.windowCheckTimer) clearTimeout(this.windowCheckTimer);
     const revision = ++this.windowCheckRevision;
     this.isCalculatingWindowCheck = true;
+    this.windowCheckError = '';
     this.cdr.detectChanges();
 
-    this.windowCheckTimer = setTimeout(() => {
+    this.windowCheckTimer = setTimeout(async () => {
       this.windowCheckTimer = undefined;
       try {
         const genesFormVal = this.state.analysisForm.get('genes')?.value || [];
@@ -554,7 +563,7 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
 
         genesFormVal.forEach((g: any, gi: number) => {
           const geneName = g.gene_name?.trim() || `Gene ${gi + 1}`;
-          const refSeq = (g.gene_reference || '').trim().toUpperCase();
+          const refSeq = (g.gene_reference || '').replace(/\s+/g, '').toUpperCase();
           if (!refSeq) return;
 
           (g.geneTargets || []).forEach((t: any, ti: number) => {
@@ -626,6 +635,10 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
         // calculation is queued. Only let the current FormArray snapshot
         // update the cards, matrix, and homoeolog lanes together.
         if (revision !== this.windowCheckRevision) return;
+        const sequenceSets = [extracted.map(item => item.sequence),
+          this.homoeologMode ? genesFormVal.map((gene: any) => String(gene.gene_reference || '').replace(/\s+/g, '').toUpperCase()) : []];
+        await this.prepareReferenceComparisons(sequenceSets);
+        if (revision !== this.windowCheckRevision) return;
         this.extractedWindows = extracted;
         const n = extracted.length;
         const matrix: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
@@ -648,30 +661,51 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
         }
       } catch (err) {
         console.error('Error calculating window check matrix:', err);
+        if (revision === this.windowCheckRevision) this.windowCheckError = err instanceof Error ? err.message : String(err);
       } finally {
         if (revision === this.windowCheckRevision) this.isCalculatingWindowCheck = false;
         this.cdr.detectChanges();
       }
-    }, 20);
+    }, 150);
+  }
+
+  private prepareReferenceComparisons(sequenceSets: string[][]): Promise<void> {
+    if (!this.referenceCheckWorker) {
+      this.referenceCheckWorker = new Worker(new URL('../../workers/reference-check.worker', import.meta.url), { type: 'module' });
+      this.referenceCheckWorker.onmessage = ({ data }) => {
+        const request = this.referenceRequests.get(data.id);
+        if (!request) return;
+        this.referenceRequests.delete(data.id);
+        if (data.error) request.reject(new Error(data.error));
+        else {
+          for (const [key, result] of data.results as [string, ReferenceComparison][]) rememberComparison(key, result);
+          request.resolve();
+        }
+      };
+      this.referenceCheckWorker.onerror = () => {
+        this.referenceRequests.forEach(request => request.reject(new Error('Reference comparison worker failed')));
+        this.referenceRequests.clear();
+        this.referenceCheckWorker?.terminate(); this.referenceCheckWorker = undefined;
+      };
+    }
+    const pairs: [string, string][] = [];
+    for (const values of sequenceSets) {
+      const sequences = [...new Set(values)].filter(Boolean);
+      for (const a of sequences) for (const b of sequences) pairs.push([a, b]);
+    }
+    const id = ++this.referenceRequestId;
+    setComparisonCacheLimit(pairs.length * 2);
+    return new Promise((resolve, reject) => {
+      this.referenceRequests.set(id, { resolve, reject });
+      this.referenceCheckWorker!.postMessage({ id, pairs });
+    });
   }
 
   calculateSymmetricSimilarity(seq1: string, seq2: string): number {
     if (!seq1 || !seq2) return 0;
     if (seq1 === seq2) return 100.0;
 
-    if (seq1.length === seq2.length && seq1.length > 0) {
-      let matchCount = 0;
-      for (let k = 0; k < seq1.length; k++) {
-        if (seq1[k] === seq2[k]) {
-          matchCount++;
-        }
-      }
-      return Math.round((matchCount / seq1.length) * 1000) / 10;
-    }
-
-    const m1 = new SequenceMatcher(null, seq1, seq2, seq2.length < 200).ratio();
-    const m2 = new SequenceMatcher(null, seq2, seq1, seq1.length < 200).ratio();
-    return Math.round(((m1 + m2) / 2.0) * 1000) / 10;
+    return compareReferences(seq1, seq2).similarity;
   }
 
   private buildHomoeologOverviews(genes: any[], windows: ExtractedWindowItem[]): HomoeologOverview[] {

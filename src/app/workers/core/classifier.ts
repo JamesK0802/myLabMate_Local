@@ -5,8 +5,8 @@
  *
  * Pipeline:
  * 1. gRNA-based coordinate alignment between read and reference window.
- * 2. Cut-site ±15bp coverage gate (minimum requirement).
- * 3. Anchor search for precise inner-region extraction (indel detection).
+ * 2. Anchor search for precise inner-region extraction (indel detection).
+ * 3. Cut-site coverage gate, with observed two-flank evidence for deletions.
  * 4. X-padding for unobserved terminal positions.
  * 5. X-aware anchor comparison (skip X, exact on observed).
  * 6. X-aware alignment scoring for gene classification.
@@ -14,7 +14,8 @@
  * Core principle:
  *   Observed bases are evidence.
  *   X bases are unknown separators and ignored regardless of origin.
- *   Cut-site ±15bp must be present for analysis.
+ *   Cut-site coverage cannot be inferred by a constant offset across an indel.
+ *   Two unambiguous observed terminal anchors may establish a spanning molecule.
  */
 
 import { SequenceMatcher } from './sequence-matcher';
@@ -297,13 +298,14 @@ function alignReadToWindow(
   const offset = findOffset(seqUp, refUp, sgrnaSeq);
   if (offset === null) return { fail: 'no_alignment' };
 
-  // Step 2: Cut-site ±15bp coverage gate
+  // A constant offset is only a preliminary coverage estimate. A large deletion
+  // shifts reference coordinates after its junction and can put this inferred
+  // cut outside a molecule that actually contains both observed flanks.
   const cutInRead = offset + cutIdxInWindow;
-  if (cutInRead - CUT_SITE_MIN_FLANK < 0 || cutInRead + CUT_SITE_MIN_FLANK > seq.length) {
-    return { fail: 'no_coverage' };
-  }
+  const offsetCoversCut = cutInRead - CUT_SITE_MIN_FLANK >= 0 &&
+    cutInRead + CUT_SITE_MIN_FLANK <= seq.length;
 
-  // Step 3: Find anchors
+  // Step 2: Find anchors before rejecting coverage
   const leftAnchor = refUp.substring(0, anchorLen);
   const rightAnchor = refUp.substring(refUp.length - anchorLen);
 
@@ -322,6 +324,13 @@ function alignReadToWindow(
     idx = seqUp.indexOf(rightAnchor, idx + 1);
   }
 
+  const canUseObservedPair = anchorLen === ANCHOR_LEN &&
+    leftPositions.length === 1 && rightPositions.length === 1 &&
+    cutIdxInWindow >= anchorLen && cutIdxInWindow <= winLen - anchorLen;
+  // Failed offset coverage cannot be rescued by missing/repeated anchors.
+  // Reject before the pair loop, avoiding quadratic work on repetitive reads.
+  if (!offsetCoversCut && !canUseObservedPair) return { fail: 'no_coverage' };
+
   // Find best anchor pair
   const refInnerLen = winLen - 2 * anchorLen;
   let bestLi = -1, bestRi = -1, bestDiff = Infinity;
@@ -337,6 +346,14 @@ function alignReadToWindow(
         }
       }
     }
+  }
+
+  // Rescue only an unambiguous, ordered pair of *observed* exact anchors that
+  // bracket the reference cut. One-sided/truncated evidence and X separators
+  // retain the original coverage gate. Reuse the searches above: no new DP.
+  const observedPairSpansCut = canUseObservedPair && bestLi !== -1 && bestRi !== -1;
+  if (!offsetCoversCut && !observedPairSpansCut) {
+    return { fail: 'no_coverage' };
   }
 
   // Step 4: Build observed_read + read_window
