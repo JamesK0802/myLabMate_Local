@@ -202,11 +202,15 @@
               <label class="slider-manual-value">
                 <span>±</span>
                 <input type="number" min="0" max="500" step="1" formControlName="cutSiteExclusionFlank"
+                  [value]="state.analysisForm.get('cutSiteExclusionFlank')?.value ?? 0"
+                  (input)="onCutSiteExclusionInput($event)"
                   aria-label="Cut-site exclusion window" />
                 <span>bp</span>
               </label>
             </div>
             <input type="range" min="0" max="500" step="1" formControlName="cutSiteExclusionFlank"
+              [value]="state.analysisForm.get('cutSiteExclusionFlank')?.value ?? 0"
+              (input)="onCutSiteExclusionSlider($event)"
               aria-label="Cut-site exclusion slider" class="form-range" />
             <p class="slider-description">Excludes indels/mutations starting within cut site ±N bp from similarity calculations to prevent score distortion.</p>
           </div>

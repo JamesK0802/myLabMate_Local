@@ -669,6 +669,20 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     }, 150);
   }
 
+  onCutSiteExclusionSlider(event: Event): void {
+    const rawVal = (event.target as HTMLInputElement).value;
+    const num = Math.max(0, Math.min(500, Number(rawVal) || 0));
+    this.state.analysisForm.get('cutSiteExclusionFlank')?.setValue(num);
+    this.cdr.detectChanges();
+  }
+
+  onCutSiteExclusionInput(event: Event): void {
+    const rawVal = (event.target as HTMLInputElement).value;
+    const num = Math.max(0, Math.min(500, Number(rawVal) || 0));
+    this.state.analysisForm.get('cutSiteExclusionFlank')?.setValue(num);
+    this.cdr.detectChanges();
+  }
+
   private prepareReferenceComparisons(sequenceSets: string[][]): Promise<void> {
     if (!this.referenceCheckWorker) {
       this.referenceCheckWorker = new Worker(new URL('../../workers/reference-check.worker', import.meta.url), { type: 'module' });
