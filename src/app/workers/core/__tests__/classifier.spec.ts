@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { windowEndpointRegression } from './fixtures/window-endpoint-regression';
 import { unsupportedTerminalTail } from './fixtures/unsupported-terminal-tail';
 import { windowCompetitionRegression } from './fixtures/window-competition-regression';
+import { terminalCompetitionRegression } from './fixtures/terminal-competition-regression';
 import {
   reverseComplement,
   avgPhred,
@@ -17,6 +18,19 @@ import {
 } from '../classifier';
 
 describe('Classifier Core Utilities', () => {
+  it('does not reward reference-specific clipping when cut-site exclusion is enabled', () => {
+    const classes=Object.fromEntries(Object.entries(terminalCompetitionRegression.windows).map(([gene,ref_window])=>
+      [gene,[{gene,target:'shared',ref_window,sgrna_seq:terminalCompetitionRegression.guide,cut_index_in_window:60}]]));
+    for (const read of terminalCompetitionRegression.reads) {
+      for (const sequence of [read.sequence,reverseComplement(read.sequence)]) {
+        const result=applyGeneClassification(sequence,null,classes,20,.01,0,10);
+        // Lack of a 1% distinguishing margin must reject, not select the
+        // reference that independently discarded the mismatching terminal SNP.
+        if (result.assigned) expect(result.predicted_gene).toBe(read.expected);
+        else expect(result.reason).toBe('ambiguous');
+      }
+    }
+  });
   it('repairs fragmented ranking contradictions without using sample labels in classification', () => {
     const classes=Object.fromEntries(Object.entries(windowEndpointRegression.references).map(([gene,r])=>{
       const cut=findGrnaCutSite(r.sequence,r.guide).cut_site;

@@ -18,7 +18,7 @@
  *   Two unambiguous observed terminal anchors may establish a spanning molecule.
  */
 
-import { SequenceMatcher } from './sequence-matcher';
+import { SequenceMatcher, type Opcode } from './sequence-matcher';
 import type { QualityScores } from './fastq-parser';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -807,14 +807,15 @@ function computeAlignmentScoreWithDynamicExclusion(
   cutSitePos: number,
   maxDist: number,
   distanceWeight: number,
-  exclusionFlank: number
+  exclusionFlank: number,
+  verifiedOpcodes?: Opcode[]
 ): number {
   const cleanStrand = strand;
   const cleanRef = refUp.replace(/X/g, '');
   if (!cleanStrand || !cleanRef) return 0.0;
 
   const sm = new SequenceMatcher(null, cleanStrand, cleanRef, cleanRef.length < 200);
-  const opcodes = sm.getOpcodes();
+  const opcodes = verifiedOpcodes ?? sm.getOpcodes();
   const excludedRefIndices = new Set<number>();
 
   // 1. User-configured cut-site exclusion flank (disabled when set to 0)
@@ -896,8 +897,8 @@ const optimalIdentityCache = new Map<string, number | null>();
  * work; this is NOT a biological window/indel-size filter. A large matrix
  * simply retains the existing classification instead of adding expensive DP.
  */
-function optimalObservedIdentity(a: string, b: string): number | null {
-  const key = `${a}|${b}`;
+function optimalObservedIdentity(a: string, b: string, cut = -1, distanceWeight = 0, exclusionFlank = 0): number | null {
+  const key = `${a}|${b}|${cut}|${distanceWeight}|${exclusionFlank}`;
   if (optimalIdentityCache.has(key)) return optimalIdentityCache.get(key)!;
   let prefix = 0, suffix = 0;
   while (prefix < Math.min(a.length,b.length) && a[prefix] === b[prefix]) prefix++;
@@ -906,25 +907,47 @@ function optimalObservedIdentity(a: string, b: string): number | null {
   const x = a.slice(prefix,a.length-suffix), y = b.slice(prefix,b.length-suffix);
   let score: number | null = null;
   if ((x.length+1)*(y.length+1) <= 65536) {
+    const directions = new Uint8Array((x.length+1)*(y.length+1));
+    const width = y.length+1;
     let distances = new Uint32Array(y.length+1);
     let matches = new Uint32Array(y.length+1);
-    for (let j=0;j<=y.length;j++) distances[j]=j;
+    for (let j=0;j<=y.length;j++) { distances[j]=j; directions[j]=2; }
     for (let i=1;i<=x.length;i++) {
       const nextDistances = new Uint32Array(y.length+1), nextMatches = new Uint32Array(y.length+1);
       nextDistances[0]=i;
+      directions[i*width]=1;
       for (let j=1;j<=y.length;j++) {
         const equal = x[i-1]===y[j-1];
         let cost = distances[j-1]+(equal?0:1), count = matches[j-1]+(equal?1:0);
+        let direction = 0;
         const deletion=distances[j]+1,insertion=nextDistances[j-1]+1;
-        if (deletion<cost || (deletion===cost && matches[j]>count)) {cost=deletion;count=matches[j];}
-        if (insertion<cost || (insertion===cost && nextMatches[j-1]>count)) {cost=insertion;count=nextMatches[j-1];}
+        if (deletion<cost || (deletion===cost && matches[j]>count)) {cost=deletion;count=matches[j];direction=1;}
+        if (insertion<cost || (insertion===cost && nextMatches[j-1]>count)) {cost=insertion;count=nextMatches[j-1];direction=2;}
+        directions[i*width+j]=direction;
         nextDistances[j]=cost;nextMatches[j]=count;
       }
       distances=nextDistances;matches=nextMatches;
     }
-    const equalCount = prefix+suffix+matches[y.length];
-    const columns = equalCount+distances[y.length];
-    score = columns ? equalCount/columns : 0;
+    const reverse: Opcode[] = [];
+    let i=x.length,j=y.length;
+    while (i || j) {
+      const direction=directions[i*width+j], i2=i,j2=j;
+      if (direction===0) {i--;j--;}
+      else if (direction===1) i--;
+      else j--;
+      const tag=direction===1?'delete':direction===2?'insert':x[i]===y[j]?'equal':'replace';
+      reverse.push([tag,i+prefix,i2+prefix,j+prefix,j2+prefix]);
+    }
+    const ops: Opcode[] = [];
+    const append=(op:Opcode)=>{
+      const previous=ops.at(-1);
+      if (previous && previous[0]===op[0] && previous[2]===op[1] && previous[4]===op[3]) {previous[2]=op[2];previous[4]=op[4];}
+      else ops.push(op);
+    };
+    if (prefix) append(['equal',0,prefix,0,prefix]);
+    for (const op of reverse.reverse()) append(op);
+    if (suffix) append(['equal',a.length-suffix,a.length,b.length-suffix,b.length]);
+    score=computeAlignmentScoreWithDynamicExclusion(a,b,cut,Math.max(cut,b.length-1-cut),distanceWeight,exclusionFlank,ops);
   }
   if (optimalIdentityCache.size >= MAX_SCORE_CACHE_ENTRIES) optimalIdentityCache.clear();
   optimalIdentityCache.set(key,score);
@@ -942,7 +965,7 @@ function competitionScores(
   const entries = Array.from(evidence.entries());
   const scores = new Map(entries.map(([c,r]) => [c,scoreReadAgainstWindow(
     r.classification_window || r.read_window,c.ref_window,c.cut_index_in_window ?? -1,distanceWeight,exclusionFlank)]));
-  if (entries.length<2 || distanceWeight!==0 || exclusionFlank!==0) return scores;
+  if (entries.length<2) return scores;
   const first=entries[0][0], guide=first.sgrna_seq?.toUpperCase();
   if (!guide || entries.some(([c]) => c.sgrna_seq?.toUpperCase()!==guide ||
       c.ref_window.length!==first.ref_window.length || c.cut_index_in_window!==first.cut_index_in_window)) return scores;
@@ -968,7 +991,8 @@ function competitionScores(
     const observed=observation.slice(left,observation.length-right);
     const comparison=new Map<ClassInfo,number>();
     for (const [c] of entries) {
-      const value=optimalObservedIdentity(observed,c.ref_window.slice(left,c.ref_window.length-right));
+      const value=optimalObservedIdentity(observed,c.ref_window.slice(left,c.ref_window.length-right),
+        (c.cut_index_in_window ?? -1)-left,distanceWeight,exclusionFlank);
       if (value===null) return scores;
       comparison.set(c,value);
     }
