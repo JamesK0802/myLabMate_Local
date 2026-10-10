@@ -257,10 +257,20 @@ function boundedAnchorPositions(reference: string, anchor: string): number[] {
   const positions: number[] = [];
   for (let start = 0; start <= reference.length - anchor.length; start++) {
     let errors = 0;
+    let run = 0, longestRun = 0;
     for (let i = 0; i < anchor.length; i++) {
-      if (reference[start + i] !== anchor[i] && ++errors > MAX_ANCHOR_ERRORS) break;
+      if (reference[start + i] !== anchor[i]) {
+        run = 0;
+        if (++errors > MAX_ANCHOR_ERRORS) break;
+      } else {
+        longestRun = Math.max(longestRun, ++run);
+      }
     }
     if (errors > MAX_ANCHOR_ERRORS) continue;
+    // An approximate terminal coincidence cannot establish new reference
+    // coverage without the same 10-bp placement support as the fallback.
+    // Ordinary anchor error tolerance on already located windows is unchanged.
+    if (longestRun < Math.min(10, anchor.length)) continue;
     if (errors < bestErrors) {
       bestErrors = errors;
       positions.length = 0;
@@ -277,6 +287,34 @@ interface AlignResult {
   qual_observed?: QualityScores | null;
   left_x?: number;
   right_x?: number;
+}
+
+/** Locate the observed endpoint in reference coordinates. Query length is
+ * not reference coverage: internal insertions/deletions change their offset.
+ * Use the same matching-block fallback as terminal truncation, but require
+ * the established 10-bp placement support instead of one-base coincidences. */
+function observedWindowEndpoints(reference: string, observation: string): {
+  refStart: number; refEnd: number; obsStart: number; obsEnd: number;
+} | null {
+  const blocks = new SequenceMatcher(null, reference, observation, observation.length < 200)
+    .getMatchingBlocks().filter(block => block[2] >= 10);
+  if (!blocks.length) return null;
+  const first = blocks[0], last = blocks[blocks.length - 1];
+  let refStart = first[0], obsStart = first[1];
+  let refEnd = last[0] + last[2], obsEnd = last[1] + last[2];
+  // Preserve observed terminal mismatches. Dropping them and marking their
+  // reference columns X would turn an anchor failure into fabricated missing
+  // evidence. Only the genuinely absent remainder receives padding.
+  if (refStart <= ANCHOR_LEN && obsStart <= ANCHOR_LEN) {
+    const extension = Math.min(refStart, obsStart);
+    refStart -= extension; obsStart -= extension;
+  }
+  const refTail = reference.length - refEnd, obsTail = observation.length - obsEnd;
+  if (refTail <= ANCHOR_LEN && obsTail <= ANCHOR_LEN) {
+    const extension = Math.min(refTail, obsTail);
+    refEnd += extension; obsEnd += extension;
+  }
+  return { refStart, obsStart, refEnd, obsEnd };
 }
 
 function alignReadToWindow(
@@ -375,7 +413,8 @@ function alignReadToWindow(
     // CASE B: Left anchor found, right truncated
     const bestLeft = leftPositions.reduce((best, x) => Math.abs(x - offset) < Math.abs(best - offset) ? x : best);
     const candidateObs = seq.substring(bestLeft).toUpperCase();
-    if (bestLeft + winLen > seq.length) {
+    const fixedWindow = seqUp.substring(bestLeft, bestLeft + winLen);
+    if (bestLeft + winLen > seq.length || !xawareAnchorCheck(fixedWindow, refUp)) {
       // Right truncated by end of read / X-gap
       const terminalLen = Math.min(ANCHOR_LEN, candidateObs.length);
       const terminalAnchor = candidateObs.substring(candidateObs.length - terminalLen);
@@ -386,22 +425,20 @@ function alignReadToWindow(
           Math.abs(position + terminalLen - expectedEnd) < Math.abs(best + terminalLen - expectedEnd) ? position : best
         );
         const observedRefEnd = terminalPos + terminalLen;
+        if (observedRefEnd < cutIdxInWindow + CUT_SITE_MIN_FLANK) {
+          return { fail: 'no_coverage' };
+        }
         observedRead = candidateObs;
         leftX = 0;
         rightX = Math.max(0, winLen - observedRefEnd);
         readWindow = observedRead + 'X'.repeat(rightX);
         qualObserved = qual ? qual.slice(bestLeft) : null;
       } else {
-      const matcher = new SequenceMatcher(null, refUp, candidateObs, candidateObs.length < 200);
-      const blocks = matcher.getMatchingBlocks();
-      let lastRefEnd = 0;
-      let lastObsEnd = 0;
-      for (const b of blocks) {
-        if (b[2] > 0) {
-          lastRefEnd = b[0] + b[2];
-          lastObsEnd = b[1] + b[2];
-        }
+      const endpoints = observedWindowEndpoints(refUp, candidateObs);
+      if (!endpoints || endpoints.refEnd < cutIdxInWindow + CUT_SITE_MIN_FLANK) {
+        return { fail: 'no_coverage' };
       }
+      const lastRefEnd = endpoints.refEnd, lastObsEnd = endpoints.obsEnd;
 
       if (lastRefEnd >= winLen) {
         observedRead = candidateObs.substring(0, lastObsEnd);
@@ -432,7 +469,8 @@ function alignReadToWindow(
     );
     const endPos = bestRight + anchorLen;
     const winStart = bestRight - (winLen - anchorLen);
-    if (winStart < 0) {
+    const fixedWindow = seqUp.substring(Math.max(0, winStart), endPos);
+    if (winStart < 0 || !xawareAnchorCheck(fixedWindow, refUp)) {
       // Left truncated by start of read
       const candidateObs = seq.substring(0, endPos).toUpperCase();
       const terminalLen = Math.min(ANCHOR_LEN, candidateObs.length);
@@ -443,22 +481,20 @@ function alignReadToWindow(
         const terminalPos = terminalPositions.reduce((best, position) =>
           Math.abs(position - expectedStart) < Math.abs(best - expectedStart) ? position : best
         );
+        if (terminalPos > cutIdxInWindow - CUT_SITE_MIN_FLANK) {
+          return { fail: 'no_coverage' };
+        }
         observedRead = candidateObs;
         leftX = terminalPos;
         rightX = 0;
         readWindow = 'X'.repeat(leftX) + observedRead;
         qualObserved = qual ? qual.slice(0, endPos) : null;
       } else {
-      const matcher = new SequenceMatcher(null, refUp, candidateObs, candidateObs.length < 200);
-      const blocks = matcher.getMatchingBlocks();
-      let firstRefStart = winLen;
-      let firstObsStart = candidateObs.length;
-      for (const b of blocks) {
-        if (b[2] > 0) {
-          firstRefStart = Math.min(firstRefStart, b[0]);
-          firstObsStart = Math.min(firstObsStart, b[1]);
-        }
+      const endpoints = observedWindowEndpoints(refUp, candidateObs);
+      if (!endpoints || endpoints.refStart > cutIdxInWindow - CUT_SITE_MIN_FLANK) {
+        return { fail: 'no_coverage' };
       }
+      const firstRefStart = endpoints.refStart, firstObsStart = endpoints.obsStart;
 
       if (firstRefStart <= 0) {
         observedRead = candidateObs.substring(firstObsStart);
@@ -515,6 +551,16 @@ function xawareAnchorCheck(readWindow: string, refWindow: string): boolean {
 
   const anchorPasses = (refAnchor: string, observedEdge: string): boolean => {
     if (!refAnchor.length) return true;
+    // Substitution-only evidence is already a valid edit-distance bound.
+    // Avoid nine small DP runs for the common exact/SNP/error case without
+    // changing the allowance; indels still use the existing DP fallback.
+    if (observedEdge.length >= refAnchor.length) {
+      let errors = 0;
+      for (let i = 0; i < refAnchor.length; i++) {
+        if (refAnchor[i] !== observedEdge[i] && ++errors > MAX_ANCHOR_ERRORS) break;
+      }
+      if (errors <= MAX_ANCHOR_ERRORS) return true;
+    }
     const minLength = Math.max(1, refAnchor.length - MAX_ANCHOR_ERRORS);
     const maxLength = Math.min(observedEdge.length, refAnchor.length + MAX_ANCHOR_ERRORS);
     if (maxLength < minLength) return false;
@@ -579,6 +625,17 @@ export interface ReadResult {
   left_x: number;
   right_x: number;
   is_rc: boolean;
+  // Mutation calling retains both X-separated mates, but classification must
+  // compare the located target window, not count off-window mate sequence as
+  // an insertion after correcting the gap-scoring directions.
+  classification_window?: string;
+  seed_recovered?: boolean;
+}
+
+export interface ValidatedTargetWindow {
+  ref_window: string;
+  cut_index_in_window: number;
+  result: ReadResult;
 }
 
 function isReadUsableCached(
@@ -670,6 +727,7 @@ function isReadUsableCached(
     left_x: preservePairedObservation ? 0 : best.res.left_x!,
     right_x: preservePairedObservation ? 0 : best.res.right_x!,
     is_rc: best.isRc,
+    classification_window: best.res.read_window!,
   };
 
   return [true, 'ok', result];
@@ -719,6 +777,9 @@ export function isReadUsableUncached(
 
 export function clearClassifierCache(): void {
   usabilityCache.clear();
+  alignmentScoreCache.clear();
+  optimalIdentityCache.clear();
+  referenceProjectionCache.clear();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -796,7 +857,11 @@ function computeAlignmentScoreWithDynamicExclusion(
         totalMaxWeight += w;
         matchedWeight += w;
       }
-    } else if (tag === 'replace' || tag === 'delete') {
+    // SequenceMatcher compares (read, reference): 'insert' consumes only
+    // reference columns (a deletion in the read), while 'delete' consumes
+    // only read columns (an insertion in the read). Reversing these tags
+    // made both gap types add ZERO weight and could reward a worse match.
+    } else if (tag === 'replace' || tag === 'insert') {
       const len = j2 - j1;
       for (let k = 0; k < len; k++) {
         const refIdx = j1 + k;
@@ -807,7 +872,7 @@ function computeAlignmentScoreWithDynamicExclusion(
         const w = calcSeagullWeight(d, maxDist, distanceWeight);
         totalMaxWeight += w;
       }
-    } else if (tag === 'insert') {
+    } else if (tag === 'delete') {
       const refIdx = j1;
       if (!excludedRefIndices.has(refIdx)) {
         const d = Math.abs(refIdx - cutSitePos);
@@ -820,6 +885,105 @@ function computeAlignmentScoreWithDynamicExclusion(
   return totalMaxWeight > 0.0 ? (matchedWeight / totalMaxWeight) : 0.0;
 }
 
+// Scores depend on sequence/settings, not FASTQ quality. Quality eligibility
+// remains independently checked above; equal windows can safely reuse scores.
+const alignmentScoreCache = new Map<string, number>();
+const MAX_SCORE_CACHE_ENTRIES = 8192;
+const optimalIdentityCache = new Map<string, number | null>();
+
+/** Verify a fragmented greedy alignment, using the same match/column score.
+ * Exact common ends do not need a matrix. Bound the remaining verification
+ * work; this is NOT a biological window/indel-size filter. A large matrix
+ * simply retains the existing classification instead of adding expensive DP.
+ */
+function optimalObservedIdentity(a: string, b: string): number | null {
+  const key = `${a}|${b}`;
+  if (optimalIdentityCache.has(key)) return optimalIdentityCache.get(key)!;
+  let prefix = 0, suffix = 0;
+  while (prefix < Math.min(a.length,b.length) && a[prefix] === b[prefix]) prefix++;
+  while (suffix < Math.min(a.length,b.length)-prefix &&
+    a[a.length-1-suffix] === b[b.length-1-suffix]) suffix++;
+  const x = a.slice(prefix,a.length-suffix), y = b.slice(prefix,b.length-suffix);
+  let score: number | null = null;
+  if ((x.length+1)*(y.length+1) <= 65536) {
+    let distances = new Uint32Array(y.length+1);
+    let matches = new Uint32Array(y.length+1);
+    for (let j=0;j<=y.length;j++) distances[j]=j;
+    for (let i=1;i<=x.length;i++) {
+      const nextDistances = new Uint32Array(y.length+1), nextMatches = new Uint32Array(y.length+1);
+      nextDistances[0]=i;
+      for (let j=1;j<=y.length;j++) {
+        const equal = x[i-1]===y[j-1];
+        let cost = distances[j-1]+(equal?0:1), count = matches[j-1]+(equal?1:0);
+        const deletion=distances[j]+1,insertion=nextDistances[j-1]+1;
+        if (deletion<cost || (deletion===cost && matches[j]>count)) {cost=deletion;count=matches[j];}
+        if (insertion<cost || (insertion===cost && nextMatches[j-1]>count)) {cost=insertion;count=nextMatches[j-1];}
+        nextDistances[j]=cost;nextMatches[j]=count;
+      }
+      distances=nextDistances;matches=nextMatches;
+    }
+    const equalCount = prefix+suffix+matches[y.length];
+    const columns = equalCount+distances[y.length];
+    score = columns ? equalCount/columns : 0;
+  }
+  if (optimalIdentityCache.size >= MAX_SCORE_CACHE_ENTRIES) optimalIdentityCache.clear();
+  optimalIdentityCache.set(key,score);
+  return score;
+}
+
+/** Repair only demonstrated ranking contradictions on a common observed
+ * homologous interval. Do not make sample-origin labels a classification rule.
+ * Uncertain verification of an otherwise unchanged ranking keeps the legacy
+ * result. Conflicting candidate crops with no verified margin remain ambiguous.
+ */
+function competitionScores(
+  evidence: Map<ClassInfo,ReadResult>, distanceWeight: number, exclusionFlank: number
+): Map<ClassInfo,number> {
+  const entries = Array.from(evidence.entries());
+  const scores = new Map(entries.map(([c,r]) => [c,scoreReadAgainstWindow(
+    r.classification_window || r.read_window,c.ref_window,c.cut_index_in_window ?? -1,distanceWeight,exclusionFlank)]));
+  if (entries.length<2 || distanceWeight!==0 || exclusionFlank!==0) return scores;
+  const first=entries[0][0], guide=first.sgrna_seq?.toUpperCase();
+  if (!guide || entries.some(([c]) => c.sgrna_seq?.toUpperCase()!==guide ||
+      c.ref_window.length!==first.ref_window.length || c.cut_index_in_window!==first.cut_index_in_window)) return scores;
+  if (new Set(entries.map(([c])=>c.gene)).size!==entries.length) return scores;
+  const physicalGuide=first.ref_window.includes(guide)?guide:reverseComplement(guide);
+  if (entries.some(([c])=>c.ref_window.indexOf(physicalGuide)<0 ||
+      c.ref_window.indexOf(physicalGuide)!==c.ref_window.lastIndexOf(physicalGuide))) return scores;
+  const ranked=[...scores.entries()].sort((a,b)=>b[1]-a[1]);
+  // Scores must not depend on the user's acceptance margin. Verification
+  // repairs a strict ranking contradiction; the ordinary margin gate follows.
+  if (ranked[0][1]===ranked[1][1]) return scores;
+  const observations=[...new Set(entries.filter(([,r])=>!r.seed_recovered)
+    .map(([,r])=>r.classification_window || r.read_window))];
+  if (!observations.length || observations.some(o=>o.replace(/^X+|X+$/g,'').includes('X'))) return scores;
+  const unknown=(o:string)=>(o.match(/^X+/)?.[0].length||0)+(o.match(/X+$/)?.[0].length||0);
+  const minUnknown=Math.min(...observations.map(unknown));
+  const selected=observations.filter(o=>unknown(o)===minUnknown);
+  if (ranked[0][1]===1 && observations.length===1) return scores;
+  let verified: Map<ClassInfo,number> | undefined;
+  let verifiedWinner: ClassInfo | undefined;
+  for (const observation of selected) {
+    const left=observation.match(/^X+/)?.[0].length||0,right=observation.match(/X+$/)?.[0].length||0;
+    const observed=observation.slice(left,observation.length-right);
+    const comparison=new Map<ClassInfo,number>();
+    for (const [c] of entries) {
+      const value=optimalObservedIdentity(observed,c.ref_window.slice(left,c.ref_window.length-right));
+      if (value===null) return scores;
+      comparison.set(c,value);
+    }
+    const optimal=[...comparison.entries()].sort((a,b)=>b[1]-a[1]);
+    const clear=optimal[0][1]>optimal[1][1];
+    if (!clear && observations.length===1) return scores;
+    if (clear && optimal[0][0]===ranked[0][0] && observations.length===1) return scores;
+    if (verifiedWinner && verifiedWinner!==optimal[0][0]) {
+      return new Map(entries.map(([c])=>[c,ranked[0][1]]));
+    }
+    verifiedWinner=optimal[0][0];verified=comparison;
+  }
+  return verified || scores;
+}
+
 export function scoreReadAgainstWindow(
   read: string,
   refWindow: string,
@@ -828,10 +992,18 @@ export function scoreReadAgainstWindow(
   exclusionFlank: number = 0
 ): number {
   const readUp = toStr(read).toUpperCase();
-  const refUp = toStr(refWindow).toUpperCase();
+  // Explicit terminal X padding denotes unknown reference positions. Do not
+  // penalize those positions as biological deletions when scoring gaps.
+  const fullRef = toStr(refWindow).toUpperCase();
+  const scoreKey = `${readUp}|${fullRef}|${cutIndexInWindow}|${distanceWeight}|${exclusionFlank}`;
+  const cachedScore = alignmentScoreCache.get(scoreKey);
+  if (cachedScore !== undefined) return cachedScore;
+  const leftUnknown = Math.min(readUp.match(/^X+/)?.[0].length || 0, fullRef.length);
+  const rightUnknown = Math.min(readUp.match(/X+$/)?.[0].length || 0, fullRef.length-leftUnknown);
+  const refUp = fullRef.slice(leftUnknown, fullRef.length-rightUnknown);
   if (!readUp || !refUp) return 0.0;
 
-  const cutSitePos = cutIndexInWindow >= 0 ? cutIndexInWindow : Math.floor(refUp.length / 2);
+  const cutSitePos = (cutIndexInWindow >= 0 ? cutIndexInWindow : Math.floor(fullRef.length / 2)) - leftUnknown;
   const maxDist = Math.max(cutSitePos, refUp.length - cutSitePos, 1);
 
   const segments = readUp.split(/X+/).filter(Boolean);
@@ -847,7 +1019,13 @@ export function scoreReadAgainstWindow(
     bestScore = Math.max(bestScore, fwScore, rcScore);
   }
 
-  return Math.min(1.0, bestScore);
+  const result = Math.min(1.0, bestScore);
+  if (alignmentScoreCache.size >= MAX_SCORE_CACHE_ENTRIES) {
+    const oldest = alignmentScoreCache.keys().next().value;
+    if (oldest !== undefined) alignmentScoreCache.delete(oldest);
+  }
+  alignmentScoreCache.set(scoreKey, result);
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -871,6 +1049,99 @@ export interface ClassificationResult {
   top2_score?: number;
   gap?: number;
   debug?: any;
+  validated_windows?: Record<string, ValidatedTargetWindow>;
+}
+
+const referenceProjectionCache = new Map<string, ReturnType<SequenceMatcher['getOpcodes']> | null>();
+
+/** Project reference coordinates, not read lengths, between homologous windows.
+ * Compute once per reference pair. The supplied guide must align as the same
+ * exact locus in both references; never use unrelated matching fragments to
+ * connect two targets. */
+function projectObservedInterval(known: ClassInfo, candidate: ClassInfo, start: number, end: number): [number,number] | null {
+  const guide = known.sgrna_seq?.toUpperCase();
+  if (!guide || guide !== candidate.sgrna_seq?.toUpperCase()) return null;
+  const a = known.ref_window.toUpperCase(), b = candidate.ref_window.toUpperCase();
+  const physicalGuide = a.includes(guide) ? guide : reverseComplement(guide);
+  const guideA = a.indexOf(physicalGuide), guideB = b.indexOf(physicalGuide);
+  if (guideA < 0 || guideB < 0 || a.lastIndexOf(physicalGuide) !== guideA || b.lastIndexOf(physicalGuide) !== guideB) return null;
+  const key = `${a}|${b}|${physicalGuide}`;
+  let ops = referenceProjectionCache.get(key);
+  if (ops === undefined) {
+    const alignment = new SequenceMatcher(null,a,b,false).getOpcodes();
+    const sharedGuide = alignment.some(([tag,i1,i2,j1]) => tag === 'equal' &&
+      i1 <= guideA && i2 >= guideA + physicalGuide.length && j1 + guideA - i1 === guideB);
+    ops = sharedGuide ? alignment : null;
+    if (referenceProjectionCache.size >= 512) referenceProjectionCache.clear();
+    referenceProjectionCache.set(key,ops);
+  }
+  if (!ops) return null;
+  const mapBoundary = (position: number, rightBoundary: boolean): number => {
+    for (const [tag,i1,i2,j1,j2] of ops!) {
+      if (position < i1 || position > i2) continue;
+      if (i1 === i2) { if (position === i1) return rightBoundary ? j1 : j2; continue; }
+      if (tag === 'equal') return j1 + position - i1;
+      if (position === i1) return j1;
+      if (position === i2) return j2;
+      // A boundary inside a divergent block has no defensible exact mapping.
+      return -1;
+    }
+    return -1;
+  };
+  const left = mapBoundary(start,false), right = mapBoundary(end,true);
+  const cut = candidate.cut_index_in_window ?? -1;
+  if (left < 0 || right < left || left > cut - CUT_SITE_MIN_FLANK || right < cut + CUT_SITE_MIN_FLANK) return null;
+  return [left,right];
+}
+
+/** An exact seed failure is not evidence that a competing homoeolog is absent.
+ * Recheck only the already located, fully observed window, not the whole read.
+ * Keep the ordinary eligibility path unchanged, including single-reference
+ * analysis and reads for which no target window could be located at all. */
+function classificationEvidence(
+  readSeq: string, readQual: QualityScores | null, classes: ClassInfo[], phredThreshold: number
+): Map<ClassInfo, ReadResult> {
+  const evidence = new Map<ClassInfo, ReadResult>();
+  const unseeded: ClassInfo[] = [];
+  for (const c of classes) {
+    const [usable, reason, res] = isReadUsable(readSeq, readQual, c.ref_window,
+      phredThreshold, c.sgrna_seq || '', c.cut_index_in_window ?? -1);
+    if (usable && res) evidence.set(c, res);
+    else if (reason === 'no_alignment') unseeded.push(c);
+  }
+  // Snapshot: newly recovered competitors must not seed additional rescues.
+  const located = Array.from(evidence.entries());
+  for (const c of unseeded) {
+    for (const [known, observation] of located) {
+      if (!c.sgrna_seq || c.sgrna_seq.toUpperCase() !== known.sgrna_seq?.toUpperCase()) continue;
+      const locatedWindow = observation.classification_window || observation.read_window;
+      const leftX = locatedWindow.match(/^X+/)?.[0].length || 0;
+      const rightX = locatedWindow.match(/X+$/)?.[0].length || 0;
+      const observed = locatedWindow.slice(leftX,locatedWindow.length-rightX);
+      if (!observed || observed.includes('X')) continue;
+      let recoveredWindow = locatedWindow;
+      if (c.ref_window.length !== known.ref_window.length ||
+          (c.cut_index_in_window ?? -1) !== (known.cut_index_in_window ?? -1) || leftX || rightX) {
+        const interval = projectObservedInterval(known,c,leftX,known.ref_window.length-rightX);
+        if (!interval) continue;
+        recoveredWindow = 'X'.repeat(interval[0]) + observed + 'X'.repeat(c.ref_window.length-interval[1]);
+      }
+      // The locus, observed flanks, and local quality were already validated.
+      // Reuse exactly that observation instead of choosing reference-specific
+      // crop boundaries or scanning unrelated parts of a long molecule.
+      if (xawareAnchorCheck(recoveredWindow, c.ref_window)) {
+        const preservePaired = observation.read_window !== locatedWindow;
+        evidence.set(c, { ...observation,
+          read_window: preservePaired ? observation.read_window : recoveredWindow,
+          classification_window: recoveredWindow,
+          left_x: preservePaired ? observation.left_x : (recoveredWindow.match(/^X+/)?.[0].length || 0),
+          right_x: preservePaired ? observation.right_x : (recoveredWindow.match(/X+$/)?.[0].length || 0),
+          seed_recovered: true });
+        break;
+      }
+    }
+  }
+  return evidence;
 }
 
 export function applyClassification(
@@ -883,22 +1154,18 @@ export function applyClassification(
   cutSiteExclusionFlank: number = 0
 ): ClassificationResult {
   const eligibleClasses: Array<{ classInfo: ClassInfo; targetSeq: string }> = [];
-  for (const c of classes) {
-    const [usable, , res] = isReadUsable(
-      readSeq, readQual, c.ref_window, phredThreshold,
-      c.sgrna_seq || '', c.cut_index_in_window ?? -1
-    );
-    if (usable) {
-      eligibleClasses.push({ classInfo: c, targetSeq: res?.read_window || readSeq });
-    }
+  const evidence=classificationEvidence(readSeq, readQual, classes, phredThreshold);
+  for (const [c, res] of evidence) {
+    eligibleClasses.push({ classInfo: c, targetSeq: res.classification_window || res.read_window });
   }
 
   if (eligibleClasses.length === 0) {
     return { assigned: false, reason: 'filtered' };
   }
 
+  const comparableScores=competitionScores(evidence,cutSiteDistanceWeight,cutSiteExclusionFlank);
   const scores: Array<[number, string, string]> = eligibleClasses.map(item => [
-    scoreReadAgainstWindow(item.targetSeq, item.classInfo.ref_window, item.classInfo.cut_index_in_window ?? -1, cutSiteDistanceWeight, cutSiteExclusionFlank),
+    comparableScores.get(item.classInfo)!,
     item.classInfo.gene,
     item.classInfo.target,
   ]);
@@ -956,6 +1223,9 @@ export function applyGeneClassification(
   const geneDebug: Record<string, any> = {};
   let anyUsable = false;
 
+  const evidence = classificationEvidence(readSeq, readQual, geneNames.flatMap(g => geneClasses[g]), phredThreshold);
+  const comparableScores=competitionScores(evidence,cutSiteDistanceWeight,cutSiteExclusionFlank);
+
   for (const geneName of geneNames) {
     const targets = geneClasses[geneName];
     let bestScore = -1.0;
@@ -964,16 +1234,12 @@ export function applyGeneClassification(
     let usableCount = 0;
 
     for (const t of targets) {
-      const [usable, , res] = isReadUsable(
-        readSeq, readQual, t.ref_window, phredThreshold,
-        t.sgrna_seq || '', t.cut_index_in_window ?? -1
-      );
-      if (usable) {
+      const res = evidence.get(t);
+      if (res) {
         geneUsable = true;
         anyUsable = true;
         usableCount++;
-        const targetSeq = res?.read_window || readSeq;
-        const score = scoreReadAgainstWindow(targetSeq, t.ref_window, t.cut_index_in_window ?? -1, cutSiteDistanceWeight, cutSiteExclusionFlank);
+        const score = comparableScores.get(t)!;
         if (score > bestScore) {
           bestScore = score;
           bestTarget = t.target;
@@ -1004,11 +1270,20 @@ export function applyGeneClassification(
 
   geneScores.sort((a, b) => b[0] - a[0]);
   const [top1Score, top1Gene] = geneScores[0];
+  const recoveredWindows: Record<string, ValidatedTargetWindow> = {};
+  for (const t of geneClasses[top1Gene]) {
+    const res = evidence.get(t);
+    if (res?.seed_recovered) recoveredWindows[t.target] = {
+      ref_window: t.ref_window, cut_index_in_window: t.cut_index_in_window ?? -1, result: res
+    };
+  }
+  const validatedWindows = Object.keys(recoveredWindows).length ? recoveredWindows : undefined;
 
   if (geneScores.length === 1) {
     return {
       assigned: true,
       predicted_gene: top1Gene,
+      validated_windows: validatedWindows,
       top1_score: Math.round(top1Score * 10000) / 10000,
       debug: {
         gene_scores: geneDebug,
@@ -1032,6 +1307,7 @@ export function applyGeneClassification(
     return {
       assigned: true,
       predicted_gene: top1Gene,
+      validated_windows: validatedWindows,
       top1_score: Math.round(top1Score * 10000) / 10000,
       top2_score: Math.round(top2Score * 10000) / 10000,
       gap: Math.round(gap * 10000) / 10000,

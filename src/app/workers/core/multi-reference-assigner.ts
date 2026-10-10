@@ -18,6 +18,7 @@ import {
   avgPhred,
   applyGeneClassification,
   ClassInfo,
+  ValidatedTargetWindow,
 } from './classifier';
 import type { QualityScores } from './fastq-parser';
 
@@ -40,6 +41,7 @@ export interface ReadObj {
   seq: string;
   qual: QualityScores | null;
   best_score: number;
+  validated_windows?: Record<string, ValidatedTargetWindow>;
 }
 
 export interface GeneBucket {
@@ -151,6 +153,7 @@ export function assignReadsToReferences(
       seq,
       qual,
       best_score: res.top1_score || 0.0,
+      validated_windows: res.validated_windows,
     };
 
     if (res.assigned) {

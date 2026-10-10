@@ -19,6 +19,7 @@ import {
   scoreReadAgainstWindow,
   clearClassifierCache,
   ClassInfo,
+  ValidatedTargetWindow,
 } from './classifier';
 import { classifyMutationWithAlignment, alignReadToRef, materializeTokensAgainstReference, clearAnalyzerCache, AlignmentToken } from './analyzer';
 import { assignReadsToReferences, GenePayload, DemuxResult } from './multi-reference-assigner';
@@ -181,7 +182,8 @@ function runAnalysisOnReads(
   data: Array<[string, QualityScores | null]>,
   targets: TargetConfig[],
   phredThreshold: number = 10,
-  indelThreshold: number = 1.0
+  indelThreshold: number = 1.0,
+  validatedWindows?: Array<Record<string, ValidatedTargetWindow> | undefined>
 ): { target_results: TargetResult[]; multi_target_summary?: MultiTargetSummary } {
   const totalReads = data.length;
   const targetResultsList: TargetResult[] = [];
@@ -248,7 +250,15 @@ function runAnalysisOnReads(
     // Step 4: Process each read
     for (let i = 0; i < data.length; i++) {
       const [seq, qual] = data[i];
-      const [usable, reason, bestRes] = isReadUsable(seq, qual, refWindow, phredThreshold, sgrnaSeq, cutSiteIndexFixed);
+      // Classification may have validated this candidate against a located
+      // competing homoeolog window. Do not discard that same evidence again
+      // at the old exact-seed gate, and do not mutate the global usability
+      // cache (which would make single-reference results history-dependent).
+      const prior = validatedWindows?.[i]?.[targetId];
+      const [usable, reason, bestRes] = prior && prior.ref_window === refWindow &&
+          prior.cut_index_in_window === cutSiteIndexFixed
+        ? [true, 'ok', prior.result] as const
+        : isReadUsable(seq, qual, refWindow, phredThreshold, sgrnaSeq, cutSiteIndexFixed);
 
       if (!usable) {
         if (reason === 'quality') counts['fail_quality']++;
@@ -559,7 +569,8 @@ export function runMultiReferenceAnalysis(
     const geneReadsData: Array<[string, QualityScores | null]> = assignedReadsInfo.map(r => [r.seq, r.qual]);
     const assignedCount = geneReadsData.length;
 
-    const rawAnalysis = runAnalysisOnReads(geneReadsData, targets, phredThreshold, indelThreshold);
+    const rawAnalysis = runAnalysisOnReads(geneReadsData, targets, phredThreshold, indelThreshold,
+      assignedReadsInfo.map(r => r.validated_windows));
 
     const geneEntry: GeneResult = {
       gene: genePayload.display_gene || geneName,

@@ -2,8 +2,62 @@ import { describe, it, expect } from 'vitest';
 import { processFile, buildFinalPayload } from '../analysis-pipeline';
 import { FastqRead } from '../fastq-parser';
 import { GenePayload } from '../multi-reference-assigner';
+import { windowEndpointRegression } from './fixtures/window-endpoint-regression';
+import { windowCompetitionRegression } from './fixtures/window-competition-regression';
 
 describe('Analysis Pipeline End-to-End', () => {
+  it('keeps verified competition repairs and ambiguous crop ties through the production pipeline', () => {
+    const genes:GenePayload[]=Object.entries(windowEndpointRegression.references).map(([gene,r])=>({
+      gene,sequence:r.sequence,targets:[{target_id:'gRNA2',sgrna_seq:r.guide,window_size:90}]
+    }));
+    for (const read of windowCompetitionRegression) {
+      const result=processFile('competition-regression',[{seq:read.sequence,qual:Array.from(read.quality,c=>c.charCodeAt(0)-33)}],
+        structuredClone(genes),{phredThreshold:20,indelThreshold:0,marginThreshold:.02,windowSize:90,cutSiteExclusionFlank:0})
+        .multi_reference_result;
+      if (read.expected==='ambiguous') {
+        expect(result.ambiguous_read_count).toBe(1);
+        expect(result.genes.every(g=>g.assigned_read_count===0)).toBe(true);
+      } else {
+        const winner=result.genes.find(g=>g.gene===read.expected)!;
+        expect(winner.assigned_read_count).toBe(1);
+        expect(winner.analysis_result.targets[0].summary.aligned_reads).toBe(1);
+      }
+    }
+  });
+  it('annotates a projected partial homoeolog window without losing its recovered assignment', () => {
+    const guide = 'GATTACAGTCGATCGTACGA';
+    const core = 'ACGTTGCACTGATCG'+'CGGATCCGTA'+guide+'AGTCCGATCA'+'TGCATGACCTAGTCA';
+    const change = (seq:string,indices:number[]) => seq.split('').map((b,i)=>indices.includes(i)?(b==='A'?'C':'A'):b).join('');
+    const read = change(core,[32]);
+    const genes:GenePayload[] = [
+      {gene:'A',sequence:'G'.repeat(23)+core+'T'.repeat(23),targets:[{target_id:'g',sgrna_seq:guide,window_size:1000}]},
+      {gene:'B',sequence:change(core,[16,18,21,23]),targets:[{target_id:'g',sgrna_seq:guide,window_size:1000}]},
+    ];
+    const result=processFile('projected',[{seq:read,qual:new Array(read.length).fill(40)}],genes,
+      {phredThreshold:20,indelThreshold:0,marginThreshold:.01,windowSize:1000}).multi_reference_result;
+    const a=result.genes.find(g=>g.gene==='A')!;
+    expect(a.assigned_read_count).toBe(1);
+    expect(a.analysis_result.targets[0].summary.aligned_reads).toBe(1);
+    expect(result.genes.find(g=>g.gene==='B')!.assigned_read_count).toBe(0);
+  });
+  it('retains a recovered homoeolog window through downstream annotation without polluting single-reference eligibility', () => {
+    const guide = 'GATTACAGTCGATCGTACGA';
+    const reference = 'ACGTTGCACTGATCG'+'CGGATCCGTA'+guide+'AGTCCGATCA'+'TGCATGACCTAGTCA';
+    const changed = (indices:number[]) => reference.split('').map((b,i) =>
+      indices.includes(i) ? (b==='A'?'C':'A') : b).join('');
+    const read = changed([2,32,reference.length-3]);
+    const genes:GenePayload[] = [
+      {gene:'A',sequence:reference,targets:[{target_id:'g',sgrna_seq:guide,window_size:140}]},
+      {gene:'B',sequence:changed([2,16,18,21,23,reference.length-3]),targets:[{target_id:'g',sgrna_seq:guide,window_size:140}]},
+    ];
+    const params={phredThreshold:20,indelThreshold:0,marginThreshold:.01,windowSize:140};
+    const result=processFile('recovered',[{seq:read,qual:new Array(read.length).fill(40)}],genes,params);
+    const gene=result.multi_reference_result.genes.find(g=>g.gene==='A')!;
+    expect(gene.assigned_read_count).toBe(1);
+    expect(gene.analysis_result.targets[0].summary.aligned_reads).toBe(1);
+    const single=processFile('single',[{seq:read,qual:new Array(read.length).fill(40)}],[genes[0]],params);
+    expect(single.multi_reference_result.genes[0].assigned_read_count).toBe(0);
+  });
   it('should run a complete local analysis on a set of mock reads', () => {
     // 100 bp references
     const refA = 'ATCG'.repeat(25);
