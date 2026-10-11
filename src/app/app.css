@@ -358,7 +358,7 @@
   box-shadow: none;
 }
 
-.analysis-page .custom-window-row { display: flex; align-items: center; gap: 16px; min-height: 38px; }
+.analysis-page .custom-window-row { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; min-height: 38px; }
 .analysis-page .custom-window-toggle { display: inline-flex; align-items: center; gap: 8px; color: var(--color-primary-hover); font-weight: 700; white-space: nowrap; cursor: pointer; }
 .analysis-page .custom-window-toggle input { width: 16px; height: 16px; accent-color: var(--color-primary); }
 .analysis-page .custom-window-inputs { display: flex; align-items: center; gap: 12px; }

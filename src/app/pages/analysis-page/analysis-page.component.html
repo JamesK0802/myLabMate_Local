@@ -170,7 +170,10 @@
             <label>Left: <input type="number" min="0" formControlName="customWindowLeft" class="form-control" /> bp</label>
             <label>Right: <input type="number" min="0" formControlName="customWindowRight" class="form-control" /> bp</label>
           </div>
+          <button type="button" class="btn-reference-scope" (click)="coverFullReference()"
+            title="Calculate left/right lengths from each cut site to cover every configured reference">Cover full ref</button>
         </div>
+        <p *ngIf="fullRefWindowError" role="alert">{{ fullRefWindowError }}</p>
         <section class="similar-window-card">
           <div class="similar-window-header">
             <h4>Similar Window Setting</h4>

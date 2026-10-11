@@ -544,6 +544,41 @@ export class AnalysisPageComponent implements OnInit, OnDestroy {
     };
   }
 
+  fullRefWindowError = '';
+
+  coverFullReference() {
+    this.fullRefWindowError = '';
+    const currentGenes = this.state.analysisForm.get('genes')?.value || [];
+    const configs = [currentGenes, ...Object.entries(this.state.referenceConfigs)
+      .filter(([key]) => key !== this.state.activeReferenceKey).map(([, genes]) => genes)];
+    let left = 0, right = 0, targets = 0;
+    for (const genes of configs) {
+      for (const gene of genes) {
+        const reference = String(gene.gene_reference || '').replace(/\s+/g, '').toUpperCase();
+        for (const target of gene.geneTargets || []) {
+          const guide = String(target.gRNA || '').replace(/\s+/g, '').toUpperCase();
+          if (!reference || !guide) continue;
+          const match = this.homoeologMode ? findHomoeologGuideSite(reference, guide) : undefined;
+          const exact = match ? undefined : findGrnaCutSite(reference, guide);
+          const cut = match ? match.cutSite : exact!.cut_site;
+          const guideStart = match ? match.grnaStart : exact!.grna_start;
+          if (guideStart < 0 || cut < 0 || cut > reference.length) {
+            this.fullRefWindowError = 'Cannot locate a cut site. Check each reference and gRNA first.';
+            return;
+          }
+          left = Math.max(left, cut);
+          right = Math.max(right, reference.length - cut);
+          targets++;
+        }
+      }
+    }
+    if (!targets) {
+      this.fullRefWindowError = 'Add a reference and gRNA first.';
+      return;
+    }
+    this.state.analysisForm.patchValue({ customWindowEnabled: true, customWindowLeft: left, customWindowRight: right });
+  }
+
   recalculateWindowCheck() {
     if (this.windowCheckTimer) clearTimeout(this.windowCheckTimer);
     const revision = ++this.windowCheckRevision;
